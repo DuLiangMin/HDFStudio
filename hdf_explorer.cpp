@@ -71,7 +71,7 @@ int main(int argc, char *argv[])
 {
   Q_INIT_RESOURCE(hdf_explorer);
   QApplication app(argc, argv);
-  QCoreApplication::setApplicationVersion("0.10.25");
+  QCoreApplication::setApplicationVersion("0.10.26");
   QCoreApplication::setApplicationName(app_name);
 #if QT_VERSION >= 0x050000
   QCommandLineParser parser;
@@ -130,6 +130,8 @@ int main(int argc, char *argv[])
       QFile json(output+".json"); if(!json.open(QIODevice::WriteOnly)) return 8;
       return json.write(QJsonDocument(report).toJson())<0 ? 9 : 0;
     }
+    // Interactive start: every file named on the command line is opened, not only the first.
+    for(int i=1;i<args.size();++i) window.read_file(args.at(i));
   }
 #endif
   // Hold the splash for the remaining minimum time before the main window covers it, so the
@@ -408,6 +410,22 @@ MainWindow::MainWindow()
   connect(m_action_open, SIGNAL(triggered()), this, SLOT(open_file()));
 
   ///////////////////////////////////////////////////////////////////////////////////////
+  //close file (the file of the selected tree node) and close all files
+  ///////////////////////////////////////////////////////////////////////////////////////
+
+  m_action_close_file = new QAction(tr("&Close File"), this);
+  m_action_close_file->setObjectName("actionCloseFile");
+  // Qt's standard Close key: Ctrl+F4 first and Ctrl+W as the alternative on Windows.
+  m_action_close_file->setShortcuts(QKeySequence::keyBindings(QKeySequence::Close));
+  m_action_close_file->setStatusTip(tr("Close the file of the selected tree node and its views"));
+  connect(m_action_close_file, &QAction::triggered, this, &MainWindow::close_current_file);
+
+  m_action_close_all_files = new QAction(tr("Close All F&iles"), this);
+  m_action_close_all_files->setObjectName("actionCloseAllFiles");
+  m_action_close_all_files->setStatusTip(tr("Close every open file and all views"));
+  connect(m_action_close_all_files, &QAction::triggered, this, &MainWindow::close_all_files);
+
+  ///////////////////////////////////////////////////////////////////////////////////////
   //exit
   ///////////////////////////////////////////////////////////////////////////////////////
 
@@ -420,8 +438,8 @@ MainWindow::MainWindow()
   //windows
   ///////////////////////////////////////////////////////////////////////////////////////
 
-  m_action_close_all = new QAction(tr("Close &All"), this);
-  m_action_close_all->setStatusTip(tr("Close all the windows"));
+  m_action_close_all = new QAction(tr("Close All &Views"), this);
+  m_action_close_all->setStatusTip(tr("Close all the view windows (files stay open)"));
   connect(m_action_close_all, SIGNAL(triggered()), m_mdi_area, SLOT(closeAllSubWindows()));
 
   m_action_tile = new QAction(tr("&Tile"), this);
@@ -453,6 +471,9 @@ MainWindow::MainWindow()
 
   m_menu_file = menuBar()->addMenu(tr("&File"));
   m_menu_file->addAction(m_action_open);
+  m_menu_file->addAction(m_action_close_file);
+  m_menu_file->addAction(m_action_close_all_files);
+  connect(m_menu_file, &QMenu::aboutToShow, this, &MainWindow::update_close_actions);
   m_action_separator_recent = m_menu_file->addSeparator();
   for(int i = 0; i < max_recent_files; ++i)
   {
@@ -503,6 +524,7 @@ MainWindow::MainWindow()
   ///////////////////////////////////////////////////////////////////////////////////////
 
   setWindowIcon(m_icon_main);
+  update_close_actions();
 }
 
 void MainWindow::show_cf_diagnostics() {
@@ -630,7 +652,7 @@ void MainWindow::about()
 {
   QMessageBox::about(this,
     tr("About HDFStudio"),
-    tr("HDFStudio 0.10.25\nAuthor: DuLiangMin\n\n"
+    tr("HDFStudio 0.10.26\nAuthor: DuLiangMin\n\n"
        "Metadata convention target: CF-1.8\n"
        "Product libraries: netCDF-C 4.9.3, HDF5 1.8.20\n\n"
        "Reference environment: Python 3.12.10, netCDF4-python 1.7.5.1.post1\n"
@@ -731,6 +753,90 @@ void MainWindow::open_file()
     return;
 
   read_file(file_name);
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+//close file
+//Order matters: views are deleted first (a grid keeps a pointer into its ItemData), then the
+//ItemData objects, then the tree nodes. Python report jobs are killed because they hold the file open.
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+
+static void collect_item_data(QTreeWidgetItem *item, std::vector<ItemData*> &out)
+{
+  if(ItemData *item_data = get_item_data(item)) out.push_back(item_data);
+  for(int i = 0; i < item->childCount(); ++i) collect_item_data(item->child(i), out);
+}
+
+void MainWindow::tag_view(QMdiSubWindow *sub, const ItemData *source)
+{
+  sub->setProperty("sourceItem", QVariant::fromValue(reinterpret_cast<quintptr>(source)));
+}
+
+void MainWindow::update_close_actions()
+{
+  const bool has_file = m_tree->topLevelItemCount() > 0;
+  m_action_close_file->setEnabled(has_file);
+  m_action_close_all_files->setEnabled(has_file);
+}
+
+void MainWindow::close_current_file()
+{
+  QTreeWidgetItem *item = m_tree->currentItem();
+  if(!item && m_tree->topLevelItemCount() > 0) item = m_tree->topLevelItem(m_tree->topLevelItemCount() - 1);
+  if(!item) { statusBar()->showMessage(tr("No file opened.")); return; }
+  close_file_of(item);
+}
+
+void MainWindow::close_all_files()
+{
+  while(m_tree->topLevelItemCount() > 0) close_file_of(m_tree->topLevelItem(0));
+}
+
+void MainWindow::close_file_of(QTreeWidgetItem *item)
+{
+  if(!item) return;
+  QTreeWidgetItem *root = item;
+  while(root->parent()) root = root->parent();
+
+  std::vector<ItemData*> owned;
+  collect_item_data(root, owned);
+  const QString closed_name = root->text(0);
+
+  const auto views = m_mdi_area->subWindowList();
+  for(QMdiSubWindow *sub : views) {
+    const quintptr source = sub->property("sourceItem").value<quintptr>();
+    for(ItemData *item_data : owned) {
+      if(reinterpret_cast<quintptr>(item_data) == source) {
+        sub->setAttribute(Qt::WA_DeleteOnClose, false);
+        delete sub;
+        break;
+      }
+    }
+  }
+
+  delete m_tree->takeTopLevelItem(m_tree->indexOfTopLevelItem(root));
+  for(ItemData *item_data : owned) delete item_data;
+
+  if(m_tree->topLevelItemCount() == 0) {
+    m_str_current_file.clear();
+    for(auto *page : {m_file_info_text, m_netcdf4_text, m_cf_check_text}) {
+      if(auto *job = page->findChild<QProcess*>()) { job->disconnect(page); job->kill(); job->deleteLater(); }
+      page->setProperty("pending", false);
+      page->setPlainText(tr("No file opened."));
+    }
+    m_file_info_text->setToolTip(QString());
+    statusBar()->showMessage(tr("Closed %1").arg(closed_name));
+  } else {
+    QTreeWidgetItem *last = m_tree->topLevelItem(m_tree->topLevelItemCount() - 1);
+    m_tree->setCurrentItem(last);
+    const ItemData *last_data = get_item_data(last);
+    if(last_data) {
+      m_str_current_file = QString::fromLocal8Bit(last_data->m_file_name.c_str());
+      update_file_info(m_str_current_file);
+    }
+    statusBar()->showMessage(tr("Closed %1").arg(closed_name));
+  }
+  update_close_actions();
 }
 
 void MainWindow::dragEnterEvent(QDragEnterEvent *event)
@@ -910,6 +1016,7 @@ int MainWindow::read_file(QString file_name)
     root_item->setText(0, name + "  [" + cf + "]");
     statusBar()->showMessage(cf);
   } else statusBar()->showMessage(file_name);
+  update_close_actions();
   return 0;
 }
 
@@ -1724,7 +1831,7 @@ void FileTreeWidget::show_context_menu(const QPoint &p)
     }
     auto *view=new VectorView(file,uPath,vPath,item_data->m_dataset->m_dim);
     auto *sub=m_main_window->m_mdi_area->addSubWindow(view);
-    sub->setAttribute(Qt::WA_DeleteOnClose); sub->resize(720,510); sub->show();
+    sub->setAttribute(Qt::WA_DeleteOnClose); m_main_window->tag_view(sub,item_data); sub->resize(720,510); sub->show();
   });
   QAction *action_mesh=menu.addAction(tr("View mesh..."));
   action_mesh->setEnabled(variable && numeric &&
@@ -1733,12 +1840,12 @@ void FileTreeWidget::show_context_menu(const QPoint &p)
   connect(action_mesh,&QAction::triggered,this,[this,item_data]{
     auto *view=new MeshView(QString::fromLocal8Bit(item_data->m_file_name.c_str()),item_data->m_dataset->m_path);
     auto *sub=m_main_window->m_mdi_area->addSubWindow(view);
-    sub->setAttribute(Qt::WA_DeleteOnClose);sub->resize(760,560);sub->show();
+    sub->setAttribute(Qt::WA_DeleteOnClose);m_main_window->tag_view(sub,item_data);sub->resize(760,560);sub->show();
   });
   menu.addAction(tr("Dump..."))->setEnabled(false);
 
   menu.addSeparator();
-  QAction *action_close = menu.addAction(tr("Close"));
+  QAction *action_close = menu.addAction(tr("Close View"));
   action_close->setEnabled(m_main_window && m_main_window->m_mdi_area->activeSubWindow());
   connect(action_close, &QAction::triggered, this, [this]() {
     if(m_main_window && m_main_window->m_mdi_area->activeSubWindow())
@@ -1748,6 +1855,12 @@ void FileTreeWidget::show_context_menu(const QPoint &p)
   action_close_all->setEnabled(m_main_window && !m_main_window->m_mdi_area->subWindowList().isEmpty());
   connect(action_close_all, &QAction::triggered, this, [this]() {
     if(m_main_window) m_main_window->m_mdi_area->closeAllSubWindows();
+  });
+  menu.addSeparator();
+  QAction *action_close_file = menu.addAction(tr("Close File"));
+  action_close_file->setEnabled(m_main_window != nullptr);
+  connect(action_close_file, &QAction::triggered, this, [this, item]() {
+    if(m_main_window) m_main_window->close_file_of(item);
   });
   menu.exec(QCursor::pos());
 }
@@ -2391,7 +2504,9 @@ private:
 void MainWindow::add_table(ItemData *item_data)
 {
   ChildWindowTable *window = new ChildWindowTable(this, item_data);
-  m_mdi_area->addSubWindow(window);
+  QMdiSubWindow *sub = m_mdi_area->addSubWindow(window);
+  sub->setAttribute(Qt::WA_DeleteOnClose);
+  tag_view(sub, item_data);
   window->show();
 }
 
@@ -2404,6 +2519,7 @@ void MainWindow::add_image(ItemData *item)
   auto view = new RasterView(item->m_file_name, item->m_dataset->m_path, item->m_dataset->m_dim);
   auto sub = m_mdi_area->addSubWindow(view);
   sub->setAttribute(Qt::WA_DeleteOnClose);
+  tag_view(sub, item);
   sub->resize(720, 510);
   sub->show();
 }

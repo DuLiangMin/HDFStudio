@@ -68,6 +68,10 @@ public:
   void add_image(ItemData *item_data);
   void export_image(ItemData *item_data, QWidget *parent);
   int read_file(QString file_name);
+  // Closes the file that owns `item` (any node below a top-level tree root): its views are
+  // destroyed first, then the tree nodes and their ItemData, then the info panels are refreshed.
+  void close_file_of(QTreeWidgetItem *item);
+  void close_all_files();
   bool accepts_file_drop(const QMimeData *mime_data) const;
   void handle_file_drop(const QMimeData *mime_data, QDropEvent *event);
 protected:
@@ -79,6 +83,7 @@ protected:
   private slots:
   void open_recent_file();
   void open_file();
+  void close_current_file();
   void about();
   void show_cf_diagnostics();
   void update_file_info(const QString &file_name);
@@ -109,6 +114,8 @@ private:
   ///////////////////////////////////////////////////////////////////////////////////////
 
   QAction *m_action_open;
+  QAction *m_action_close_file;
+  QAction *m_action_close_all_files;
   QAction *m_action_exit;
   QAction *m_action_about;
   QAction *m_action_tile;
@@ -135,6 +142,9 @@ private:
   QStringList m_sl_recent_files;
   QString m_str_current_file;
   void update_recent_file_actions();
+  void update_close_actions();
+  // A view remembers which tree item produced it, so closing a file can find exactly its views.
+  void tag_view(QMdiSubWindow *sub, const ItemData *source);
   void set_current_file(const QString &file_name);
   void closeEvent(QCloseEvent *eve);
 

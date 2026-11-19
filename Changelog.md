@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.26 - 2026-11-20
+
+- Added Close File / Close All Files (File menu, Ctrl+F4 and Ctrl+W) and a tree context-menu Close File; `Close` renamed `Close View`. Views of a closed file are destroyed first, then tree nodes and data; the info tabs return to `No file opened.` after the last file.
+- Command-line start opens every listed file.
+- Regression `closeFileRemovesItsViewsAndReleasesTheFile` (two files, grid and image views, `QFile::remove` after close, Close All). Real-mouse desktop check passed.
+- README rewritten with screenshot, badges, comparison table and roadmap.
+- Validation: Debug/Release QtTest 29/29, CTest 1/1. Reports: `logs/S4-UI-CloseFile/`.
+
 ## 0.10.25 - 2026-11-20
 
 - Startup waiting box slogan changed to "HDFStudio / Unleash Your NetCDF Power."; the splash regression now compares the exact text.

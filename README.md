@@ -2,20 +2,53 @@
 
 **Unleash Your NetCDF Power.**
 
+[![Release](https://img.shields.io/github/v/release/DuLiangMin/HDFStudio?label=release&color=3d99a4)](https://github.com/DuLiangMin/HDFStudio/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/DuLiangMin/HDFStudio/total?color=3d99a4)](https://github.com/DuLiangMin/HDFStudio/releases)
+[![License: GPL v3](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-lightgrey)](#-download-and-run)
+[![Qt](https://img.shields.io/badge/Qt-6.8-41cd52)](https://www.qt.io/)
+
 HDFStudio is a free, open-source desktop **NetCDF viewer** and **HDF5 browser** for Windows, built for
 meteorology, climate and earth-science work. Open a `.nc`, `.nc4`, `.h5` or `.hdf5` file, browse
 groups, variables and attributes, read values in a table, view 2-D slices as images, decode time
 coordinates into real dates, and check CF metadata conventions, all without writing code.
 
-Version: 0.10.25 · License: GPL-3.0 · Platform: Windows 10/11 x64
+![HDFStudio showing two NetCDF files, two image views with different color palettes, and the file information panel](docs/screenshot-main.png)
+
+*Two NetCDF files open side by side: 2-metre temperature rendered with the Viridis and Turbo palettes,
+the dataset tree on the left, and the File Info / By NetCDF4 / CF Check panel at the bottom.*
+
+## 🤔 Why HDFStudio?
+
+You have a `.nc` file from a model, a satellite product or a colleague, and you need to know **what is
+really inside** before you trust it. Typical questions:
+
+- Is `time` in seconds or days, and since when? Which calendar?
+- Does latitude run south→north or north→south? Is longitude 0–360 or −180–180?
+- Is this file CF compliant, or will my plotting library flip the map?
+
+HDFStudio answers these in seconds, with no Python session, no notebook and no installation of a
+scientific stack. It is a small, portable program (about 14 MB) that opens a file and shows you the facts.
+
+| | HDFStudio | Panoply | ncview | HDFView |
+|---|---|---|---|---|
+| Windows native, portable zip | ✅ | Java required | ❌ | Java required |
+| NetCDF **and** HDF5 | ✅ | ✅ | NetCDF | ✅ |
+| Time decoded with the file's own calendar | ✅ (`noleap`, `standard`, …) | ✅ | ❌ | ❌ |
+| Latitude / longitude orientation report | ✅ | ❌ | ❌ | ❌ |
+| CF-1.8 compliance check built in | ✅ | ❌ | ❌ | ❌ |
+| Map projections and coastlines | ❌ not yet | ✅ | ❌ | ❌ |
+
+*Comparison reflects the author's understanding; check each tool's documentation for details.*
 
 ## ✨ Features
 
-- 📂 **Open NetCDF and HDF5 files**: NetCDF-3 (CDF-1, CDF-2, CDF-5), NetCDF-4 / NetCDF-4 classic, and HDF5 containers; drag and drop supported.
+- 📂 **Open NetCDF and HDF5 files**: NetCDF-3 (CDF-1, CDF-2, CDF-5), NetCDF-4 / NetCDF-4 classic, and HDF5 containers; open several files at once, drag and drop supported.
+- 🗂️ **Close files cleanly**: **File → Close File** (`Ctrl+F4` or `Ctrl+W`), **Close All Files**, or right-click any node → **Close File**. Views of a closed file close with it.
 - 🌳 **Dataset tree**: groups, dimensions, variables and attributes with type and shape details.
 - 🔢 **Data grid**: exact values in a table, with layer navigation for 3-D, 4-D and 5-D arrays.
-- 🗺️ **Image view**: 2-D slices with continuous and discrete color palettes, and latitude/longitude readout on hover for CF lat/lon grids.
-- ⏱️ **Time decoding**: `time` variables such as `seconds since 1970-01-01` or `days since 2024-10-01` are shown as `yyyymmdd` and `yyyymmdd hh:mm:ss`, using the file's own calendar (`standard`, `noleap`, …) via `netCDF4.num2date`.
+- 🗺️ **Image view**: 2-D slices with continuous and discrete color palettes (Viridis, Inferno, Turbo, …), and latitude/longitude readout on hover for CF lat/lon grids.
+- ⏱️ **Time decoding**: `time` variables such as `seconds since 1970-01-01` or `days since 2024-10-01` are shown as `yyyymmdd` and `yyyymmdd hh:mm:ss`, using the file's own calendar via `netCDF4.num2date`.
 - 🧭 **Coordinate orientation**: the By NetCDF4 tab reports whether latitude runs south→north or north→south and longitude west→east or east→west, a common source of flipped maps.
 - ✅ **CF Conventions check**: a CF-1.8 report from the IOOS Compliance Checker, plus built-in advisory CF metadata diagnostics.
 - 🌬️ **Vector view** for U/V wind or current components, and a preview of **UGRID** triangular meshes.
@@ -23,7 +56,7 @@ Version: 0.10.25 · License: GPL-3.0 · Platform: Windows 10/11 x64
 
 ## 📥 Download and run
 
-1. Download `HDFStudio-<version>-win64.zip` from the [Releases](../../releases) page.
+1. Download `HDFStudio-<version>-win64.zip` from the [Releases](https://github.com/DuLiangMin/HDFStudio/releases/latest) page.
 2. Unzip it anywhere and run `HDFStudio.exe`. No installer or admin rights needed. The Qt and Visual C++ runtimes are included.
 
 The tree, grid, image view and File Info tab work out of the box. The **By NetCDF4** tab, the **CF Check**
@@ -33,9 +66,10 @@ tab and time decoding use Python 3 on `PATH` (or set `HDFSTUDIO_PYTHON`):
 pip install netCDF4 numpy compliance-checker
 ```
 
-Command-line preview (no window):
+Open files from the command line, or run a window-less batch preview:
 
 ```
+HDFStudio.exe a.nc b.nc
 HDFStudio.exe --preview PRECT --layer 0 --png out.png data.nc
 ```
 
@@ -50,13 +84,26 @@ and netCDF-C 4.9.3 headers in `ext/netcdf-c-4.9.3/include` with `netcdf.lib`/`ne
 
 HDFStudio is a viewer and checker; it never modifies input files. CF diagnostics are advisory and not a
 conformance certification. Map projections and arbitrary unstructured meshes are not supported yet.
+Very large variables are read whole into memory today; chunked and sliced reading is on the roadmap.
 See `FORMAT_CAPABILITY.md` for the verified format boundary.
+
+## 🗺️ Roadmap
+
+- Sliced and chunked reading for multi-gigabyte variables
+- Map projections and coastline overlay
+- More time-axis and calendar checks (bounds, irregular steps)
+- Linux and macOS builds
+
+Ideas and bug reports are welcome in [Issues](https://github.com/DuLiangMin/HDFStudio/issues). If a file
+opens wrongly, please attach the output of `ncdump -h file.nc` (header only, no data).
 
 ## 🙏 Credits and license
 
 Author: DuLiangMin. HDFStudio is derived from [HDF Explorer QT Edition](https://github.com/pedro-vicente/hdf_explorer_qt)
 by Pedro Vicente (2016) and is released under the GNU GPL v3 (`LICENSE`). Bundled third-party components
 (Qt 6.8 LGPL-3.0, netCDF-C 4.9.3, HDF5 1.8.20, zlib) are listed in `THIRD_PARTY_NOTICES.md`.
+
+If HDFStudio saves you time, a ⭐ on the repository helps other researchers find it.
 
 ## 🔎 Keywords
 

@@ -43,6 +43,7 @@ private slots:
   void informationTabsExposeNetcdf4StructureAndCfVerdict();
   void startupSplashIsPlainVisibleWidgetNotQSplashScreen();
   void timeGridShowsDecodedDatesBesideRawValues();
+  void closeFileRemovesItsViewsAndReleasesTheFile();
 };
 
 void DropTargetsTest::acceptsExistingLocalFile() {
@@ -694,6 +695,85 @@ void DropTargetsTest::timeGridShowsDecodedDatesBesideRawValues() {
       out.write(QString("%1\t%2\t%3\n").arg(model->data(model->index(row,0)).toString(),
           model->data(model->index(row,1)).toString(),model->data(model->index(row,2)).toString()).toUtf8());
   }
+}
+
+// Two copies of the business sample are opened with a grid and an image view each. Closing one
+// file must remove only its tree root and views, leave the other file working, and release the
+// file on disk: on Windows QFile::remove() fails while any handle to the file is still open.
+void DropTargetsTest::closeFileRemovesItsViewsAndReleasesTheFile() {
+  const QString sample=QDir(QCoreApplication::applicationDirPath())
+      .absoluteFilePath("../../../../daily_bcccsm_2024100100_PRECT_clip.nc");
+  QVERIFY2(QFileInfo(sample).isFile(),qPrintable(sample));
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString first=dir.filePath("first_copy.nc"),second=dir.filePath("second_copy.nc");
+  QVERIFY(QFile::copy(sample,first));
+  QVERIFY(QFile::copy(sample,second));
+
+  MainWindow window;
+  auto *tree=window.findChild<FileTreeWidget*>();
+  auto *mdi=window.findChild<QMdiArea*>();
+  auto *close_file=window.findChild<QAction*>("actionCloseFile");
+  auto *close_all=window.findChild<QAction*>("actionCloseAllFiles");
+  QVERIFY(tree);QVERIFY(mdi);QVERIFY(close_file);QVERIFY(close_all);
+  QVERIFY(!close_file->isEnabled());
+  QVERIFY(!close_all->isEnabled());
+  QVERIFY(close_file->shortcuts().contains(QKeySequence("Ctrl+W")));
+  QVERIFY(close_file->shortcuts().contains(QKeySequence("Ctrl+F4")));
+
+  QCOMPARE(window.read_file(first),0);
+  QCOMPARE(window.read_file(second),0);
+  QCOMPARE(tree->topLevelItemCount(),2);
+  QVERIFY(close_file->isEnabled());
+
+  auto child_named=[](QTreeWidgetItem *root,const QString &name) -> QTreeWidgetItem* {
+    for(int i=0;i<root->childCount();i++)
+      if(root->child(i)->text(0)==name) return root->child(i);
+    return nullptr;
+  };
+  QTreeWidgetItem *first_root=tree->topLevelItem(0),*second_root=tree->topLevelItem(1);
+  QTreeWidgetItem *first_prect=child_named(first_root,"PRECT"),*first_time=child_named(first_root,"time");
+  QTreeWidgetItem *second_prect=child_named(second_root,"PRECT");
+  QVERIFY(first_prect);QVERIFY(first_time);QVERIFY(second_prect);
+  emit tree->itemDoubleClicked(first_prect,0);   // image view of the first file
+  QCOMPARE(mdi->subWindowList().size(),1);
+  tree->setCurrentItem(first_time);              // a real double-click selects the item first
+  emit tree->itemDoubleClicked(first_time,0);    // grid of the first file
+  QCOMPARE(mdi->subWindowList().size(),2);
+  emit tree->itemDoubleClicked(second_prect,0);  // image view of the second file
+  QCOMPARE(mdi->subWindowList().size(),3);
+
+  // Close the first file through its time node (any node below a root selects the file).
+  tree->setCurrentItem(first_time);
+  close_file->trigger();
+  QCOMPARE(tree->topLevelItemCount(),1);
+  QCOMPARE(mdi->subWindowList().size(),1);
+  auto *info=window.findChild<QPlainTextEdit*>("fileInfoText");
+  QVERIFY(info);
+  QVERIFY2(info->toPlainText().contains("second_copy.nc"),qPrintable(info->toPlainText()));
+  QVERIFY2(QFile::remove(first),"first file is still held open after Close File");
+  QVERIFY(QFileInfo(second).exists());
+
+  // Last file: panels return to their empty state and both actions are disabled again.
+  close_file->trigger();
+  QCOMPARE(tree->topLevelItemCount(),0);
+  QCOMPARE(mdi->subWindowList().size(),0);
+  QCOMPARE(info->toPlainText(),QString("No file opened."));
+  QVERIFY(!close_file->isEnabled());
+  QVERIFY(!close_all->isEnabled());
+  QVERIFY2(QFile::remove(second),"second file is still held open after Close File");
+
+  // Close All Files after reopening: nothing is left behind.
+  QVERIFY(QFile::copy(sample,first));
+  QVERIFY(QFile::copy(sample,second));
+  QCOMPARE(window.read_file(first),0);
+  QCOMPARE(window.read_file(second),0);
+  emit tree->itemDoubleClicked(child_named(tree->topLevelItem(0),"PRECT"),0);
+  close_all->trigger();
+  QCOMPARE(tree->topLevelItemCount(),0);
+  QCOMPARE(mdi->subWindowList().size(),0);
+  QVERIFY(QFile::remove(first));
+  QVERIFY(QFile::remove(second));
 }
 
 QTEST_MAIN(DropTargetsTest)
