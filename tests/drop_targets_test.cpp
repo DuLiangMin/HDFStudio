@@ -51,6 +51,7 @@ private slots:
   void classicNetcdfOpensFromChinesePath();
   void layerStepTargetMatchesOldHdfExplorerButtons();
   void mainToolbarStepsLayersOfTheCurrentView();
+  void propertiesDialogCopiesReportAndWindowMenuListsViews();
 };
 
 void DropTargetsTest::acceptsExistingLocalFile() {
@@ -836,8 +837,13 @@ static void write_classic_fixture(const QString &file, int mode) {
 
 // A modal warning (the 0.10.26 behaviour for these files) would hang the test run, so any modal
 // widget is closed by a watchdog and the missing tree then fails the assertions instead.
+// A QInputDialog is left alone: when no warning appears the watchdog is still pending later in the
+// test and used to close the Go to Layer dialog before the test answered it (intermittent failure).
 static void close_modal_dialogs_later() {
-  QTimer::singleShot(1500,[]{ if(QWidget *modal=QApplication::activeModalWidget()) modal->close(); });
+  QTimer::singleShot(1500,[]{
+    QWidget *modal=QApplication::activeModalWidget();
+    if(modal && !qobject_cast<QInputDialog*>(modal)) modal->close();
+  });
 }
 
 void DropTargetsTest::classicNetcdfOpensWithTreeGridImagePropertiesAndExport() {
@@ -1176,6 +1182,117 @@ void DropTargetsTest::mainToolbarStepsLayersOfTheCurrentView() {
   QVERIFY(!next->isEnabled());QVERIFY(!axisCombo->isEnabled());
   mdi->closeAllSubWindows();
   QTRY_COMPARE(label->text(),QString("No layers"));
+  window.close_all_files();
+}
+
+// Properties dialog: selectable text, Copy All puts the whole report (file, object, CF lines) on the
+// clipboard. Window menu: Cascade/Tile/Close All Views and one numbered entry per view that activates it.
+void DropTargetsTest::propertiesDialogCopiesReportAndWindowMenuListsViews() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString file=dir.filePath("props.nc");
+  write_classic_fixture(file,NC_CLOBBER);
+
+  MainWindow window;
+  window.resize(1200,800);
+  window.show();
+  QVERIFY(QTest::qWaitForWindowExposed(&window));
+  auto *tree=window.findChild<FileTreeWidget*>();
+  auto *mdi=window.findChild<QMdiArea*>();
+  QVERIFY(tree);QVERIFY(mdi);
+  close_modal_dialogs_later();
+  QCOMPARE(window.read_file(file),0);
+  QTreeWidgetItem *root=tree->topLevelItem(0);
+  auto child_named=[root](const QString &name) -> QTreeWidgetItem* {
+    for(int i=0;i<root->childCount();i++) if(root->child(i)->text(0)==name) return root->child(i);
+    return nullptr;
+  };
+
+  // --- Properties ---
+  tree->setCurrentItem(child_named("ttr"));
+  QVERIFY(QMetaObject::invokeMethod(tree,"show_item_properties"));
+  auto *dialog=window.findChild<QDialog*>("propertiesDialog");
+  QVERIFY(dialog);
+  QTRY_VERIFY(dialog->isVisible());
+  QVERIFY(!dialog->isModal());
+  auto *text=dialog->findChild<QPlainTextEdit*>("propertiesText");
+  auto *copy=dialog->findChild<QPushButton*>("propertiesCopyAll");
+  auto *copied=dialog->findChild<QLabel*>("propertiesCopied");
+  QVERIFY(text);QVERIFY(copy);QVERIFY(copied);
+  QVERIFY(text->isReadOnly());
+  QVERIFY(text->textInteractionFlags() & Qt::TextSelectableByMouse);
+  const QStringList lines=text->toPlainText().split('\n');
+  QVERIFY(lines.at(0).startsWith("HDFStudio "));
+  QCOMPARE(lines.at(1),QString("File: ")+QDir::toNativeSeparators(file));
+  QCOMPARE(lines.at(2),QString("Object: /ttr"));
+  QVERIFY(lines.contains("Name: ttr"));
+  QVERIFY(lines.contains("Dimensions: ttr(time, lev, lat, lon)"));
+  // same detail lines as hdf_cli props
+  for(const QString &line:HdfProperties::describe(HdfProperties::inspect(file,"/ttr")))
+    QVERIFY2(lines.contains(line),qPrintable(line));
+  QApplication::clipboard()->clear();
+  QTest::mouseClick(copy,Qt::LeftButton);
+  QCOMPARE(QApplication::clipboard()->text(),text->toPlainText());
+  QCOMPARE(copied->text(),QString("Copied %1 lines to the clipboard.").arg(lines.size()));
+  dialog->close();
+  QTRY_VERIFY(!window.findChild<QDialog*>("propertiesDialog"));
+
+  // file root: Object is "/"
+  QCOMPARE(tree->item_properties_text(root).split('\n').at(2),QString("Object: /"));
+
+  // --- Window menu ---
+  QMenu *windowMenu=nullptr;
+  for(QAction *menuAction:window.menuBar()->actions())
+    if(menuAction->text()=="&Window") windowMenu=menuAction->menu();
+  QVERIFY(windowMenu);
+  auto refresh=[&window]{ QVERIFY(QMetaObject::invokeMethod(&window,"update_window_menu")); };
+  auto *cascade=window.findChild<QAction*>("actionCascade");
+  QVERIFY(cascade);
+  refresh();
+  QVERIFY(!cascade->isEnabled());
+  QCOMPARE(windowMenu->actions().size(),3);   // Cascade, Tile, Close All Views
+
+  for(const char *name:{"ttr","count","ttr"}) {
+    tree->setCurrentItem(child_named(name));
+    QVERIFY(QMetaObject::invokeMethod(tree,"add_grid"));
+  }
+  const QList<QMdiSubWindow*> views=mdi->subWindowList(QMdiArea::CreationOrder);
+  QCOMPARE(views.size(),3);
+  refresh();
+  QVERIFY(cascade->isEnabled());
+  QCOMPARE(windowMenu->actions().at(0),cascade);
+  QVERIFY(windowMenu->actions().at(3)->isSeparator());
+  for(int i=0;i<3;i++) {
+    QAction *entry=window.findChild<QAction*>(QString("actionWindow%1").arg(i+1));
+    QVERIFY(entry);
+    QCOMPARE(entry->text(),QString("&%1 %2").arg(i+1).arg(views.at(i)->windowTitle()));
+    QCOMPARE(entry->isChecked(),views.at(i)==mdi->currentSubWindow());
+  }
+  window.findChild<QAction*>("actionWindow1")->trigger();
+  QTRY_COMPARE(mdi->currentSubWindow(),views.at(0));
+  refresh();
+  QVERIFY(window.findChild<QAction*>("actionWindow1")->isChecked());
+
+  // Cascade: creation order, same 2/3 size for every view, offset down-right; the active view stays in front
+  views.at(1)->showMinimized();
+  mdi->setActiveSubWindow(views.at(0));
+  cascade->trigger();
+  const QRect area=mdi->viewport()->rect();
+  for(int i=0;i<3;i++) {
+    QVERIFY(!views.at(i)->isMinimized());
+    QCOMPARE(views.at(i)->width(),qMax(320,area.width()*2/3));
+    QCOMPARE(views.at(i)->height(),qMax(240,area.height()*2/3));
+    QVERIFY(area.contains(views.at(i)->geometry()));
+  }
+  QCOMPARE(views.at(0)->pos(),area.topLeft());
+  QVERIFY(views.at(1)->x()>views.at(0)->x() && views.at(1)->y()>views.at(0)->y());
+  QVERIFY(views.at(2)->x()>views.at(1)->x() && views.at(2)->y()>views.at(1)->y());
+  QCOMPARE(mdi->currentSubWindow(),views.at(0));
+  QCOMPARE(mdi->subWindowList(QMdiArea::StackingOrder).last(),views.at(0));
+
+  mdi->closeAllSubWindows();
+  refresh();
+  QCOMPARE(windowMenu->actions().size(),3);
   window.close_all_files();
 }
 

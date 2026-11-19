@@ -48,6 +48,9 @@ public:
   {
     m_main_window = p;
   }
+  // Plain-text Properties report of a tree item: file and object path first, then the same
+  // detail lines as `hdf_cli props`; shown in the Properties dialog and copied by Copy All.
+  QString item_properties_text(QTreeWidgetItem *item) const;
 
 private:
   MainWindow *m_main_window;
@@ -65,6 +68,9 @@ class MainWindow : public QMainWindow
   friend class FileTreeWidget;
 public:
   MainWindow();
+  // Child widgets are deleted after this destructor; the MDI area still emits subWindowActivated
+  // while its views close, so its connections to this window are cut here first.
+  ~MainWindow() override;
   void add_table(ItemData *item_data);
   void add_image(ItemData *item_data);
   void export_image(ItemData *item_data, QWidget *parent);
@@ -94,6 +100,11 @@ protected:
   // keeps the Layer toolbar in step with the current view (activation or its own selectors)
   void update_layer_controls();
   void watch_current_view(QMdiSubWindow *sub);
+  // Window menu: Cascade, Tile, Close All Views, then one numbered entry per open view
+  void update_window_menu();
+  // Windows MDI cascade: creation order, each view 2/3 of the area, offset by one title bar;
+  // QMdiArea::cascadeSubWindows() sizes views from their size hints and squashes the image view
+  void cascade_windows();
 
 public:
   // Steps the current view like the old HDF Explorer toolbar buttons (no-op without layers).
@@ -130,6 +141,7 @@ private:
   QAction *m_action_exit;
   QAction *m_action_about;
   QAction *m_action_tile;
+  QAction *m_action_cascade;
   QAction *m_action_close_all;
 
   ///////////////////////////////////////////////////////////////////////////////////////

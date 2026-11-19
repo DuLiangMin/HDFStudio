@@ -72,7 +72,7 @@ int main(int argc, char *argv[])
 {
   Q_INIT_RESOURCE(hdf_explorer);
   QApplication app(argc, argv);
-  QCoreApplication::setApplicationVersion("0.10.28");
+  QCoreApplication::setApplicationVersion("0.10.29");
   QCoreApplication::setApplicationName(app_name);
 #if QT_VERSION >= 0x050000
   QCommandLineParser parser;
@@ -542,8 +542,15 @@ MainWindow::MainWindow()
   connect(m_action_close_all, SIGNAL(triggered()), m_mdi_area, SLOT(closeAllSubWindows()));
 
   m_action_tile = new QAction(tr("&Tile"), this);
+  m_action_tile->setObjectName("actionTile");
   m_action_tile->setStatusTip(tr("Tile the windows"));
   connect(m_action_tile, SIGNAL(triggered()), m_mdi_area, SLOT(tileSubWindows()));
+
+  //old HDF Explorer Window menu: Cascade, Tile, Arrange Icons and the list of open windows
+  m_action_cascade = new QAction(tr("&Cascade"), this);
+  m_action_cascade->setObjectName("actionCascade");
+  m_action_cascade->setStatusTip(tr("Arrange the windows one behind the other, in order"));
+  connect(m_action_cascade, &QAction::triggered, this, &MainWindow::cascade_windows);
 
   ///////////////////////////////////////////////////////////////////////////////////////
   //about
@@ -652,8 +659,8 @@ MainWindow::MainWindow()
   m_menu_layer->addAction(m_action_layer_goto);
 
   m_menu_windows = menuBar()->addMenu(tr("&Window"));
-  m_menu_windows->addAction(m_action_tile);
-  m_menu_windows->addAction(m_action_close_all);
+  connect(m_menu_windows, &QMenu::aboutToShow, this, &MainWindow::update_window_menu);
+  update_window_menu();
 
   m_menu_help = menuBar()->addMenu(tr("&Help"));
   m_menu_help->addAction(m_action_about);
@@ -832,7 +839,7 @@ void MainWindow::about()
 {
   QMessageBox::about(this,
     tr("About HDFStudio"),
-    tr("HDFStudio 0.10.28\nAuthor: DuLiangMin\n\n"
+    tr("HDFStudio 0.10.29\nAuthor: DuLiangMin\n\n"
        "Metadata convention target: CF-1.8\n"
        "Product libraries: netCDF-C 4.9.3, HDF5 1.8.20\n\n"
        "Reference environment: Python 3.12.10, netCDF4-python 1.7.5.1.post1\n"
@@ -2167,8 +2174,49 @@ void FileTreeWidget::show_context_menu(const QPoint &p)
 void FileTreeWidget::show_item_properties()
 {
   QTreeWidgetItem *item = currentItem();
+  const QString report = item_properties_text(item);
+  if(report.isEmpty()) return;
+
+  //non-modal, so several objects can be compared; the text is selectable and Copy All puts the
+  //whole report on the clipboard, ready to paste into a search, an issue or an LLM prompt
+  QDialog *dialog = new QDialog(this);
+  dialog->setObjectName("propertiesDialog");
+  dialog->setAttribute(Qt::WA_DeleteOnClose);
+  dialog->setWindowTitle(tr("Properties - %1").arg(item->text(0)));
+  QPlainTextEdit *text = new QPlainTextEdit(report, dialog);
+  text->setObjectName("propertiesText");
+  text->setReadOnly(true);
+  text->setLineWrapMode(QPlainTextEdit::NoWrap);
+  text->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
+  text->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
+  QDialogButtonBox *buttons = new QDialogButtonBox(QDialogButtonBox::Close, dialog);
+  QPushButton *copy = buttons->addButton(tr("Copy All"), QDialogButtonBox::ActionRole);
+  copy->setObjectName("propertiesCopyAll");
+  copy->setToolTip(tr("Copy the whole report to the clipboard"));
+  QLabel *copied = new QLabel(dialog);
+  copied->setObjectName("propertiesCopied");
+  connect(copy, &QPushButton::clicked, dialog, [text, copied] {
+    QApplication::clipboard()->setText(text->toPlainText());
+    copied->setText(QObject::tr("Copied %1 lines to the clipboard.").arg(text->blockCount()));
+  });
+  connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::close);
+  QVBoxLayout *layout = new QVBoxLayout(dialog);
+  layout->addWidget(text);
+  QHBoxLayout *bottom = new QHBoxLayout;
+  bottom->addWidget(copied, 1);
+  bottom->addWidget(buttons);
+  layout->addLayout(bottom);
+  const QFontMetrics metrics(text->font());
+  int widest = 0;
+  for(const QString &line : report.split(QLatin1Char('\n'))) widest = qMax(widest, metrics.horizontalAdvance(line));
+  dialog->resize(qBound(480, widest + 60, 1100), qBound(320, (report.count(QLatin1Char('\n')) + 1) * metrics.lineSpacing() + 110, 760));
+  dialog->show();
+}
+
+QString FileTreeWidget::item_properties_text(QTreeWidgetItem *item) const
+{
   ItemData *item_data = item ? get_item_data(item) : nullptr;
-  if(!item_data) return;
+  if(!item_data) return QString();
 
   QString shape = tr("Scalar");
   quint64 elements = 1;
@@ -2219,9 +2267,14 @@ void FileTreeWidget::show_item_properties()
   if(item_data->m_kind==ItemData::Root || objectPath==QString::fromStdString(item_data->m_file_name))
     objectPath=QStringLiteral("/");
   // same detail lines as `hdf_cli props <file> <path>`
-  auto summary=HdfProperties::inspect(QString::fromLocal8Bit(item_data->m_file_name.c_str()),objectPath);
+  const QString file = QString::fromLocal8Bit(item_data->m_file_name.c_str());
+  auto summary=HdfProperties::inspect(file,objectPath);
   details.append(HdfProperties::describe(summary));
-  QMessageBox::information(this, tr("Properties"), details.join(QLatin1Char('\n')));
+  //the file and object come first, so a pasted report says where it was read from
+  details.prepend(tr("Object: %1").arg(objectPath));
+  details.prepend(tr("File: %1").arg(QDir::toNativeSeparators(file)));
+  details.prepend(tr("HDFStudio %1 Properties").arg(QCoreApplication::applicationVersion()));
+  return details.join(QLatin1Char('\n'));
 }
 
 void FileTreeWidget::export_item_as_text()
@@ -2822,6 +2875,71 @@ void MainWindow::watch_current_view(QMdiSubWindow *)
     connect(m_layer_view, SIGNAL(layer_changed()), this, SLOT(update_layer_controls()));
   }
   update_layer_controls();
+}
+
+///////////////////////////////////////////////////////////////////////////////////////
+//MainWindow::update_window_menu
+//rebuilt each time the menu opens, so the list always matches the open views (creation order)
+///////////////////////////////////////////////////////////////////////////////////////
+
+void MainWindow::update_window_menu()
+{
+  qDeleteAll(m_menu_windows->findChildren<QActionGroup *>(QString(), Qt::FindDirectChildrenOnly));
+  m_menu_windows->clear();
+  m_menu_windows->addAction(m_action_cascade);
+  m_menu_windows->addAction(m_action_tile);
+  m_menu_windows->addAction(m_action_close_all);
+  const QList<QMdiSubWindow *> windows = m_mdi_area->subWindowList(QMdiArea::CreationOrder);
+  m_action_cascade->setEnabled(!windows.isEmpty());
+  m_action_tile->setEnabled(!windows.isEmpty());
+  m_action_close_all->setEnabled(!windows.isEmpty());
+  if(windows.isEmpty()) return;
+  m_menu_windows->addSeparator();
+  QActionGroup *group = new QActionGroup(m_menu_windows);
+  for(int i = 0; i < windows.size(); ++i)
+  {
+    QMdiSubWindow *sub = windows.at(i);
+    QString title = sub->windowTitle();
+    title.replace(QLatin1Char('&'), QStringLiteral("&&"));
+    const QString text = i < 9 ? QStringLiteral("&%1 %2").arg(i + 1).arg(title)
+                               : QStringLiteral("%1 %2").arg(i + 1).arg(title);
+    QAction *action = m_menu_windows->addAction(text);
+    action->setObjectName(QStringLiteral("actionWindow%1").arg(i + 1));
+    action->setCheckable(true);
+    action->setChecked(sub == m_mdi_area->currentSubWindow());
+    action->setActionGroup(group);
+    connect(action, &QAction::triggered, this, [this, sub = QPointer<QMdiSubWindow>(sub)] {
+      if(sub) m_mdi_area->setActiveSubWindow(sub);
+    });
+  }
+}
+
+MainWindow::~MainWindow()
+{
+  disconnect(m_mdi_area, nullptr, this, nullptr);
+  if(m_layer_view) disconnect(m_layer_view, nullptr, this, nullptr);
+}
+
+void MainWindow::cascade_windows()
+{
+  const QList<QMdiSubWindow *> windows = m_mdi_area->subWindowList(QMdiArea::CreationOrder);
+  if(windows.isEmpty()) return;
+  QMdiSubWindow *active = m_mdi_area->currentSubWindow();
+  const QRect area = m_mdi_area->viewport()->rect();
+  const int step = qMax(20, windows.first()->style()->pixelMetric(QStyle::PM_TitleBarHeight, nullptr, windows.first()) + 6);
+  const int width = qMax(320, area.width() * 2 / 3);
+  const int height = qMax(240, area.height() * 2 / 3);
+  // offsets that still fit in the area; wrap to the top-left corner after that
+  const int fit = qMax(1, qMin((area.width() - width) / step, (area.height() - height) / step) + 1);
+  for(int i = 0; i < windows.size(); ++i)
+  {
+    QMdiSubWindow *sub = windows.at(i);
+    if(sub->isMinimized() || sub->isMaximized()) sub->showNormal();
+    const int offset = (i % fit) * step;
+    sub->setGeometry(area.left() + offset, area.top() + offset, width, height);
+    sub->raise();
+  }
+  if(active) m_mdi_area->setActiveSubWindow(active);
 }
 
 void MainWindow::step_layer(LayerStep step)

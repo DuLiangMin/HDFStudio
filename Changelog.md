@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.29 - 2026-11-20
+
+- Properties dialog improved for extracting metadata: right-click → **Properties...** now opens a non-modal window with selectable plain text (`Ctrl+C`, right-click Copy/Select All) and a **Copy All** button. The report starts with `HDFStudio <version> Properties`, `File:` (full path) and `Object:` (path in the file), then shape, type, size, dimensions, storage layout and all attributes: the same lines as `hdf_cli props`. It can be pasted as-is into a search, an issue or an LLM prompt.
+- Window menu: **Cascade** arranges the views in creation order, each 2/3 of the area, offset by one title bar, with the active view kept in front; minimized or maximized views are restored first. Below Cascade, Tile and Close All Views is a numbered list of open views (current one checked); choosing an entry activates that view.
+- Fixed: closing the main window could call a slot on an already-destroyed `MainWindow` (Qt debug assertion) because the MDI area still emitted `subWindowActivated` while its views closed.
+- README (English and Chinese): the Properties report and the Window menu; new screenshot showing the layer toolbar.
+- Validation: Debug/Release QtTest 34 passed + 1 optional, CTest 1/1; new `propertiesDialogCopiesReportAndWindowMenuListsViews`; 5 consecutive full Debug runs passed. Real-mouse script `tests/desktop_properties_copy.ps1` 8/8 on the 697 MB NetCDF-3 sample (clipboard contains every `hdf_cli props` line).
+
 ## 0.10.28 - 2026-11-20
 
 - Added the old HDF Explorer layer buttons to the main toolbar, right after Open: Next (up), Previous (down), Last (double up), First (double down), then a dimension picker (`time (60)`, `lev (100)`, …), a layer picker and a `Layer n of N` readout. A new **Layer** menu has the same commands plus **Go to Layer...** (`Ctrl+G`); shortcuts `Alt+Right`, `Alt+Left`, `Alt+End`, `Alt+Home`.
