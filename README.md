@@ -15,10 +15,10 @@ meteorology, climate and earth-science work. Open a `.nc`, `.nc4`, `.h5` or `.hd
 groups, variables and attributes, read values in a table, view 2-D slices as images, decode time
 coordinates into real dates, and check CF metadata conventions, all without writing code.
 
-![HDFStudio showing two NetCDF files, two image views with different color palettes, and the file information panel](docs/screenshot-main.png)
+![HDFStudio with two NetCDF files, the layer toolbar at time layer 10 of 180, two image views in Viridis and Inferno, and the By NetCDF4 panel](docs/screenshot-main.png)
 
-*Two NetCDF files open side by side: 2-metre temperature rendered with the Viridis and Turbo palettes,
-the dataset tree on the left, and the File Info / By NetCDF4 / CF Check panel at the bottom.*
+*Two NetCDF files open: 2-metre temperature in the Viridis and Inferno palettes, the layer toolbar after
+Open stepping `time` (Layer 10 of 180), the dataset tree on the left, and the By NetCDF4 report at the bottom.*
 
 ## 🤔 Why HDFStudio?
 

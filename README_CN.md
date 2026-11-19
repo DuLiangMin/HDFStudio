@@ -12,9 +12,9 @@
 
 HDFStudio 是面向气象、气候与地球科学的 Windows 桌面 **NetCDF 查看器**与 **HDF5 浏览器**，免费开源。打开一个 `.nc`、`.nc4`、`.h5` 或 `.hdf5` 文件，即可浏览组、变量与属性，在表格中查看数值，把二维切片画成图像，按文件自带的日历把时间坐标解码成真实日期，并检查 CF 元信息，全程不需要写代码。
 
-![HDFStudio 同时打开两个 NetCDF 文件、两个不同调色板的图像视图以及文件信息面板](docs/screenshot-main.png)
+![HDFStudio 打开两个 NetCDF 文件，层工具栏停在 time 第 10 层（共 180 层），两个图像视图分别为 Viridis 与 Inferno，底部为 By NetCDF4 报告](docs/screenshot-main.png)
 
-*两个 NetCDF 文件并排打开：2 米气温分别用 Viridis 与 Turbo 调色板绘制；左侧是变量树，底部是 File Info / By NetCDF4 / CF Check 面板。*
+*同时打开两个 NetCDF 文件：2 米气温分别用 Viridis 与 Inferno 调色板绘制；打开按钮后的层工具栏正在翻 `time`（Layer 10 of 180）；左侧是变量树，底部是 By NetCDF4 报告。*
 
 ## 🤔 为什么用 HDFStudio
 
