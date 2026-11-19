@@ -1,0 +1,36 @@
+# CMake and IDE output
+/build/
+/ext/
+/testdata/*.nc
+/testdata/*.nc4
+/testdata/*.h5
+/testdata/*.hdf5
+/logs/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+*.sln
+*.vcxproj*
+*.user
+*.suo
+
+# Generated binaries and debug symbols
+*.exe
+*.dll
+*.lib
+*.exp
+*.pdb
+*.ilk
+*.obj
+*.o
+*.a
+
+# Local scientific data and generated previews
+*.nc
+*.nc4
+*.h5
+*.hdf5
+*.png
+*.csv
+*.jsonl
