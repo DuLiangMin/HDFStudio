@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.28 - 2026-11-20
+
+- Added the old HDF Explorer layer buttons to the main toolbar, right after Open: Next (up), Previous (down), Last (double up), First (double down), then a dimension picker (`time (60)`, `lev (100)`, …), a layer picker and a `Layer n of N` readout. A new **Layer** menu has the same commands plus **Go to Layer...** (`Ctrl+G`); shortcuts `Alt+Right`, `Alt+Left`, `Alt+End`, `Alt+Home`.
+- They act on the active grid or image view and follow it when another view is activated or the view's own selectors are used; disabled when the view has no layers. Dimension names come from netCDF-C.
+- Grid: one plane read per step (the old Next/Previous handlers read it twice).
+- `README_CN.md` (Chinese); `README.md` stays English with a language switch at the top. Both are in the Windows zip.
+- Validation: Debug/Release QtTest 33 passed + 1 optional, CTest 1/1; new `layerStepTargetMatchesOldHdfExplorerButtons` and `mainToolbarStepsLayersOfTheCurrentView` (toolbar clicks, combos, Go to Layer dialog, view switching); real-mouse desktop script `tests/desktop_layer_toolbar.ps1` 13/13 on a 697 MB NetCDF-3 sample, values equal to Python netCDF4.
+
 ## 0.10.27 - 2026-11-20
 
 - Fixed: NetCDF-3 files (CDF-1 classic, CDF-2 64-bit offset, CDF-5 64-bit data) could not be opened ("Cannot open as HDF5 / NetCDF-4"). They have no HDF5 container; HDFStudio now detects them from the file header and reads them through netCDF-C: dataset tree with global attributes, grid, image view, Properties and text export. NetCDF-4 and HDF5 files are read exactly as before.

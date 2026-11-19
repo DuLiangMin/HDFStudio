@@ -49,6 +49,8 @@ private slots:
   void classicNetcdfOpensWithTreeGridImagePropertiesAndExport();
   void externalClassicSampleMatchesPython();
   void classicNetcdfOpensFromChinesePath();
+  void layerStepTargetMatchesOldHdfExplorerButtons();
+  void mainToolbarStepsLayersOfTheCurrentView();
 };
 
 void DropTargetsTest::acceptsExistingLocalFile() {
@@ -1022,6 +1024,158 @@ void DropTargetsTest::classicNetcdfOpensFromChinesePath() {
   QCOMPARE(table->model()->data(table->model()->index(4,5)).toString(),QString("45"));
   mdi->closeAllSubWindows();
   QCOMPARE(HdfProperties::inspect(file,"/ttr").shape,QString("[3 x 4 x 5 x 6]"));
+  window.close_all_files();
+}
+
+// Old HDF Explorer handlers (v2007 ViewGrid2D.c / ViewImageSds2D.c): 32776 +1 clamped at the end,
+// 32777 -1 clamped at 0, 32778 last, 32779 first.
+void DropTargetsTest::layerStepTargetMatchesOldHdfExplorerButtons() {
+  QCOMPARE(layer_step_target(0,3,LayerStep::Next),1);
+  QCOMPARE(layer_step_target(2,3,LayerStep::Next),2);
+  QCOMPARE(layer_step_target(1,3,LayerStep::Previous),0);
+  QCOMPARE(layer_step_target(0,3,LayerStep::Previous),0);
+  QCOMPARE(layer_step_target(1,3,LayerStep::Last),2);
+  QCOMPARE(layer_step_target(2,3,LayerStep::First),0);
+  QCOMPARE(layer_step_target(0,0,LayerStep::Next),0);
+  QCOMPARE(layer_step_target(0,1,LayerStep::Next),0);
+  QCOMPARE(layer_clamp(7,3),2);
+  QCOMPARE(layer_clamp(-1,3),0);
+}
+
+// Interactive use simulated in-process: real clicks on the main toolbar buttons, choices in its
+// combos, the Go to Layer dialog and switching between views; every step is checked against the
+// fixture values ttr[t][l][y][x] = t*10000 + l*1000 + y*10 + x.
+void DropTargetsTest::mainToolbarStepsLayersOfTheCurrentView() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString file=dir.filePath("layers.nc");
+  write_classic_fixture(file,NC_CLOBBER);
+
+  MainWindow window;
+  window.resize(1200,800);
+  window.show();
+  QVERIFY(QTest::qWaitForWindowExposed(&window));
+  auto *tree=window.findChild<FileTreeWidget*>();
+  auto *mdi=window.findChild<QMdiArea*>();
+  auto *bar=window.findChild<QToolBar*>("mainToolBar");
+  QVERIFY(tree);QVERIFY(mdi);QVERIFY(bar);
+  auto action=[&window](const char *name){ return window.findChild<QAction*>(name); };
+  QAction *next=action("actionLayerNext"), *previous=action("actionLayerPrevious");
+  QAction *last=action("actionLayerLast"), *first=action("actionLayerFirst"), *go=action("actionLayerGoTo");
+  QVERIFY(next);QVERIFY(previous);QVERIFY(last);QVERIFY(first);QVERIFY(go);
+  auto *axisCombo=window.findChild<QComboBox*>("layerAxisCombo");
+  auto *indexCombo=window.findChild<QComboBox*>("layerIndexCombo");
+  auto *label=window.findChild<QLabel*>("layerLabel");
+  QVERIFY(axisCombo);QVERIFY(indexCombo);QVERIFY(label);
+
+  // Buttons sit right after Open in the old order: next, previous, last, first; all in the Layer menu.
+  const QList<QAction*> barActions=bar->actions();
+  QCOMPARE(barActions.at(0)->text(),QString("&Open..."));
+  QVERIFY(barActions.at(1)->isSeparator());
+  QCOMPARE(barActions.indexOf(next),2);
+  QCOMPARE(barActions.indexOf(previous),3);
+  QCOMPARE(barActions.indexOf(last),4);
+  QCOMPARE(barActions.indexOf(first),5);
+  QMenu *layerMenu=nullptr;
+  for(QAction *menuAction:window.menuBar()->actions())
+    if(menuAction->text()=="&Layer") layerMenu=menuAction->menu();
+  QVERIFY(layerMenu);
+  for(QAction *a:{next,previous,last,first,go}) QVERIFY(layerMenu->actions().contains(a));
+
+  // No view yet: nothing to step.
+  QVERIFY(!next->isEnabled());
+  QCOMPARE(label->text(),QString("No layers"));
+
+  close_modal_dialogs_later();
+  QCOMPARE(window.read_file(file),0);
+  QTreeWidgetItem *root=tree->topLevelItem(0);
+  auto child_named=[root](const QString &name) -> QTreeWidgetItem* {
+    for(int i=0;i<root->childCount();i++) if(root->child(i)->text(0)==name) return root->child(i);
+    return nullptr;
+  };
+  tree->setCurrentItem(child_named("ttr"));
+  QVERIFY(QMetaObject::invokeMethod(tree,"add_grid"));
+  QMdiSubWindow *gridSub=mdi->subWindowList().last();
+  QWidget *grid=gridSub->widget();
+  QAbstractItemModel *model=grid->findChild<QTableView*>("gridTable")->model();
+  auto cell=[model](int row,int column){ return model->data(model->index(row,column)).toString(); };
+  const auto gridCombos=grid->findChildren<QComboBox*>();
+  QCOMPARE(gridCombos.size(),2);
+
+  QTRY_COMPARE(label->text(),QString("Layer 1 of 3"));
+  QCOMPARE(axisCombo->count(),2);
+  QCOMPARE(axisCombo->itemText(0),QString("time (3)"));
+  QCOMPARE(axisCombo->itemText(1),QString("lev (4)"));
+  QCOMPARE(indexCombo->count(),3);
+  QVERIFY(next->isEnabled());QVERIFY(last->isEnabled());
+  QVERIFY(!previous->isEnabled());QVERIFY(!first->isEnabled());
+
+  auto click=[bar](QAction *a){ QTest::mouseClick(bar->widgetForAction(a),Qt::LeftButton); };
+  click(next);                                   // time 1
+  QCOMPARE(cell(0,0),QString("10000"));
+  QCOMPARE(gridCombos.at(0)->currentIndex(),1);  // the grid's own selector follows
+  QCOMPARE(label->text(),QString("Layer 2 of 3"));
+  click(last);                                   // time 2
+  QCOMPARE(cell(4,5),QString("20045"));
+  QVERIFY(!next->isEnabled());
+  click(previous);                               // time 1
+  QCOMPARE(cell(0,0),QString("10000"));
+  click(first);                                  // time 0
+  QCOMPARE(cell(0,0),QString("0"));
+  QCOMPARE(label->text(),QString("Layer 1 of 3"));
+
+  // Choose the lev axis and pick a layer from the toolbar list.
+  axisCombo->setCurrentIndex(1); emit axisCombo->activated(1);
+  QCOMPARE(indexCombo->count(),4);
+  QCOMPARE(label->text(),QString("Layer 1 of 4"));
+  indexCombo->setCurrentIndex(3); emit indexCombo->activated(3);
+  QCOMPARE(cell(0,0),QString("3000"));
+  QCOMPARE(gridCombos.at(1)->currentIndex(),3);
+  QCOMPARE(label->text(),QString("Layer 4 of 4"));
+
+  // The grid's own selector changes the toolbar too (time axis selected again).
+  axisCombo->setCurrentIndex(0); emit axisCombo->activated(0);
+  gridCombos.at(0)->setCurrentIndex(2);
+  QCOMPARE(indexCombo->currentIndex(),2);
+  QCOMPARE(label->text(),QString("Layer 3 of 3"));
+  QCOMPARE(cell(0,0),QString("23000"));
+
+  // Go to Layer...: the dialog is answered like a user typing 2 and pressing OK.
+  QTimer::singleShot(300,[]{
+    if(auto *input=qobject_cast<QInputDialog*>(QApplication::activeModalWidget())) { input->setIntValue(2); input->accept(); }
+  });
+  go->trigger();
+  QCOMPARE(cell(0,0),QString("13000"));
+  QCOMPARE(label->text(),QString("Layer 2 of 3"));
+
+  // An image view of the same variable has its own position; the toolbar follows the current view.
+  emit tree->itemDoubleClicked(child_named("ttr"),0);
+  QMdiSubWindow *imageSub=mdi->subWindowList().last();
+  QWidget *image=imageSub->widget();
+  QTRY_COMPARE(mdi->currentSubWindow(),imageSub);
+  QTRY_COMPARE(label->text(),QString("Layer 1 of 3"));
+  QCOMPARE(image->property("minimum").toDouble(),0.0);
+  click(next);
+  QTRY_COMPARE(image->property("minimum").toDouble(),10000.0);
+  QCOMPARE(image->property("maximum").toDouble(),10045.0);
+  QCOMPARE(image->findChildren<QSpinBox*>().at(0)->value(),1);
+  axisCombo->setCurrentIndex(1); emit axisCombo->activated(1);
+  click(last);                                   // lev 3 of the image
+  QTRY_COMPARE(image->property("minimum").toDouble(),13000.0);
+
+  // Back to the grid: its own layer (time 2 of 3, axis time) comes back on the toolbar.
+  mdi->setActiveSubWindow(gridSub);
+  QTRY_COMPARE(label->text(),QString("Layer 2 of 3"));
+  QCOMPARE(axisCombo->currentIndex(),0);
+  QCOMPARE(cell(0,0),QString("13000"));
+
+  // A 2-D variable has no layers; closing every view leaves nothing to step.
+  tree->setCurrentItem(child_named("count"));
+  QVERIFY(QMetaObject::invokeMethod(tree,"add_grid"));
+  QTRY_COMPARE(label->text(),QString("No layers"));
+  QVERIFY(!next->isEnabled());QVERIFY(!axisCombo->isEnabled());
+  mdi->closeAllSubWindows();
+  QTRY_COMPARE(label->text(),QString("No layers"));
   window.close_all_files();
 }
 

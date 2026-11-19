@@ -199,14 +199,18 @@ RasterView::RasterView(std::string filename, std::string varpath, std::vector<hs
   discrete_toggle->setToolTip(tr("Render each distinct value as a category"));
   tools->addWidget(discrete_toggle);
   connect(discrete_toggle,&QCheckBox::toggled,this,[this](bool enabled){discrete_mode=enabled;refresh();});
+  const std::vector<std::string> dimension_names = nc_dimension_names(QString::fromLocal8Bit(this->file.c_str()), this->path);
   for(size_t i = 0; i + 2 < dims.size(); ++i) {
+    axis_names << (dimension_names.size() == dims.size() ? QString::fromStdString(dimension_names[i])
+                                                         : tr("axis %1").arg(i));
     tools->addWidget(new QLabel(tr("Axis %1: ").arg(i), tools));
     auto spin = new QSpinBox(tools);
     spin->setRange(0, dims[i] ? int(std::min<hsize_t>(dims[i]-1, INT_MAX)) : 0);
     spin->setKeyboardTracking(false);
+    spin->setToolTip(tr("0-based index of %1").arg(axis_names.last()));
     layers.push_back(spin);
     tools->addWidget(spin);
-    connect(spin, &QSpinBox::valueChanged, this, [this] { refresh(); });
+    connect(spin, &QSpinBox::valueChanged, this, [this] { refresh(); emit layer_changed(); });
   }
   scene = new QGraphicsScene(this);
   auto view = new Canvas(scene, this);
@@ -345,4 +349,28 @@ void RasterView::refresh() {
     .arg(cols).arg(rows).arg(low,0,'g',9).arg(high,0,'g',9)
     .arg(automatic ? tr(" (automatic)") : tr(" (fixed)")));
   if(!coordinate_note.isEmpty()) legend->setText(legend->text()+coordinate_note);
+}
+
+int RasterView::layer_axis_count() const {
+  return int(layers.size());
+}
+
+QString RasterView::layer_axis_name(int axis) const {
+  return axis_names.value(axis);
+}
+
+int RasterView::layer_count(int axis) const {
+  if(axis < 0 || axis >= layer_axis_count()) return 0;
+  return layers[size_t(axis)]->maximum() + 1;
+}
+
+int RasterView::layer_index(int axis) const {
+  if(axis < 0 || axis >= layer_axis_count()) return 0;
+  return layers[size_t(axis)]->value();
+}
+
+void RasterView::set_layer_index(int axis, int index) {
+  if(axis < 0 || axis >= layer_axis_count()) return;
+  // setValue() -> valueChanged: refresh() reads the plane and layer_changed() is emitted
+  layers[size_t(axis)]->setValue(layer_clamp(index, layer_count(axis)));
 }

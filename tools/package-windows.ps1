@@ -35,7 +35,7 @@ foreach($f in 'msvcp140.dll','vcruntime140.dll','vcruntime140_1.dll') { Copy-Ite
 
 # Documents and licences.
 Copy-Item "$root\LICENSE" "$stage\LICENSE.txt"
-Copy-Item "$root\README.md","$root\THIRD_PARTY_NOTICES.md","$root\Changelog.md" $stage
+Copy-Item "$root\README.md","$root\README_CN.md","$root\THIRD_PARTY_NOTICES.md","$root\Changelog.md" $stage
 if(-not (Test-Path $QtLicense)) { throw "Qt LGPL-3.0 text missing: $QtLicense" }
 Copy-Item $QtLicense "$stage\licenses\Qt-LGPL-3.0.txt"
 Copy-Item "$root\ext\netcdf-c-4.9.3\COPYRIGHT" "$stage\licenses\netCDF-C-COPYRIGHT.txt"

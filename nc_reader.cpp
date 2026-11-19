@@ -121,6 +121,22 @@ static bool integer_attribute(int group,int variable,const char *name,double &va
          nc_get_att_double(group,variable,name,&value)==NC_NOERR;
 }
 
+std::vector<std::string> nc_dimension_names(const QString &file, const std::string &path) {
+  std::vector<std::string> names;
+  NcReader reader(file);
+  int group=-1, variable=-1, rank=0;
+  if(reader.id<0 || !reader.locate(path,group,variable)) return names;
+  if(nc_inq_varndims(group,variable,&rank)!=NC_NOERR || rank<=0 || rank>NC_MAX_VAR_DIMS) return names;
+  std::vector<int> dimension_ids(static_cast<size_t>(rank));
+  if(nc_inq_vardimid(group,variable,dimension_ids.data())!=NC_NOERR) return names;
+  for(int dimension:dimension_ids) {
+    char name[NC_MAX_NAME+1]={};
+    if(nc_inq_dimname(group,dimension,name)!=NC_NOERR) return {};
+    names.push_back(name);
+  }
+  return names;
+}
+
 static bool scoped_variable(int scope,const QString &name,int &group,int &variable) {
   const auto bytes=name.toUtf8();
   if(bytes.isEmpty() || bytes.contains('\0') || bytes.contains('/')) return false;

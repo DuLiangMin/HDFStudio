@@ -12,6 +12,7 @@
 #include <vector>
 #include "hdf5.h"
 #include "visit.hpp"
+#include "layer_navigation.hpp"
 
 class MainWindow;
 class ItemData;
@@ -89,6 +90,16 @@ protected:
   void update_file_info(const QString &file_name);
   void show_time_values();
   void load_report_tab(int index);
+  void go_to_layer();
+  // keeps the Layer toolbar in step with the current view (activation or its own selectors)
+  void update_layer_controls();
+  void watch_current_view(QMdiSubWindow *sub);
+
+public:
+  // Steps the current view like the old HDF Explorer toolbar buttons (no-op without layers).
+  void step_layer(LayerStep step);
+  // The view whose layers the Layer toolbar and menu act on, or nullptr.
+  LayerNavigation *current_layer_view() const;
 
 private:
 
@@ -120,6 +131,25 @@ private:
   QAction *m_action_about;
   QAction *m_action_tile;
   QAction *m_action_close_all;
+
+  ///////////////////////////////////////////////////////////////////////////////////////
+  //layer navigation (old HDF Explorer main-toolbar buttons 32776-32779 and 32831)
+  ///////////////////////////////////////////////////////////////////////////////////////
+
+  QMenu *m_menu_layer;
+  QAction *m_action_layer_next;
+  QAction *m_action_layer_previous;
+  QAction *m_action_layer_last;
+  QAction *m_action_layer_first;
+  QAction *m_action_layer_goto;
+  QComboBox *m_layer_axis_combo;   // which leading dimension is stepped (time, lev, ...)
+  QComboBox *m_layer_index_combo;  // selected layer of that dimension, 1-based text
+  QLabel *m_layer_label;           // "Layer n of N", as in the old status bar
+  QPointer<QWidget> m_layer_view;  // view whose layer_changed() is connected
+  // what the index combo was filled for; it is refilled only when view, axis or length change
+  const void *m_layer_combo_view = nullptr;
+  int m_layer_combo_axis = -1;
+  int m_layer_combo_count = -1;
 
   ///////////////////////////////////////////////////////////////////////////////////////
   //icons
@@ -169,12 +199,22 @@ private:
 //ChildWindow
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 
-class ChildWindow : public QMainWindow
+class ChildWindow : public QMainWindow, public LayerNavigation
 {
   Q_OBJECT
 public:
   ChildWindow(QWidget *parent, ItemData *item_data);
   std::vector<int> m_layer;  // current selected layer of a dimension > 2 
+
+  // LayerNavigation: the main window's Layer toolbar/menu drive this grid through its own combos
+  int layer_axis_count() const override;
+  QString layer_axis_name(int axis) const override;
+  int layer_count(int axis) const override;
+  int layer_index(int axis) const override;
+  void set_layer_index(int axis, int index) override;
+
+signals:
+  void layer_changed();
 
   private slots:
   void previous_layer(int);
@@ -184,6 +224,7 @@ public:
 private:
   QToolBar *m_tool_bar;
   std::vector<QComboBox *> m_vec_combo;
+  QStringList m_axis_names;  // names of the leading dimensions, e.g. time, lev
 
 protected:
   TableModel *m_model;

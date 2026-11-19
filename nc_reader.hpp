@@ -51,6 +51,10 @@ inline QByteArray nc_path_bytes(const QString &file) {
   return QString::fromLocal8Bit(local)==file ? local : file.toUtf8();
 }
 
+// Dimension names of a variable ("/ttr" -> time, lev, lat, lon) through netCDF-C; empty when the
+// file is not readable as NetCDF (plain HDF5) or the variable is not found.
+std::vector<std::string> nc_dimension_names(const QString &file, const std::string &path);
+
 struct NcReader {
   int id = -1;
   explicit NcReader(const QString &file) { if(nc_open(nc_path_bytes(file).constData(), NC_NOWRITE, &id)!=NC_NOERR) id=-1; }

@@ -72,7 +72,7 @@ int main(int argc, char *argv[])
 {
   Q_INIT_RESOURCE(hdf_explorer);
   QApplication app(argc, argv);
-  QCoreApplication::setApplicationVersion("0.10.27");
+  QCoreApplication::setApplicationVersion("0.10.28");
   QCoreApplication::setApplicationName(app_name);
 #if QT_VERSION >= 0x050000
   QCommandLineParser parser;
@@ -268,6 +268,34 @@ static QIcon dataset_icon(size_t rank)
     painter.drawPolygon(QPolygonF() << middle << right << bottomRight << bottom);
     painter.setBrush(QColor(81, 176, 183));
     painter.drawPolygon(QPolygonF() << top << middle << bottomLeft << left);
+  }
+  painter.end();
+  return QIcon(pixmap);
+}
+
+// Layer buttons in the shapes of the old HDF Explorer toolbar (bitmap 128, images 6-9):
+// up = next, down = previous, double up = last, double down = first. Drawn here rather than
+// copied from the old executable; 32 px so they stay sharp on high-DPI screens.
+static QIcon layer_icon(LayerStep step)
+{
+  QPixmap pixmap(32, 32);
+  pixmap.fill(Qt::transparent);
+  QPainter painter(&pixmap);
+  painter.setRenderHint(QPainter::Antialiasing);
+  painter.setPen(Qt::NoPen);
+  painter.setBrush(QColor(32, 32, 32));
+  const bool up = step == LayerStep::Next || step == LayerStep::Last;
+  const bool twice = step == LayerStep::Last || step == LayerStep::First;
+  // one triangle centred, or two stacked triangles
+  QList<double> rows;
+  if(twice) rows << 3 << 17; else rows << 9;
+  for(double top : rows)
+  {
+    const double height = twice ? 12 : 14;
+    QPolygonF triangle;
+    if(up) triangle << QPointF(16, top) << QPointF(29, top + height) << QPointF(3, top + height);
+    else   triangle << QPointF(3, top) << QPointF(29, top) << QPointF(16, top + height);
+    painter.drawPolygon(triangle);
   }
   painter.end();
   return QIcon(pixmap);
@@ -526,6 +554,68 @@ MainWindow::MainWindow()
   connect(m_action_about, SIGNAL(triggered()), this, SLOT(about()));
 
   ///////////////////////////////////////////////////////////////////////////////////////
+  //layer navigation: the old HDF Explorer main toolbar had up/down/double-up/double-down
+  //buttons (commands 32776-32779) acting on the active view, and a go-to-layer dialog (32831)
+  ///////////////////////////////////////////////////////////////////////////////////////
+
+  m_action_layer_next = new QAction(layer_icon(LayerStep::Next), tr("&Next Layer"), this);
+  m_action_layer_next->setObjectName("actionLayerNext");
+  m_action_layer_next->setShortcut(QKeySequence(tr("Alt+Right")));
+  m_action_layer_next->setStatusTip(tr("Show the next layer of the selected dimension"));
+  connect(m_action_layer_next, &QAction::triggered, this, [this] { step_layer(LayerStep::Next); });
+
+  m_action_layer_previous = new QAction(layer_icon(LayerStep::Previous), tr("&Previous Layer"), this);
+  m_action_layer_previous->setObjectName("actionLayerPrevious");
+  m_action_layer_previous->setShortcut(QKeySequence(tr("Alt+Left")));
+  m_action_layer_previous->setStatusTip(tr("Show the previous layer of the selected dimension"));
+  connect(m_action_layer_previous, &QAction::triggered, this, [this] { step_layer(LayerStep::Previous); });
+
+  m_action_layer_last = new QAction(layer_icon(LayerStep::Last), tr("&Last Layer"), this);
+  m_action_layer_last->setObjectName("actionLayerLast");
+  m_action_layer_last->setShortcut(QKeySequence(tr("Alt+End")));
+  m_action_layer_last->setStatusTip(tr("Show the last layer of the selected dimension"));
+  connect(m_action_layer_last, &QAction::triggered, this, [this] { step_layer(LayerStep::Last); });
+
+  m_action_layer_first = new QAction(layer_icon(LayerStep::First), tr("&First Layer"), this);
+  m_action_layer_first->setObjectName("actionLayerFirst");
+  m_action_layer_first->setShortcut(QKeySequence(tr("Alt+Home")));
+  m_action_layer_first->setStatusTip(tr("Show the first layer of the selected dimension"));
+  connect(m_action_layer_first, &QAction::triggered, this, [this] { step_layer(LayerStep::First); });
+
+  m_action_layer_goto = new QAction(tr("&Go to Layer..."), this);
+  m_action_layer_goto->setObjectName("actionLayerGoTo");
+  m_action_layer_goto->setShortcut(QKeySequence(tr("Ctrl+G")));
+  m_action_layer_goto->setStatusTip(tr("Type the number of the layer to show"));
+  connect(m_action_layer_goto, &QAction::triggered, this, &MainWindow::go_to_layer);
+
+  m_layer_axis_combo = new QComboBox;
+  m_layer_axis_combo->setObjectName("layerAxisCombo");
+  m_layer_axis_combo->setToolTip(tr("Dimension stepped by the layer buttons"));
+  m_layer_axis_combo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+  connect(m_layer_axis_combo, &QComboBox::activated, this, [this](int axis) {
+    LayerNavigation *view = current_layer_view();
+    if(!view) return;
+    view->navigation_axis = axis;
+    update_layer_controls();
+  });
+
+  m_layer_index_combo = new QComboBox;
+  m_layer_index_combo->setObjectName("layerIndexCombo");
+  m_layer_index_combo->setToolTip(tr("Select the layer to show"));
+  m_layer_index_combo->setMinimumContentsLength(4);
+  connect(m_layer_index_combo, &QComboBox::activated, this, [this](int index) {
+    LayerNavigation *view = current_layer_view();
+    if(view) view->set_layer_index(view->navigation_axis, index);
+    update_layer_controls();
+  });
+
+  m_layer_label = new QLabel;
+  m_layer_label->setObjectName("layerLabel");
+  m_layer_label->setContentsMargins(6, 0, 6, 0);
+
+  connect(m_mdi_area, &QMdiArea::subWindowActivated, this, &MainWindow::watch_current_view);
+
+  ///////////////////////////////////////////////////////////////////////////////////////
   //recent files
   ///////////////////////////////////////////////////////////////////////////////////////
 
@@ -553,6 +643,14 @@ MainWindow::MainWindow()
   m_menu_file->addSeparator();
   m_menu_file->addAction(m_action_exit);
 
+  m_menu_layer = menuBar()->addMenu(tr("&Layer"));
+  m_menu_layer->addAction(m_action_layer_next);
+  m_menu_layer->addAction(m_action_layer_previous);
+  m_menu_layer->addAction(m_action_layer_last);
+  m_menu_layer->addAction(m_action_layer_first);
+  m_menu_layer->addSeparator();
+  m_menu_layer->addAction(m_action_layer_goto);
+
   m_menu_windows = menuBar()->addMenu(tr("&Window"));
   m_menu_windows->addAction(m_action_tile);
   m_menu_windows->addAction(m_action_close_all);
@@ -566,7 +664,18 @@ MainWindow::MainWindow()
   ///////////////////////////////////////////////////////////////////////////////////////
 
   m_tool_bar = addToolBar(tr("&File"));
+  m_tool_bar->setObjectName("mainToolBar");
   m_tool_bar->addAction(m_action_open);
+  //old layout: Open | up (next), down (previous), double up (last), double down (first)
+  m_tool_bar->addSeparator();
+  m_tool_bar->addAction(m_action_layer_next);
+  m_tool_bar->addAction(m_action_layer_previous);
+  m_tool_bar->addAction(m_action_layer_last);
+  m_tool_bar->addAction(m_action_layer_first);
+  m_tool_bar->addWidget(m_layer_axis_combo);
+  m_tool_bar->addWidget(m_layer_index_combo);
+  m_tool_bar->addWidget(m_layer_label);
+  update_layer_controls();
 
   //avoid popup on toolbar
   setContextMenuPolicy(Qt::NoContextMenu);
@@ -723,7 +832,7 @@ void MainWindow::about()
 {
   QMessageBox::about(this,
     tr("About HDFStudio"),
-    tr("HDFStudio 0.10.27\nAuthor: DuLiangMin\n\n"
+    tr("HDFStudio 0.10.28\nAuthor: DuLiangMin\n\n"
        "Metadata convention target: CF-1.8\n"
        "Product libraries: netCDF-C 4.9.3, HDF5 1.8.20\n\n"
        "Reference environment: Python 3.12.10, netCDF4-python 1.7.5.1.post1\n"
@@ -2688,6 +2797,111 @@ private:
 
 
 ///////////////////////////////////////////////////////////////////////////////////////
+//MainWindow: Layer toolbar and menu
+//They act on the current view, like the old MFC command routing to the active view.
+///////////////////////////////////////////////////////////////////////////////////////
+
+LayerNavigation *MainWindow::current_layer_view() const
+{
+  // currentSubWindow() stays valid while the focus is on the toolbar, activeSubWindow() may not
+  QMdiSubWindow *sub = m_mdi_area->currentSubWindow();
+  if(!sub || !sub->widget()) return nullptr;
+  return dynamic_cast<LayerNavigation *>(sub->widget());
+}
+
+void MainWindow::watch_current_view(QMdiSubWindow *)
+{
+  if(m_layer_view) disconnect(m_layer_view, SIGNAL(layer_changed()), this, SLOT(update_layer_controls()));
+  m_layer_view = nullptr;
+  m_layer_combo_view = nullptr;   // another view: always refill the combos
+  QMdiSubWindow *sub = m_mdi_area->currentSubWindow();
+  if(sub && sub->widget() && dynamic_cast<LayerNavigation *>(sub->widget()))
+  {
+    m_layer_view = sub->widget();
+    // ChildWindow and RasterView both declare the signal layer_changed()
+    connect(m_layer_view, SIGNAL(layer_changed()), this, SLOT(update_layer_controls()));
+  }
+  update_layer_controls();
+}
+
+void MainWindow::step_layer(LayerStep step)
+{
+  LayerNavigation *view = current_layer_view();
+  if(!view || view->layer_axis_count() == 0) return;
+  const int axis = view->navigation_axis;
+  view->set_layer_index(axis, layer_step_target(view->layer_index(axis), view->layer_count(axis), step));
+  update_layer_controls();
+}
+
+void MainWindow::go_to_layer()
+{
+  LayerNavigation *view = current_layer_view();
+  if(!view || view->layer_axis_count() == 0) return;
+  const int axis = view->navigation_axis;
+  const int count = view->layer_count(axis);
+  bool ok = false;
+  const int number = QInputDialog::getInt(this, tr("Go to Layer"),
+      tr("Layer of %1 (1 - %2):").arg(view->layer_axis_name(axis)).arg(count),
+      view->layer_index(axis) + 1, 1, count, 1, &ok);
+  if(!ok) return;
+  view->set_layer_index(axis, number - 1);
+  update_layer_controls();
+}
+
+void MainWindow::update_layer_controls()
+{
+  LayerNavigation *view = current_layer_view();
+  const int axes = view ? view->layer_axis_count() : 0;
+  const QList<QAction *> actions = {m_action_layer_next, m_action_layer_previous, m_action_layer_last,
+                                    m_action_layer_first, m_action_layer_goto};
+  if(axes == 0)
+  {
+    for(QAction *action : actions) action->setEnabled(false);
+    m_layer_axis_combo->clear();
+    m_layer_index_combo->clear();
+    m_layer_axis_combo->setEnabled(false);
+    m_layer_index_combo->setEnabled(false);
+    m_layer_label->setText(tr("No layers"));
+    m_layer_combo_view = nullptr;
+    m_layer_combo_axis = -1;
+    m_layer_combo_count = -1;
+    return;
+  }
+
+  view->navigation_axis = layer_clamp(view->navigation_axis, axes);
+  const int axis = view->navigation_axis;
+  const int count = view->layer_count(axis);
+  const int index = view->layer_index(axis);
+
+  // refill the combos only for another view, axis or length: a long time axis is not rebuilt per step
+  const QSignalBlocker block_axis(m_layer_axis_combo);
+  const QSignalBlocker block_index(m_layer_index_combo);
+  if(m_layer_combo_view != view || m_layer_combo_count != count || m_layer_combo_axis != axis)
+  {
+    m_layer_axis_combo->clear();
+    for(int a = 0; a < axes; ++a)
+      m_layer_axis_combo->addItem(tr("%1 (%2)").arg(view->layer_axis_name(a)).arg(view->layer_count(a)));
+    m_layer_index_combo->clear();
+    QStringList numbers;
+    for(int i = 1; i <= count; ++i) numbers << QString::number(i);
+    m_layer_index_combo->addItems(numbers);
+    m_layer_combo_view = view;
+    m_layer_combo_axis = axis;
+    m_layer_combo_count = count;
+  }
+  m_layer_axis_combo->setCurrentIndex(axis);
+  m_layer_index_combo->setCurrentIndex(index);
+  m_layer_axis_combo->setEnabled(true);
+  m_layer_index_combo->setEnabled(true);
+  m_action_layer_next->setEnabled(index < count - 1);
+  m_action_layer_last->setEnabled(index < count - 1);
+  m_action_layer_previous->setEnabled(index > 0);
+  m_action_layer_first->setEnabled(index > 0);
+  m_action_layer_goto->setEnabled(count > 1);
+  m_layer_label->setText(tr("Layer %1 of %2").arg(index + 1).arg(count));
+}
+
+///////////////////////////////////////////////////////////////////////////////////////
 //MainWindow::add_table
 ///////////////////////////////////////////////////////////////////////////////////////
 
@@ -2749,6 +2963,17 @@ m_dataset(item_data->m_dataset)
     {
       m_layer.push_back(0);
     }
+  }
+
+  //names of the leading dimensions (time, lev, ...) from netCDF-C; "axis N" when unknown (plain HDF5)
+  const std::vector<std::string> dimension_names =
+      nc_dimension_names(QString::fromLocal8Bit(item_data->m_file_name.c_str()), m_dataset->m_path);
+  for(size_t idx_dmn = 0; idx_dmn < m_layer.size(); idx_dmn++)
+  {
+    if(dimension_names.size() == m_dataset->m_dim.size())
+      m_axis_names << QString::fromStdString(dimension_names[idx_dmn]);
+    else
+      m_axis_names << tr("axis %1").arg(idx_dmn);
   }
 
   QSignalMapper *signal_mapper_next = NULL;
@@ -2816,6 +3041,7 @@ m_dataset(item_data->m_dataset)
 
 
     combo->addItems(list);
+    combo->setToolTip(tr("Layer of %1").arg(m_axis_names.at(int(idx_dmn))));
     connect(combo, SIGNAL(currentIndexChanged(int)), signal_mapper_combo, SLOT(map()));
     signal_mapper_combo->setMapping(combo, idx_dmn);
     m_tool_bar->addWidget(combo);
@@ -2831,17 +3057,7 @@ m_dataset(item_data->m_dataset)
 
 void ChildWindow::previous_layer(int idx_layer)
 {
-  m_layer[idx_layer]--;
-  if(m_layer[idx_layer] < 0)
-  {
-    m_layer[idx_layer] = 0;
-    return;
-  }
-  QComboBox *combo = m_vec_combo.at(idx_layer);
-  combo->setCurrentIndex(m_layer[idx_layer]);
-  m_model->data_changed();
-  update();
-
+  set_layer_index(idx_layer, layer_step_target(layer_index(idx_layer), layer_count(idx_layer), LayerStep::Previous));
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////
@@ -2850,27 +3066,55 @@ void ChildWindow::previous_layer(int idx_layer)
 
 void ChildWindow::next_layer(int idx_layer)
 {
-  m_layer[idx_layer]++;
-  if((size_t)m_layer[idx_layer] >= m_dataset->m_dim[idx_layer])
-  {
-    m_layer[idx_layer] = m_dataset->m_dim[idx_layer] - 1;
-    return;
-  }
-  QComboBox *combo = m_vec_combo.at(idx_layer);
-  combo->setCurrentIndex(m_layer[idx_layer]);
-  m_model->data_changed();
-  update();
-
+  set_layer_index(idx_layer, layer_step_target(layer_index(idx_layer), layer_count(idx_layer), LayerStep::Next));
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////
 //ChildWindow::combo_layer
+//every layer change ends here: the combo is the single source of the selection, so the
+//plane is read once and the main window's Layer toolbar is told through layer_changed()
 ///////////////////////////////////////////////////////////////////////////////////////
 
 void ChildWindow::combo_layer(int idx_layer)
 {
   QComboBox *combo = m_vec_combo.at(idx_layer);
-  m_layer[idx_layer] = combo->currentIndex();;
+  m_layer[idx_layer] = combo->currentIndex();
   m_model->data_changed();
   update();
+  emit layer_changed();
+}
+
+///////////////////////////////////////////////////////////////////////////////////////
+//ChildWindow: LayerNavigation
+///////////////////////////////////////////////////////////////////////////////////////
+
+int ChildWindow::layer_axis_count() const
+{
+  return int(m_layer.size());
+}
+
+QString ChildWindow::layer_axis_name(int axis) const
+{
+  return m_axis_names.value(axis);
+}
+
+int ChildWindow::layer_count(int axis) const
+{
+  if(axis < 0 || axis >= layer_axis_count()) return 0;
+  return int(std::min<hsize_t>(m_dataset->m_dim[size_t(axis)], hsize_t(INT_MAX)));
+}
+
+int ChildWindow::layer_index(int axis) const
+{
+  if(axis < 0 || axis >= layer_axis_count()) return 0;
+  return m_layer[size_t(axis)];
+}
+
+void ChildWindow::set_layer_index(int axis, int index)
+{
+  if(axis < 0 || axis >= layer_axis_count()) return;
+  const int target = layer_clamp(index, layer_count(axis));
+  QComboBox *combo = m_vec_combo.at(size_t(axis));
+  if(combo->currentIndex() == target) return;
+  combo->setCurrentIndex(target);   // -> combo_layer(): reads the plane and emits layer_changed()
 }

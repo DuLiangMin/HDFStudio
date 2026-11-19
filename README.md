@@ -2,6 +2,8 @@
 
 **Unleash Your NetCDF Power.**
 
+**English** | [简体中文](README_CN.md)
+
 [![Release](https://img.shields.io/github/v/release/DuLiangMin/HDFStudio?label=release&color=3d99a4)](https://github.com/DuLiangMin/HDFStudio/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/DuLiangMin/HDFStudio/total?color=3d99a4)](https://github.com/DuLiangMin/HDFStudio/releases)
 [![License: GPL v3](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
@@ -28,7 +30,7 @@ really inside** before you trust it. Typical questions:
 - Is this file CF compliant, or will my plotting library flip the map?
 
 HDFStudio answers these in seconds, with no Python session, no notebook and no installation of a
-scientific stack. It is a small, portable program (about 14 MB) that opens a file and shows you the facts.
+scientific stack. It is a small, portable program (about 15 MB) that opens a file and shows you the facts.
 
 | | HDFStudio | Panoply | ncview | HDFView |
 |---|---|---|---|---|
@@ -47,6 +49,7 @@ scientific stack. It is a small, portable program (about 14 MB) that opens a fil
 - 🗂️ **Close files cleanly**: **File → Close File** (`Ctrl+F4` or `Ctrl+W`), **Close All Files**, or right-click any node → **Close File**. Views of a closed file close with it.
 - 🌳 **Dataset tree**: groups, dimensions, variables and attributes with type and shape details.
 - 🔢 **Data grid**: exact values in a table, with layer navigation for 3-D, 4-D and 5-D arrays. For NetCDF-3 files only the displayed 2-D plane is read, so a 700 MB variable opens in under 0.1 s.
+- ⬆️⬇️ **Layer toolbar**: next, previous, last and first layer buttons right after Open, with a dimension picker and a layer picker, and a `Layer n of N` readout. The **Layer** menu has the same commands (`Alt+←`/`Alt+→`/`Alt+Home`/`Alt+End`, `Ctrl+G` to type a layer number). Works on the grid and the image view of the active window, for any leading axis such as `time` or `lev`.
 - 🔍 **Properties** like `print(netCDF4.Dataset(...))`: dimension names, unlimited dimension, and attribute values with arrays expanded.
 - 🗺️ **Image view**: 2-D slices with continuous and discrete color palettes (Viridis, Inferno, Turbo, …), and latitude/longitude readout on hover for CF lat/lon grids.
 - ⏱️ **Time decoding**: `time` variables such as `seconds since 1970-01-01` or `days since 2024-10-01` are shown as `yyyymmdd` and `yyyymmdd hh:mm:ss`, using the file's own calendar via `netCDF4.num2date`.

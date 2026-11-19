@@ -3,6 +3,7 @@
 #include <QtWidgets>
 #include "hdf5.h"
 #include "nc_reader.hpp"
+#include "layer_navigation.hpp"
 #include <vector>
 #include <string>
 #include <map>
@@ -24,10 +25,18 @@ QColor discreteValueColor(Palette palette, double value,
                           bool reversed, const QColor &unknownColor);
 }
 
-class RasterView : public QWidget {
+class RasterView : public QWidget, public LayerNavigation {
   Q_OBJECT
 public:
   RasterView(std::string file, std::string path, std::vector<hsize_t> dims);
+  // LayerNavigation: the leading-axis spin boxes are the selection; the main Layer toolbar drives them
+  int layer_axis_count() const override;
+  QString layer_axis_name(int axis) const override;
+  int layer_count(int axis) const override;
+  int layer_index(int axis) const override;
+  void set_layer_index(int axis, int index) override;
+signals:
+  void layer_changed();
 protected:
   bool eventFilter(QObject *watched,QEvent *event) override;
 private:
@@ -35,6 +44,7 @@ private:
   std::string file, path;
   std::vector<hsize_t> dims;
   std::vector<QSpinBox*> layers;
+  QStringList axis_names;   // names of the leading dimensions, e.g. time, lev
   QGraphicsView *canvas;
   QGraphicsScene *scene;
   QLabel *legend;

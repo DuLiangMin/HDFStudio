@@ -1,5 +1,5 @@
-﻿cmake_minimum_required(VERSION 3.16)
-project(HDFStudio VERSION 0.10.27 LANGUAGES C CXX)
+cmake_minimum_required(VERSION 3.16)
+project(HDFStudio VERSION 0.10.28 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
