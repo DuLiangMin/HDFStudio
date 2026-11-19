@@ -24,7 +24,7 @@ New-Item -ItemType Directory -Force "$stage\licenses" | Out-Null
 
 # Program files: the application and only the Qt parts it loads. Test binaries and the unused
 # network stack (Qt6Network, tls, networkinformation, tuio touch) are not shipped.
-$files = 'HDFStudio.exe','netcdf.dll','Qt6Core.dll','Qt6Gui.dll','Qt6Widgets.dll','D3Dcompiler_47.dll'
+$files = 'HDFStudio.exe','hdf_cli.exe','netcdf.dll','Qt6Core.dll','Qt6Gui.dll','Qt6Widgets.dll','D3Dcompiler_47.dll'
 foreach($f in $files) { Copy-Item "$release\$f" $stage }
 foreach($d in 'platforms','styles','imageformats') { Copy-Item "$release\$d" "$stage\$d" -Recurse }
 

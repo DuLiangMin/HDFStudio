@@ -47,5 +47,6 @@ private:
   std::vector<double> category_values;
   QStringList category_labels;
   bool geographic = false;
+  bool classic = false;   // NetCDF-3 file: every read goes through netCDF-C, HDF5 is never opened
   NcGeographicGrid geo_grid;
 };

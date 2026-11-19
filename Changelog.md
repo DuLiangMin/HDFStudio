@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.27 - 2026-11-20
+
+- Fixed: NetCDF-3 files (CDF-1 classic, CDF-2 64-bit offset, CDF-5 64-bit data) could not be opened ("Cannot open as HDF5 / NetCDF-4"). They have no HDF5 container; HDFStudio now detects them from the file header and reads them through netCDF-C: dataset tree with global attributes, grid, image view, Properties and text export. NetCDF-4 and HDF5 files are read exactly as before.
+- NetCDF-3 grids read only the displayed 2-D plane and re-read on layer change: a 697 MB 4-D variable opens in about 0.1 s with a 53 MB peak working set.
+- Fixed: NetCDF files under a Chinese (non-ASCII) path could not be read by netCDF-C on Windows; paths are now passed in the local code page.
+- Properties: dimension names, unlimited dimension and, for NetCDF-3, attribute values in the netCDF4-python style (numeric arrays expanded, shortest float32 form).
+- New `hdf_cli` commands `probe`, `info`, `props`, `export` (plus the existing `csv`); they call the same code as the GUI and are shipped in the Windows zip.
+- Validation: Debug/Release QtTest 31 passed + 1 optional real-sample test (passes when `HDFSTUDIO_CLASSIC_SAMPLE` is set), CTest 1/1; grid plane, decoded time column, image min/max and `hdf_cli info` match Python netCDF4; real-mouse desktop check on the 697 MB sample.
+
 ## 0.10.26 - 2026-11-20
 
 - Added Close File / Close All Files (File menu, Ctrl+F4 and Ctrl+W) and a tree context-menu Close File; `Close` renamed `Close View`. Views of a closed file are destroyed first, then tree nodes and data; the info tabs return to `No file opened.` after the last file.

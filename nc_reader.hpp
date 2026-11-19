@@ -43,9 +43,17 @@ struct NcMesh {
 };
 bool valid_vector_pair(const NcVectorPlane &planes);
 
+// netCDF-C on Windows opens files through the ANSI code page (936 on a Chinese system), so a path
+// with Chinese characters must be handed over in the local 8-bit encoding. UTF-8 is used only when
+// the local code page cannot represent the path (then no ANSI path exists anyway).
+inline QByteArray nc_path_bytes(const QString &file) {
+  const QByteArray local=file.toLocal8Bit();
+  return QString::fromLocal8Bit(local)==file ? local : file.toUtf8();
+}
+
 struct NcReader {
   int id = -1;
-  explicit NcReader(const QString &file) { if(nc_open(file.toUtf8().constData(), NC_NOWRITE, &id)!=NC_NOERR) id=-1; }
+  explicit NcReader(const QString &file) { if(nc_open(nc_path_bytes(file).constData(), NC_NOWRITE, &id)!=NC_NOERR) id=-1; }
   ~NcReader() { if(id >= 0) nc_close(id); }
   NcReader(const NcReader&) = delete;
   bool locate(const std::string &path, int &group, int &variable) const;

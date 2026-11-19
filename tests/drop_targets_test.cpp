@@ -2,6 +2,8 @@
 // Run: ctest --test-dir build/hdf_explorer -C Debug -R hdf_explorer_drop_tests --output-on-failure
 // Input: daily_bcccsm_2024100100_PRECT_clip.nc at the workspace root; no output files.
 #include <QApplication>
+#include <QBuffer>
+#include <QProcess>
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QMimeData>
@@ -44,6 +46,9 @@ private slots:
   void startupSplashIsPlainVisibleWidgetNotQSplashScreen();
   void timeGridShowsDecodedDatesBesideRawValues();
   void closeFileRemovesItsViewsAndReleasesTheFile();
+  void classicNetcdfOpensWithTreeGridImagePropertiesAndExport();
+  void externalClassicSampleMatchesPython();
+  void classicNetcdfOpensFromChinesePath();
 };
 
 void DropTargetsTest::acceptsExistingLocalFile() {
@@ -774,6 +779,304 @@ void DropTargetsTest::closeFileRemovesItsViewsAndReleasesTheFile() {
   QCOMPARE(mdi->subWindowList().size(),0);
   QVERIFY(QFile::remove(first));
   QVERIFY(QFile::remove(second));
+}
+
+// NetCDF-3 fixture shaped like the business forecast file that failed to open in 0.10.26:
+// unlimited time, lev, lat, lon, a 4-D float field, an integer plane and text/numeric attributes.
+// ttr[t][l][y][x] = t*10000 + l*1000 + y*10 + x so every cell identifies its own indices.
+static void write_classic_fixture(const QString &file, int mode) {
+  int ncid=-1,timeDim=-1,levDim=-1,latDim=-1,lonDim=-1;
+  int timeVar=-1,levVar=-1,latVar=-1,lonVar=-1,ttrVar=-1,countVar=-1;
+  const QByteArray path=nc_path_bytes(file);
+  QCOMPARE(nc_create(path.constData(),mode,&ncid),NC_NOERR);
+  QCOMPARE(nc_def_dim(ncid,"time",NC_UNLIMITED,&timeDim),NC_NOERR);
+  QCOMPARE(nc_def_dim(ncid,"lev",4,&levDim),NC_NOERR);
+  QCOMPARE(nc_def_dim(ncid,"lat",5,&latDim),NC_NOERR);
+  QCOMPARE(nc_def_dim(ncid,"lon",6,&lonDim),NC_NOERR);
+  QCOMPARE(nc_def_var(ncid,"time",NC_DOUBLE,1,&timeDim,&timeVar),NC_NOERR);
+  QCOMPARE(nc_def_var(ncid,"lev",NC_FLOAT,1,&levDim,&levVar),NC_NOERR);
+  QCOMPARE(nc_def_var(ncid,"lat",NC_FLOAT,1,&latDim,&latVar),NC_NOERR);
+  QCOMPARE(nc_def_var(ncid,"lon",NC_FLOAT,1,&lonDim,&lonVar),NC_NOERR);
+  const int fieldDims[4]={timeDim,levDim,latDim,lonDim};
+  QCOMPARE(nc_def_var(ncid,"ttr",NC_FLOAT,4,fieldDims,&ttrVar),NC_NOERR);
+  const int planeDims[2]={latDim,lonDim};
+  QCOMPARE(nc_def_var(ncid,"count",NC_SHORT,2,planeDims,&countVar),NC_NOERR);
+  const char description[]="Fengshun AI model ttr Product";
+  QCOMPARE(nc_put_att_text(ncid,NC_GLOBAL,"description",strlen(description),description),NC_NOERR);
+  const char timeUnits[]="days since 2026-11-02 12:00:00";
+  QCOMPARE(nc_put_att_text(ncid,timeVar,"units",strlen(timeUnits),timeUnits),NC_NOERR);
+  QCOMPARE(nc_put_att_text(ncid,latVar,"units",13,"degrees_north"),NC_NOERR);
+  QCOMPARE(nc_put_att_text(ncid,lonVar,"units",12,"degrees_east"),NC_NOERR);
+  QCOMPARE(nc_put_att_text(ncid,ttrVar,"units",5,"W/m^2"),NC_NOERR);
+  const float validRange[2]={-5.0f,5.0f};
+  QCOMPARE(nc_put_att_float(ncid,ttrVar,"valid_range",NC_FLOAT,2,validRange),NC_NOERR);
+  const float numberForms[5]={0.1f,50.0f,1e-5f,9.96921e36f,273.15f};
+  QCOMPARE(nc_put_att_float(ncid,ttrVar,"number_forms",NC_FLOAT,5,numberForms),NC_NOERR);
+  QCOMPARE(nc_enddef(ncid),NC_NOERR);
+  const double times[3]={0.0,0.25,0.5};
+  const float levs[4]={1,2,3,4},lats[5]={-20,-10,0,10,20},lons[6]={100,110,120,130,140,150};
+  for(size_t record=0;record<3;++record) {
+    QCOMPARE(nc_put_var1_double(ncid,timeVar,&record,&times[record]),NC_NOERR);
+  }
+  QCOMPARE(nc_put_var_float(ncid,levVar,levs),NC_NOERR);
+  QCOMPARE(nc_put_var_float(ncid,latVar,lats),NC_NOERR);
+  QCOMPARE(nc_put_var_float(ncid,lonVar,lons),NC_NOERR);
+  std::vector<float> ttr(3*4*5*6);
+  for(int t=0;t<3;++t) for(int l=0;l<4;++l) for(int y=0;y<5;++y) for(int x=0;x<6;++x)
+    ttr[((size_t(t)*4+l)*5+y)*6+x]=float(t*10000+l*1000+y*10+x);
+  const size_t start[4]={0,0,0,0},count[4]={3,4,5,6};
+  QCOMPARE(nc_put_vara_float(ncid,ttrVar,start,count,ttr.data()),NC_NOERR);
+  short counts[30];
+  for(int i=0;i<30;++i) counts[i]=short(i*3);
+  QCOMPARE(nc_put_var_short(ncid,countVar,counts),NC_NOERR);
+  QCOMPARE(nc_close(ncid),NC_NOERR);
+}
+
+// A modal warning (the 0.10.26 behaviour for these files) would hang the test run, so any modal
+// widget is closed by a watchdog and the missing tree then fails the assertions instead.
+static void close_modal_dialogs_later() {
+  QTimer::singleShot(1500,[]{ if(QWidget *modal=QApplication::activeModalWidget()) modal->close(); });
+}
+
+void DropTargetsTest::classicNetcdfOpensWithTreeGridImagePropertiesAndExport() {
+  struct Case { int mode; const char *kind; };
+  const Case cases[]={{NC_CLOBBER,"NetCDF CDF-1"},
+                      {NC_CLOBBER|NC_64BIT_OFFSET,"NetCDF CDF-2"},
+                      {NC_CLOBBER|NC_64BIT_DATA,"NetCDF CDF-5"}};
+  for(const Case &testCase:cases) {
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString file=dir.filePath("classic.nc");
+    write_classic_fixture(file,testCase.mode);
+    QCOMPARE(probe_data_format(file).kind,QString(testCase.kind));
+
+    MainWindow window;
+    auto *tree=window.findChild<FileTreeWidget*>();
+    auto *mdi=window.findChild<QMdiArea*>();
+    QVERIFY(tree);QVERIFY(mdi);
+    close_modal_dialogs_later();
+    QCOMPARE(window.read_file(file),0);
+    QCOMPARE(tree->topLevelItemCount(),1);
+    QTreeWidgetItem *root=tree->topLevelItem(0);
+    auto child_named=[](QTreeWidgetItem *parent,const QString &name) -> QTreeWidgetItem* {
+      for(int i=0;i<parent->childCount();i++)
+        if(parent->child(i)->text(0)==name) return parent->child(i);
+      return nullptr;
+    };
+    for(const char *name:{"time","lev","lat","lon","ttr","count","description"})
+      QVERIFY2(child_named(root,name),name);
+    QTreeWidgetItem *ttr=child_named(root,"ttr");
+    QVERIFY(child_named(ttr,"units"));
+    QVERIFY(child_named(ttr,"valid_range"));
+
+    // Image view: the first plane is y*10+x, then the second plane is selected through the axes.
+    tree->setCurrentItem(ttr);
+    emit tree->itemDoubleClicked(ttr,0);
+    QCOMPARE(mdi->subWindowList().size(),1);
+    QWidget *raster=mdi->subWindowList().last()->widget();
+    QTRY_COMPARE_WITH_TIMEOUT(raster->property("reader").toString(),QString("netCDF-C"),5000);
+    QCOMPARE(raster->property("minimum").toDouble(),0.0);
+    QCOMPARE(raster->property("maximum").toDouble(),45.0);
+    const auto axes=raster->findChildren<QSpinBox*>();
+    QCOMPARE(axes.size(),2);
+    axes.at(0)->setValue(2);
+    axes.at(1)->setValue(3);
+    QTRY_COMPARE_WITH_TIMEOUT(raster->property("minimum").toDouble(),23000.0,5000);
+    QCOMPARE(raster->property("maximum").toDouble(),23045.0);
+    mdi->closeAllSubWindows();
+
+    // Grid: only the displayed plane is held in memory and follows the layer selectors.
+    tree->setCurrentItem(ttr);
+    QVERIFY(QMetaObject::invokeMethod(tree,"add_grid"));
+    QCOMPARE(mdi->subWindowList().size(),1);
+    auto *table=mdi->subWindowList().last()->widget()->findChild<QTableView*>("gridTable");
+    QVERIFY(table);
+    QAbstractItemModel *model=table->model();
+    QCOMPARE(model->rowCount(),5);
+    QCOMPARE(model->columnCount(),6);
+    QCOMPARE(model->data(model->index(0,0)).toString(),QString("0"));
+    QCOMPARE(model->data(model->index(4,5)).toString(),QString("45"));
+    const auto combos=mdi->subWindowList().last()->widget()->findChildren<QComboBox*>();
+    QCOMPARE(combos.size(),2);
+    combos.at(0)->setCurrentIndex(2);
+    combos.at(1)->setCurrentIndex(3);
+    QCOMPARE(model->data(model->index(0,0)).toString(),QString("23000"));
+    QCOMPARE(model->data(model->index(3,4)).toString(),QString("23034"));
+    mdi->closeAllSubWindows();
+
+    // Numeric attribute and integer variable through the same grid.
+    tree->setCurrentItem(child_named(ttr,"valid_range"));
+    QVERIFY(QMetaObject::invokeMethod(tree,"add_grid"));
+    QCOMPARE(mdi->subWindowList().size(),1);
+    QAbstractItemModel *attributeModel=mdi->subWindowList().last()->widget()->findChild<QTableView*>("gridTable")->model();
+    QCOMPARE(attributeModel->rowCount(),2);
+    QCOMPARE(attributeModel->data(attributeModel->index(0,0)).toString(),QString("-5"));
+    QCOMPARE(attributeModel->data(attributeModel->index(1,0)).toString(),QString("5"));
+    mdi->closeAllSubWindows();
+    tree->setCurrentItem(child_named(root,"count"));
+    QVERIFY(QMetaObject::invokeMethod(tree,"add_grid"));
+    QAbstractItemModel *countModel=mdi->subWindowList().last()->widget()->findChild<QTableView*>("gridTable")->model();
+    QCOMPARE(countModel->data(countModel->index(4,5)).toString(),QString("87"));
+    mdi->closeAllSubWindows();
+
+    // Properties and export read the same file through netCDF-C.
+    auto summary=HdfProperties::inspect(file,"/ttr");
+    QVERIFY(summary.valid);
+    QCOMPARE(summary.objectType,QString("Dataset"));
+    QCOMPARE(summary.shape,QString("[3 x 4 x 5 x 6]"));
+    QCOMPARE(summary.dataType,QString("32-bit floating point (float32)"));
+    QCOMPARE(summary.reader,QString("netCDF-C"));
+    QCOMPARE(summary.dimensions,QString("ttr(time, lev, lat, lon)"));
+    QCOMPARE(summary.unlimitedDimensions,QString("time"));
+    // attribute values as Python netCDF4 prints them: arrays expanded, float32 in shortest form
+    QVERIFY2(summary.attributes.contains("valid_range | float32 | [2] | [-5.0, 5.0]"),
+             qPrintable(summary.attributes.join('\n')));
+    QVERIFY(HdfProperties::describe(summary).contains("Dimensions: ttr(time, lev, lat, lon)"));
+    QCOMPARE(summary.elements,quint64(360));
+    QCOMPARE(summary.bytes,quint64(1440));
+    QVERIFY(summary.attributes.join('\n').contains("units | "));
+    QVERIFY(summary.attributes.join('\n').contains("W/m^2"));
+    auto global=HdfProperties::inspect(file,"/");
+    QVERIFY(global.valid);
+    QCOMPARE(global.objectType,QString("Group"));
+    QCOMPARE(global.dimensions,QString("time(3), lev(4), lat(5), lon(6)"));
+    QVERIFY(global.attributes.join('\n').contains("Fengshun AI model ttr Product"));
+
+    QBuffer exported;
+    QVERIFY(exported.open(QIODevice::WriteOnly));
+    auto result=HdfTextExport::write(file,"/ttr",exported);
+    QVERIFY2(result.ok,qPrintable(result.error));
+    QCOMPARE(result.valuesWritten,quint64(360));
+    const auto lines=exported.data().split('\n');
+    QCOMPARE(lines.size(),61);
+    QCOMPARE(lines.at(0),QByteArray("0,1,2,3,4,5"));
+    QCOMPARE(lines.at(59),QByteArray("23040,23041,23042,23043,23044,23045"));
+
+    if(testCase.mode==NC_CLOBBER) {
+      // hdf_cli prints what the GUI functions return, for debugging a file without the GUI.
+      const QString cli=QDir(QCoreApplication::applicationDirPath()).absoluteFilePath("hdf_cli.exe");
+      QVERIFY2(QFileInfo(cli).isFile(),qPrintable(cli));
+      auto run_cli=[&cli](const QStringList &arguments) -> QString {
+        QProcess process;
+        process.start(cli,arguments);
+        if(!process.waitForFinished(30000) || process.exitCode()!=0) return QString("exit %1").arg(process.exitCode());
+        return QString::fromUtf8(process.readAllStandardOutput());
+      };
+      const QString props=run_cli({"props",file,"/ttr"});
+      for(const QString &line:HdfProperties::describe(summary)) QVERIFY2(props.contains(line),qPrintable(line));
+      const QString info=run_cli({"info",file});
+      QVERIFY2(info.contains("root group (file format NETCDF3_CLASSIC):"),qPrintable(info));
+      QVERIFY(info.contains("    description: Fengshun AI model ttr Product"));
+      QVERIFY(info.contains("    dimensions(sizes): time(3), lev(4), lat(5), lon(6)"));
+      QVERIFY(info.contains("variable float32 ttr(time, lev, lat, lon)"));
+      QVERIFY(info.contains("    valid_range: [-5.0, 5.0]"));
+      // numpy rules: positional for 1e-4 <= |x| < 1e16, otherwise scientific
+      QVERIFY2(info.contains("    number_forms: [0.1, 50.0, 1e-05, 9.96921e+36, 273.15]"),qPrintable(info));
+      QVERIFY(info.contains("current shape = (3, 4, 5, 6)"));
+      QVERIFY(info.contains("unlimited dimensions: time"));
+      QCOMPARE(run_cli({"export",file,"/lat"}).trimmed(),QString("-20,-10,0,10,20"));
+      QVERIFY(run_cli({"probe",file}).contains("kind: NetCDF CDF-1"));
+
+      // The time coordinate is decoded with the variable's own units, as for NetCDF-4 files.
+      tree->setCurrentItem(child_named(root,"time"));
+      emit tree->itemDoubleClicked(child_named(root,"time"),0);
+      QAbstractItemModel *timeModel=mdi->subWindowList().last()->widget()->findChild<QTableView*>("gridTable")->model();
+      QCOMPARE(timeModel->rowCount(),3);
+      QTRY_COMPARE_WITH_TIMEOUT(timeModel->columnCount(),3,20000);
+      QCOMPARE(timeModel->data(timeModel->index(0,2)).toString(),QString("20261102 12:00:00"));
+      QCOMPARE(timeModel->data(timeModel->index(1,2)).toString(),QString("20261102 18:00:00"));
+      mdi->closeAllSubWindows();
+    }
+
+    // Closing the file removes the tree and releases the file on disk.
+    window.close_all_files();
+    QCOMPARE(tree->topLevelItemCount(),0);
+    QVERIFY2(QFile::remove(file),"classic file is still held open after Close All Files");
+  }
+}
+
+// Directory and file names are built from code points so the test does not depend on the source
+// file encoding or the shell code page.
+void DropTargetsTest::classicNetcdfOpensFromChinesePath() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString folder=dir.filePath(QString::fromUtf16(u"\u4e2d\u6587\u76ee\u5f55"));
+  QVERIFY(QDir().mkpath(folder));
+  const QString file=folder+QString::fromUtf16(u"/\u51e4\u987a_\u6837\u4f8b.nc");
+  write_classic_fixture(file,NC_CLOBBER);
+
+  MainWindow window;
+  auto *tree=window.findChild<FileTreeWidget*>();
+  auto *mdi=window.findChild<QMdiArea*>();
+  close_modal_dialogs_later();
+  QCOMPARE(window.read_file(file),0);
+  QCOMPARE(tree->topLevelItemCount(),1);
+  QTreeWidgetItem *root=tree->topLevelItem(0);
+  QTreeWidgetItem *ttr=nullptr;
+  for(int i=0;i<root->childCount();i++) if(root->child(i)->text(0)=="ttr") ttr=root->child(i);
+  QVERIFY(ttr);
+  tree->setCurrentItem(ttr);
+  QVERIFY(QMetaObject::invokeMethod(tree,"add_grid"));
+  auto *table=mdi->subWindowList().last()->widget()->findChild<QTableView*>("gridTable");
+  QVERIFY(table);
+  QCOMPARE(table->model()->data(table->model()->index(4,5)).toString(),QString("45"));
+  mdi->closeAllSubWindows();
+  QCOMPARE(HdfProperties::inspect(file,"/ttr").shape,QString("[3 x 4 x 5 x 6]"));
+  window.close_all_files();
+}
+
+// Optional reconciliation on a real, large NetCDF-3 product; set HDFSTUDIO_CLASSIC_SAMPLE to its
+// path. The dump (one grid plane plus the decoded time column) is compared with netCDF4 by
+// tests/reconcile_classic_grid.py. Without the variable the test is skipped.
+void DropTargetsTest::externalClassicSampleMatchesPython() {
+  const QString sample=qEnvironmentVariable("HDFSTUDIO_CLASSIC_SAMPLE");
+  if(sample.isEmpty() || !QFileInfo(sample).isFile()) QSKIP("HDFSTUDIO_CLASSIC_SAMPLE is not set");
+  MainWindow window;
+  auto *tree=window.findChild<FileTreeWidget*>();
+  auto *mdi=window.findChild<QMdiArea*>();
+  close_modal_dialogs_later();
+  QCOMPARE(window.read_file(sample),0);
+  QTreeWidgetItem *root=tree->topLevelItem(0);
+  auto child_named=[root](const QString &name) -> QTreeWidgetItem* {
+    for(int i=0;i<root->childCount();i++) if(root->child(i)->text(0)==name) return root->child(i);
+    return nullptr;
+  };
+  const QDir logs(QDir(QCoreApplication::applicationDirPath()).absoluteFilePath("../../../logs/S4-UI-ClassicNetcdf"));
+  QVERIFY(QDir().mkpath(logs.absolutePath()));
+
+  tree->setCurrentItem(child_named("ttr"));
+  QElapsedTimer timer; timer.start();
+  QVERIFY(QMetaObject::invokeMethod(tree,"add_grid"));
+  const qint64 openMilliseconds=timer.elapsed();
+  QWidget *grid=mdi->subWindowList().last()->widget();
+  QAbstractItemModel *model=grid->findChild<QTableView*>("gridTable")->model();
+  const auto combos=grid->findChildren<QComboBox*>();
+  QCOMPARE(combos.size(),2);
+  combos.at(0)->setCurrentIndex(7);
+  combos.at(1)->setCurrentIndex(42);
+  QFile plane(logs.absoluteFilePath("grid-ttr-t7-lev42.tsv"));
+  QVERIFY(plane.open(QIODevice::WriteOnly|QIODevice::Truncate));
+  for(int row=0;row<model->rowCount();row++) {
+    QStringList cells;
+    for(int column=0;column<model->columnCount();column++) cells << model->data(model->index(row,column)).toString();
+    plane.write((cells.join('\t')+"\n").toUtf8());
+  }
+  plane.close();
+  QFile meta(logs.absoluteFilePath("grid-open.txt"));
+  QVERIFY(meta.open(QIODevice::WriteOnly|QIODevice::Truncate));
+  meta.write(QString("grid_open_ms=%1\nrows=%2\ncolumns=%3\n").arg(openMilliseconds).arg(model->rowCount()).arg(model->columnCount()).toUtf8());
+  meta.close();
+  mdi->closeAllSubWindows();
+
+  tree->setCurrentItem(child_named("time"));
+  emit tree->itemDoubleClicked(child_named("time"),0);
+  QAbstractItemModel *timeModel=mdi->subWindowList().last()->widget()->findChild<QTableView*>("gridTable")->model();
+  QTRY_COMPARE_WITH_TIMEOUT(timeModel->columnCount(),3,60000);
+  QFile times(logs.absoluteFilePath("grid-time.tsv"));
+  QVERIFY(times.open(QIODevice::WriteOnly|QIODevice::Truncate));
+  for(int row=0;row<timeModel->rowCount();row++)
+    times.write(QString("%1\t%2\t%3\n").arg(timeModel->data(timeModel->index(row,0)).toString(),
+        timeModel->data(timeModel->index(row,1)).toString(),timeModel->data(timeModel->index(row,2)).toString()).toUtf8());
 }
 
 QTEST_MAIN(DropTargetsTest)

@@ -1,4 +1,5 @@
 #include "properties_inspector.hpp"
+#include "nc_classic.hpp"
 #include "hdf5.h"
 #include <limits>
 #include <algorithm>
@@ -55,8 +56,111 @@ QString HdfProperties::formatAttribute(const QString &name,const QString &type,
     truncated ? QString(" [truncated]") : QString());
 }
 
+namespace {
+QString classicTypeName(nc_type type) {
+  const NcTypeInfo info=nc_type_info(type);
+  if(info.kind==NcTypeInfo::Integer)
+    return QString("%1-bit %2 integer").arg(info.size*8).arg(info.is_signed?"signed":"unsigned");
+  if(info.kind==NcTypeInfo::Float) return QString("%1-bit floating point").arg(info.size*8);
+  if(info.kind==NcTypeInfo::Text) return QString("character text");
+  return QString("unsupported netCDF type %1").arg(int(type));
+}
+
+// Attribute values as Python netCDF4 shows them (numeric arrays expanded, float32 shortest form);
+// the datatype column carries the numpy name so both reports can be compared side by side.
+QString classicAttributeLine(const QString &filePath,const std::string &variable,
+                             const NcClassicAttribute &attribute) {
+  const NcTypeInfo info=nc_type_info(attribute.type);
+  QString shape=(info.kind==NcTypeInfo::Text || attribute.length==1)
+      ? QString("Scalar") : QString("[%1]").arg(attribute.length);
+  return HdfProperties::formatAttribute(QString::fromStdString(attribute.name),
+                                        nc_classic_type_name(attribute.type),shape,
+                                        nc_classic_attribute_value(filePath,variable,attribute));
+}
+
+HdfProperties::Summary inspectClassic(const QString &filePath,const QString &objectPath) {
+  HdfProperties::Summary result;
+  const NcClassicFile file=nc_classic_inspect(filePath);
+  if(!file.error.isEmpty()) return result;
+  const bool root=objectPath.isEmpty() || objectPath==QStringLiteral("/");
+  const std::string name=objectPath.toStdString();
+  const std::vector<NcClassicAttribute> *attributes=&file.global_attributes;
+  std::string variablePath;
+  result.reader="netCDF-C";
+  QStringList unlimited;
+  for(const auto &dimension:file.dimensions)
+    if(dimension.unlimited) unlimited << QString::fromStdString(dimension.name);
+  result.unlimitedDimensions=unlimited.join(", ");
+  if(root) {
+    result.objectType="Group";
+    QStringList sizes;
+    for(const auto &dimension:file.dimensions)
+      sizes << QString("%1(%2)").arg(QString::fromStdString(dimension.name)).arg(qulonglong(dimension.length));
+    result.dimensions=sizes.join(", ");
+    result.dataType=QString("file format %1").arg(file.format);
+  } else {
+    const std::string wanted=name[0]=='/'?name.substr(1):name;
+    const NcClassicVariable *found=nullptr;
+    for(const auto &variable:file.variables) if(variable.name==wanted) found=&variable;
+    if(!found) return result;
+    result.objectType="Dataset";
+    result.dataType=QString("%1 (%2)").arg(classicTypeName(found->type),nc_classic_type_name(found->type));
+    QStringList names;
+    for(const auto &dimension:found->dimension_names) names << QString::fromStdString(dimension);
+    result.dimensions=QString("%1(%2)").arg(QString::fromStdString(found->name),names.join(", "));
+    result.elements=1;
+    QStringList parts;
+    for(size_t length:found->shape) {
+      if(length && result.elements>std::numeric_limits<quint64>::max()/length) { result.shape="overflow"; break; }
+      result.elements*=length;
+      parts << QString::number(qulonglong(length));
+    }
+    if(result.shape!="overflow") result.shape=found->shape.empty()?QString("Scalar"):QString("[%1]").arg(parts.join(" x "));
+    const quint64 size=nc_type_info(found->type).size;
+    if(result.elements && size>std::numeric_limits<quint64>::max()/result.elements) result.byteCountOverflow=true;
+    else result.bytes=result.elements*size;
+    result.storage=found->record?QString("Record variable (unlimited dimension)"):QString("Contiguous");
+    result.compression="None";
+    attributes=&found->attributes;
+    variablePath=wanted;
+  }
+  constexpr size_t maximumAttributes=256;
+  result.attributeListTruncated=attributes->size()>maximumAttributes;
+  for(size_t i=0;i<std::min(attributes->size(),maximumAttributes);++i)
+    result.attributes << classicAttributeLine(filePath,variablePath,(*attributes)[i]);
+  if(result.attributeListTruncated)
+    result.attributes << QString("Attribute list truncated after %1 of %2 attributes")
+      .arg(maximumAttributes).arg(attributes->size());
+  result.valid=true;
+  return result;
+}
+}
+
+QStringList HdfProperties::describe(const Summary &summary) {
+  QStringList details;
+  if(!summary.valid) {
+    details << QString("Detailed metadata: unavailable for this object.");
+    return details;
+  }
+  details << QString("%1 object: %2").arg(summary.reader,summary.objectType);
+  if(!summary.dataType.isEmpty()) details << QString("Source datatype: %1").arg(summary.dataType);
+  if(!summary.dimensions.isEmpty()) details << QString("Dimensions: %1").arg(summary.dimensions);
+  if(!summary.unlimitedDimensions.isEmpty())
+    details << QString("Unlimited dimensions: %1").arg(summary.unlimitedDimensions);
+  if(!summary.storage.isEmpty()) details << QString("Storage layout: %1").arg(summary.storage);
+  if(!summary.compression.isEmpty()) details << QString("Filters: %1").arg(summary.compression);
+  if(summary.byteCountOverflow) details << QString("Uncompressed byte count: overflow");
+  if(summary.attributeListTruncated) details << QString("Attribute list was truncated.");
+  if(!summary.attributes.isEmpty()) {
+    details << QString("Attributes (name | datatype | shape | value):");
+    details.append(summary.attributes);
+  }
+  return details;
+}
+
 HdfProperties::Summary HdfProperties::inspect(const QString &filePath,
                                                const QString &objectPath) {
+  if(is_classic_netcdf_file(filePath)) return inspectClassic(filePath,objectPath);
   Summary result;
   QByteArray fileName=filePath.toLocal8Bit(), path=objectPath.toUtf8();
   Handle file{H5Fopen(fileName.constData(),H5F_ACC_RDONLY,H5P_DEFAULT),H5Fclose};

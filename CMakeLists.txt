@@ -1,5 +1,5 @@
-cmake_minimum_required(VERSION 3.16)
-project(HDFStudio VERSION 0.10.26 LANGUAGES C CXX)
+﻿cmake_minimum_required(VERSION 3.16)
+project(HDFStudio VERSION 0.10.27 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -36,10 +36,6 @@ endif()
 set(src 
     hdf_explorer.hpp
     hdf_explorer.cpp
-    properties_inspector.hpp
-    properties_inspector.cpp
-    text_export.hpp
-    text_export.cpp
     vector_view.hpp
     vector_view.cpp
     mesh_view.hpp
@@ -66,24 +62,26 @@ set(lib_dep
 # HDF5 libraries 
 #//////////////////////////
 
+set(hdf5_dep)
 if (MSVC)
     set(hdf_bin "${CMAKE_SOURCE_DIR}/build/hdf5-1.8.20/bin")
-    list(APPEND lib_dep debug "${hdf_bin}/Debug/libhdf5_D.lib"
-                        optimized "${hdf_bin}/Release/libhdf5.lib")
+    list(APPEND hdf5_dep debug "${hdf_bin}/Debug/libhdf5_D.lib"
+                         optimized "${hdf_bin}/Release/libhdf5.lib")
     set(zlib_bin "${CMAKE_SOURCE_DIR}/build/zlib")
-    list(APPEND lib_dep debug "${zlib_bin}/Debug/zlibstaticd.lib"
-                        optimized "${zlib_bin}/Release/zlibstatic.lib")
+    list(APPEND hdf5_dep debug "${zlib_bin}/Debug/zlibstaticd.lib"
+                         optimized "${zlib_bin}/Release/zlibstatic.lib")
 elseif(APPLE)
     link_directories(${CMAKE_SOURCE_DIR}/build/hdf5-1.8.20/bin)
-    set(lib_dep ${lib_dep} libhdf5.a)
+    set(hdf5_dep libhdf5.a)
 elseif(LINUX)
     link_directories(${CMAKE_SOURCE_DIR}/build/hdf5-1.8.20/bin)
-    set(lib_dep ${lib_dep} libhdf5.a)
+    set(hdf5_dep libhdf5.a)
 endif()
 
 if (WIN32)
-    set(lib_dep ${lib_dep} shlwapi advapi32 shell32 user32 kernel32)
+    list(APPEND hdf5_dep shlwapi advapi32 shell32 user32 kernel32)
 endif()
+set(lib_dep ${lib_dep} ${hdf5_dep})
 
 add_executable(hdf_explorer ${src} ${qrc_sources} ${windows_resources} ${app_icon_macos})
 set_target_properties(hdf_explorer PROPERTIES
@@ -93,11 +91,20 @@ set_target_properties(hdf_explorer PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO "${CMAKE_SOURCE_DIR}/build/output/RelWithDebInfo"
     RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL "${CMAKE_SOURCE_DIR}/build/output/MinSizeRel"
 )
-add_library(nc_core STATIC nc_reader.cpp)
+# Layers shared by the GUI, the tests and hdf_cli (no Qt Widgets below hdf_explorer):
+#   nc_core  : netCDF-C reading (format probe, NetCDF-3 structure/values, image planes)
+#   hdf_core : Properties summary and text export (HDF5, plus nc_core for NetCDF-3)
+add_library(nc_core STATIC nc_reader.cpp nc_classic.cpp)
 target_link_libraries(nc_core PUBLIC Qt6::Core)
-add_executable(hdf_cli nc_cli.cpp)
-target_link_libraries(hdf_cli PRIVATE nc_core)
-target_link_libraries(hdf_explorer PRIVATE nc_core)
+add_library(hdf_core STATIC properties_inspector.cpp text_export.cpp)
+target_link_libraries(hdf_core PUBLIC nc_core ${hdf5_dep})
+add_executable(hdf_cli hdf_cli.cpp)
+target_link_libraries(hdf_cli PRIVATE hdf_core)
+set_target_properties(hdf_cli PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_SOURCE_DIR}/build/output/Debug"
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_SOURCE_DIR}/build/output/Release"
+)
+target_link_libraries(hdf_explorer PRIVATE hdf_core)
 add_executable(hdf_explorer_drop_tests
     tests/drop_targets_test.cpp
     ${src}
@@ -109,7 +116,9 @@ set_target_properties(hdf_explorer_drop_tests PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_SOURCE_DIR}/build/output/Release"
 )
 target_compile_definitions(hdf_explorer_drop_tests PRIVATE HDF_EXPLORER_TEST_BUILD)
-target_link_libraries(hdf_explorer_drop_tests PRIVATE nc_core ${lib_dep} Qt6::Test)
+target_link_libraries(hdf_explorer_drop_tests PRIVATE hdf_core ${lib_dep} Qt6::Test)
+# the tests also run hdf_cli to check that it prints what the GUI shows
+add_dependencies(hdf_explorer_drop_tests hdf_cli)
 if(MSVC)
   add_custom_command(TARGET hdf_explorer_drop_tests POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_SOURCE_DIR}/build/native-nc/Release/netcdf.dll" "$<TARGET_FILE_DIR:hdf_explorer_drop_tests>")

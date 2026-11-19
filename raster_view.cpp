@@ -1,6 +1,7 @@
 // Read one scalar plane as doubles, mask missing values, render in index order.
 #include "raster_view.hpp"
 #include "nc_reader.hpp"
+#include "nc_classic.hpp"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -146,6 +147,7 @@ RasterView::RasterView(std::string filename, std::string varpath, std::vector<hs
   layout->addWidget(tools);
   auto geo_action=tools->addAction(tr("Geographic coordinates"));
   geo_action->setCheckable(true);
+  classic=is_classic_netcdf_file(QString::fromLocal8Bit(file.c_str()));
   NcReader coordinate_reader(QString::fromLocal8Bit(file.c_str()));
   std::vector<size_t> coordinate_shape;
   coordinate_shape.reserve(dims.size());
@@ -247,20 +249,24 @@ void RasterView::refresh() {
   if(rows > INT_MAX || cols > INT_MAX || rows*cols > 16*1024*1024) {
     legend->setText(tr("Plane exceeds the 16 megapixel preview limit.")); return;
   }
-  Handle fid{H5Fopen(file.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT), H5Fclose};
-  if(fid.id < 0) return;
-  Handle ds{H5Dopen2(fid.id, path.c_str(), H5P_DEFAULT), H5Dclose};
-  if(ds.id < 0) return;
-  Handle space{H5Dget_space(ds.id), H5Sclose};
-  if(space.id < 0 || H5Sget_simple_extent_ndims(space.id) != int(dims.size())) return;
+  const QString filename=QString::fromLocal8Bit(file.c_str());
   std::vector<hsize_t> start(dims.size(),0), count(dims.size(),1);
   for(size_t i=0; i<layers.size(); ++i) start[i] = layers[i]->value();
   count[count.size()-2] = rows; count.back() = cols;
-  if(H5Sselect_hyperslab(space.id,H5S_SELECT_SET,start.data(),nullptr,count.data(),nullptr)<0) return;
-  Handle mem{H5Screate_simple(2,&count[count.size()-2],nullptr), H5Sclose};
+  // The HDF5 handles stay at -1 for a NetCDF-3 file; Handle ignores negative ids on destruction.
+  Handle fid{-1, H5Fclose}, ds{-1, H5Dclose}, space{-1, H5Sclose}, mem{-1, H5Sclose};
+  if(!classic) {
+    fid.id = H5Fopen(file.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
+    if(fid.id < 0) return;
+    ds.id = H5Dopen2(fid.id, path.c_str(), H5P_DEFAULT);
+    if(ds.id < 0) return;
+    space.id = H5Dget_space(ds.id);
+    if(space.id < 0 || H5Sget_simple_extent_ndims(space.id) != int(dims.size())) return;
+    if(H5Sselect_hyperslab(space.id,H5S_SELECT_SET,start.data(),nullptr,count.data(),nullptr)<0) return;
+    mem.id = H5Screate_simple(2,&count[count.size()-2],nullptr);
+  }
   std::vector<double> values;
-  const QString filename=QString::fromLocal8Bit(file.c_str());
-  bool use_nc=filename.endsWith(".nc",Qt::CaseInsensitive) || filename.endsWith(".nc4",Qt::CaseInsensitive);
+  bool use_nc=classic || filename.endsWith(".nc",Qt::CaseInsensitive) || filename.endsWith(".nc4",Qt::CaseInsensitive);
   if(use_nc) {
     NcReader nc(filename); int group, variable;
     if(nc.locate(path,group,variable)) {
@@ -269,6 +275,8 @@ void RasterView::refresh() {
       if(!error.isEmpty()) { legend->setText(error); return; }
       if(plane.rows!=rows || plane.cols!=cols) return;
       values=std::move(plane.values);
+    } else if(classic) {
+      legend->setText(tr("Variable %1 not found in this NetCDF file.").arg(QString::fromStdString(path))); return;
     } else use_nc=false;
   }
   if(!use_nc) {
@@ -292,9 +300,12 @@ void RasterView::refresh() {
     }
   }
   std::sort(category_values.begin(),category_values.end());
-  auto declared_categories=numeric_array_attr(ds.id,"flag_values");
+  auto declared_categories=classic ? nc_classic_numeric_attribute(filename,path,"flag_values")
+                                   : numeric_array_attr(ds.id,"flag_values");
   if(!declared_categories.empty()) category_values=std::move(declared_categories);
-  auto meanings=text_array_attr(ds.id,"flag_meanings").split(QRegularExpression("\\s+"),Qt::SkipEmptyParts);
+  const QString meaning_text=classic ? nc_classic_text_attribute(filename,path,"flag_meanings")
+                                     : text_array_attr(ds.id,"flag_meanings");
+  auto meanings=meaning_text.split(QRegularExpression("\\s+"),Qt::SkipEmptyParts);
   category_labels=RasterColorMap::categoryLabels(category_values,meanings);
   bool automatic=range_mode->currentData().toBool();
   auto range=RasterColorMap::resolveRange(automatic,low,high,

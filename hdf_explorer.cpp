@@ -18,6 +18,7 @@
 #include "hdf_explorer.hpp"
 #include "raster_view.hpp"
 #include "nc_reader.hpp"
+#include "nc_classic.hpp"
 #include "properties_inspector.hpp"
 #include "text_export.hpp"
 #include "vector_view.hpp"
@@ -71,7 +72,7 @@ int main(int argc, char *argv[])
 {
   Q_INIT_RESOURCE(hdf_explorer);
   QApplication app(argc, argv);
-  QCoreApplication::setApplicationVersion("0.10.26");
+  QCoreApplication::setApplicationVersion("0.10.27");
   QCoreApplication::setApplicationName(app_name);
 #if QT_VERSION >= 0x050000
   QCommandLineParser parser;
@@ -196,6 +197,15 @@ public:
   H5T_sign_t m_datatype_sign;
   H5T_class_t  m_datatype_class;
   void *m_buf;
+
+  /////////////////////////////////////////////////////////////////////////////////////////////////////
+  //NetCDF-3 (CDF-1/2/5) items are read through netCDF-C instead of HDF5.
+  //m_slice_mode: for rank > 2 m_buf holds only the plane picked by the layer selectors, so a
+  //multi-gigabyte variable is never loaded whole into the grid.
+  /////////////////////////////////////////////////////////////////////////////////////////////////////
+
+  bool m_classic = false;
+  bool m_slice_mode = false;
 };
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -272,6 +282,67 @@ ItemData* get_item_data(QTreeWidgetItem *item)
   QVariant data = item->data(0, Qt::UserRole);
   ItemData *item_data = data.value<ItemData*>();
   return item_data;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+//NetCDF-3 (CDF-1/2/5) support: type mapping and buffer loading through netCDF-C
+//The tree, grid and views share ItemData/hdf_dataset_t, so a classic type is described with the same
+//HDF5 class/size/sign fields the HDF5 path fills.
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+
+static const quint64 grid_buffer_limit_bytes = 2ULL * 1024 * 1024 * 1024;
+
+static QString classic_file_of(const ItemData *item_data)
+{
+  return QString::fromLocal8Bit(item_data->m_file_name.c_str());
+}
+
+static void classic_describe_type(nc_type type, size_t &size, H5T_sign_t &sign, H5T_class_t &cls)
+{
+  const NcTypeInfo info = nc_type_info(type);
+  size = info.size;
+  sign = info.is_signed ? H5T_SGN_2 : H5T_SGN_NONE;
+  switch(info.kind)
+  {
+  case NcTypeInfo::Integer: cls = H5T_INTEGER; break;
+  case NcTypeInfo::Float:   cls = H5T_FLOAT;   break;
+  case NcTypeInfo::Text:    cls = H5T_STRING;  break;
+  default:                  cls = H5T_NO_CLASS; break;
+  }
+}
+
+// Allocates the grid buffer on first use and fills it. A variable with more than two dimensions
+// keeps only the plane selected by `layers` (one index per leading axis); anything else is read whole.
+static QString classic_load_variable(ItemData *item_data, const std::vector<int> &layers)
+{
+  hdf_dataset_t *dataset = item_data->m_dataset;
+  const size_t rank = dataset->m_dim.size();
+  std::vector<size_t> start(rank, 0), count(rank, 1);
+  quint64 elements = 1;
+  for(size_t axis = 0; axis < rank; ++axis)
+  {
+    const bool leading = rank > 2 && axis < rank - 2;
+    count[axis] = leading ? 1 : static_cast<size_t>(dataset->m_dim[axis]);
+    if(leading) start[axis] = axis < layers.size() ? static_cast<size_t>(std::max(0, layers[axis])) : 0;
+    elements *= count[axis];
+  }
+  if(elements == 0) return QObject::tr("This variable has no values yet.");
+  if(!dataset->m_buf)
+  {
+    if(elements > grid_buffer_limit_bytes / std::max<size_t>(1, dataset->m_datatype_size))
+      return QObject::tr("The values to display need more than 2 GB of memory.");
+    dataset->m_buf = malloc(static_cast<size_t>(elements * dataset->m_datatype_size));
+    if(!dataset->m_buf) return QObject::tr("Not enough memory to read this variable.");
+    dataset->m_slice_mode = rank > 2;
+  }
+  const QString error = nc_classic_read_variable(classic_file_of(item_data), dataset->m_path,
+      rank == 0 ? std::vector<size_t>() : start, count, dataset->m_buf);
+  if(!error.isEmpty())
+  {
+    free(dataset->m_buf);
+    dataset->m_buf = nullptr;
+  }
+  return error;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////
@@ -652,7 +723,7 @@ void MainWindow::about()
 {
   QMessageBox::about(this,
     tr("About HDFStudio"),
-    tr("HDFStudio 0.10.26\nAuthor: DuLiangMin\n\n"
+    tr("HDFStudio 0.10.27\nAuthor: DuLiangMin\n\n"
        "Metadata convention target: CF-1.8\n"
        "Product libraries: netCDF-C 4.9.3, HDF5 1.8.20\n\n"
        "Reference environment: Python 3.12.10, netCDF4-python 1.7.5.1.post1\n"
@@ -940,6 +1011,80 @@ void MainWindow::open_recent_file()
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////
+//MainWindow::add_classic_tree
+//builds the tree of a NetCDF-3 file: variables with their attributes, then the global attributes.
+//Paths follow the HDF5 convention: "/name" for a variable, an attribute item keeps its parent's path.
+///////////////////////////////////////////////////////////////////////////////////////
+
+static void add_classic_attributes(QTreeWidgetItem *parent, const std::string &file_name,
+                                   const std::string &parent_path,
+                                   const std::vector<NcClassicAttribute> &attributes, const QIcon &icon)
+{
+  for(const NcClassicAttribute &attribute : attributes)
+  {
+    size_t size = 0;
+    H5T_sign_t sign = H5T_SGN_2;
+    H5T_class_t cls = H5T_NO_CLASS;
+    classic_describe_type(attribute.type, size, sign, cls);
+    // HDF5 stores text and single values as scalars, longer numeric attributes as a 1-D array
+    std::vector<hsize_t> dim;
+    if(cls != H5T_STRING && attribute.length > 1) dim.push_back(attribute.length);
+    hdf_dataset_t *dataset = new hdf_dataset_t(parent_path.c_str(), dim,
+        cls == H5T_STRING ? attribute.length : size, sign, cls);
+    dataset->m_classic = true;
+    auto *item = new QTreeWidgetItem(parent);
+    item->setText(0, QString::fromStdString(attribute.name));
+    item->setIcon(0, icon);
+    ItemData *item_data = new ItemData(ItemData::Attribute, file_name, attribute.name, dataset);
+    QVariant data;
+    data.setValue(item_data);
+    item->setData(0, Qt::UserRole, data);
+  }
+}
+
+QTreeWidgetItem *MainWindow::add_classic_tree(const QString &file_name, const std::string &stored_name,
+                                              const QString &display_name)
+{
+  const NcClassicFile info = nc_classic_inspect(file_name);
+  if(!info.error.isEmpty())
+  {
+    QMessageBox::warning(this, tr("Open file"),
+        tr("Cannot open as NetCDF classic (CDF-1/2/5):\n%1\n%2").arg(file_name, info.error));
+    return nullptr;
+  }
+
+  ItemData *group_data = new ItemData(ItemData::Group, stored_name, "/", (hdf_dataset_t*)NULL);
+  QTreeWidgetItem *root_item = new QTreeWidgetItem(m_tree);
+  root_item->setText(0, display_name);
+  root_item->setIcon(0, m_icon_group);
+  QVariant data;
+  data.setValue(group_data);
+  root_item->setData(0, Qt::UserRole, data);
+
+  for(const NcClassicVariable &variable : info.variables)
+  {
+    size_t size = 0;
+    H5T_sign_t sign = H5T_SGN_2;
+    H5T_class_t cls = H5T_NO_CLASS;
+    classic_describe_type(variable.type, size, sign, cls);
+    std::vector<hsize_t> dim(variable.shape.begin(), variable.shape.end());
+    const std::string path = "/" + variable.name;
+    hdf_dataset_t *dataset = new hdf_dataset_t(path.c_str(), dim, size, sign, cls);
+    dataset->m_classic = true;
+    auto *item_var = new QTreeWidgetItem(root_item);
+    item_var->setText(0, QString::fromStdString(variable.name));
+    item_var->setIcon(0, dataset_icon(dim.size()));
+    ItemData *item_data = new ItemData(ItemData::Variable, stored_name, variable.name, dataset);
+    QVariant variable_data;
+    variable_data.setValue(item_data);
+    item_var->setData(0, Qt::UserRole, variable_data);
+    add_classic_attributes(item_var, stored_name, path, variable.attributes, m_icon_attribute);
+  }
+  add_classic_attributes(root_item, stored_name, "/", info.global_attributes, m_icon_attribute);
+  return root_item;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////
 //MainWindow::read_file
 ///////////////////////////////////////////////////////////////////////////////////////
 
@@ -964,6 +1109,25 @@ int MainWindow::read_file(QString file_name)
   //convert to std::string
   str_file_name = ba.data();
 
+  index = file_name.lastIndexOf(QChar('/'));
+  len = file_name.length();
+  name = file_name.right(len - index - 1);
+
+  QTreeWidgetItem *root_item = nullptr;
+
+  ///////////////////////////////////////////////////////////////////////////////////////
+  //NetCDF-3 (CDF-1/2/5) has no HDF5 container: H5Fopen reports "file signature not found",
+  //so these files are read through netCDF-C
+  ///////////////////////////////////////////////////////////////////////////////////////
+
+  if(is_classic_netcdf_file(file_name))
+  {
+    root_item = add_classic_tree(file_name, str_file_name, name);
+    if(!root_item) return -1;
+  }
+  else
+  {
+
   ///////////////////////////////////////////////////////////////////////////////////////
   //construct list of objects
   ///////////////////////////////////////////////////////////////////////////////////////
@@ -985,10 +1149,7 @@ int MainWindow::read_file(QString file_name)
   ItemData *item_data_grp = new ItemData(ItemData::Group, str_file_name, "/", (hdf_dataset_t*)NULL);
 
   //add root
-  QTreeWidgetItem *root_item = new QTreeWidgetItem(m_tree);
-  index = file_name.lastIndexOf(QChar('/'));
-  len = file_name.length();
-  name = file_name.right(len - index - 1);
+  root_item = new QTreeWidgetItem(m_tree);
   root_item->setText(0, name);
   root_item->setIcon(0, m_icon_group);
   //add data
@@ -1003,6 +1164,8 @@ int MainWindow::read_file(QString file_name)
 
   if(H5Fclose(fid) < 0)
   {
+
+  }
 
   }
   root_item->setExpanded(true);
@@ -1494,6 +1657,13 @@ void FileTreeWidget::load_item(QTreeWidgetItem  *item)
     return;
   }
 
+  if(item_data->m_dataset->m_classic)
+  {
+    const QString error = classic_load_variable(item_data, std::vector<int>());
+    if(!error.isEmpty()) QMessageBox::warning(this, tr("Grid"), error);
+    return;
+  }
+
   if((fid = H5Fopen(item_data->m_file_name.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT)) < 0)
   {
 
@@ -1609,6 +1779,26 @@ void FileTreeWidget::load_item_attribute(QTreeWidgetItem  *item)
   //if not loaded, read buffer from file 
   if(item_data->m_dataset->m_buf != NULL)
   {
+    return;
+  }
+
+  if(item_data->m_dataset->m_classic)
+  {
+    // The attribute's parent is "/" (global) or "/variable"; the element count is the product of m_dim.
+    quint64 elements = 1;
+    for(hsize_t dimension : item_data->m_dataset->m_dim) elements *= dimension;
+    const quint64 bytes = elements * item_data->m_dataset->m_datatype_size;
+    if(elements == 0 || bytes > grid_buffer_limit_bytes) return;
+    item_data->m_dataset->m_buf = malloc(static_cast<size_t>(bytes));
+    const QString error = item_data->m_dataset->m_buf
+        ? nc_classic_read_attribute(classic_file_of(item_data), path, name, item_data->m_dataset->m_buf)
+        : QObject::tr("Not enough memory to read this attribute.");
+    if(!error.isEmpty())
+    {
+      free(item_data->m_dataset->m_buf);
+      item_data->m_dataset->m_buf = nullptr;
+      QMessageBox::warning(this, tr("Grid"), tr("Cannot read this attribute: %1").arg(error));
+    }
     return;
   }
 
@@ -1919,21 +2109,9 @@ void FileTreeWidget::show_item_properties()
       ? item_data->m_dataset->m_path : item_data->m_item_nm);
   if(item_data->m_kind==ItemData::Root || objectPath==QString::fromStdString(item_data->m_file_name))
     objectPath=QStringLiteral("/");
+  // same detail lines as `hdf_cli props <file> <path>`
   auto summary=HdfProperties::inspect(QString::fromLocal8Bit(item_data->m_file_name.c_str()),objectPath);
-  if(summary.valid) {
-    details << tr("HDF5 object: %1").arg(summary.objectType);
-    if(!summary.dataType.isEmpty()) details << tr("Source datatype: %1").arg(summary.dataType);
-    if(!summary.storage.isEmpty()) details << tr("Storage layout: %1").arg(summary.storage);
-    if(!summary.compression.isEmpty()) details << tr("Filters: %1").arg(summary.compression);
-    if(summary.byteCountOverflow) details << tr("Uncompressed byte count: overflow");
-    if(summary.attributeListTruncated) details << tr("Attribute list was truncated.");
-    if(!summary.attributes.isEmpty()) {
-      details << tr("Attributes (name | datatype | shape | value):");
-      details.append(summary.attributes);
-    }
-  } else {
-    details << tr("Detailed HDF5 metadata: unavailable for this object.");
-  }
+  details.append(HdfProperties::describe(summary));
   QMessageBox::information(this, tr("Properties"), details.join(QLatin1Char('\n')));
 }
 
@@ -2163,8 +2341,15 @@ QVariant TableModel::headerData(int section, Qt::Orientation orientation, int ro
 
 void TableModel::data_changed()
 {
+  // A NetCDF-3 plane is read on demand: load the newly selected layer before the view repaints.
+  if(m_dataset->m_classic && m_dataset->m_slice_mode && m_widget)
+  {
+    const QString error = classic_load_variable(m_item_data, m_widget->m_layer);
+    if(!error.isEmpty()) QMessageBox::warning(nullptr, QObject::tr("Grid"), error);
+  }
+  if(m_nbr_rows <= 0 || columnCount() <= 0) return;
   QModelIndex top = index(0, 0, QModelIndex());
-  QModelIndex bottom = index(m_nbr_rows, m_nbr_cols, QModelIndex());
+  QModelIndex bottom = index(m_nbr_rows - 1, columnCount() - 1, QModelIndex());
   dataChanged(top, bottom);
 }
 
@@ -2184,8 +2369,13 @@ QVariant TableModel::data(const QModelIndex &index, int role) const
   }
 
   //start of offset
+  //a NetCDF-3 slice buffer already holds only the selected plane
+  if(m_dataset->m_slice_mode)
+  {
+    idx_buf = 0;
+  }
   //3D
-  if(parent->m_layer.size() == 1)
+  else if(parent->m_layer.size() == 1)
   {
     idx_buf = parent->m_layer[0] * m_nbr_rows * m_nbr_cols;
   }

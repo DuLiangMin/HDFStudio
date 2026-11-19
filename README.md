@@ -43,10 +43,11 @@ scientific stack. It is a small, portable program (about 14 MB) that opens a fil
 
 ## ✨ Features
 
-- 📂 **Open NetCDF and HDF5 files**: NetCDF-3 (CDF-1, CDF-2, CDF-5), NetCDF-4 / NetCDF-4 classic, and HDF5 containers; open several files at once, drag and drop supported.
+- 📂 **Open NetCDF and HDF5 files**: NetCDF-3 (CDF-1, CDF-2, CDF-5; since 0.10.27, read through netCDF-C), NetCDF-4 / NetCDF-4 classic, and HDF5 containers; open several files at once, drag and drop supported. The format is detected from the file header, not the `.nc` extension.
 - 🗂️ **Close files cleanly**: **File → Close File** (`Ctrl+F4` or `Ctrl+W`), **Close All Files**, or right-click any node → **Close File**. Views of a closed file close with it.
 - 🌳 **Dataset tree**: groups, dimensions, variables and attributes with type and shape details.
-- 🔢 **Data grid**: exact values in a table, with layer navigation for 3-D, 4-D and 5-D arrays.
+- 🔢 **Data grid**: exact values in a table, with layer navigation for 3-D, 4-D and 5-D arrays. For NetCDF-3 files only the displayed 2-D plane is read, so a 700 MB variable opens in under 0.1 s.
+- 🔍 **Properties** like `print(netCDF4.Dataset(...))`: dimension names, unlimited dimension, and attribute values with arrays expanded.
 - 🗺️ **Image view**: 2-D slices with continuous and discrete color palettes (Viridis, Inferno, Turbo, …), and latitude/longitude readout on hover for CF lat/lon grids.
 - ⏱️ **Time decoding**: `time` variables such as `seconds since 1970-01-01` or `days since 2024-10-01` are shown as `yyyymmdd` and `yyyymmdd hh:mm:ss`, using the file's own calendar via `netCDF4.num2date`.
 - 🧭 **Coordinate orientation**: the By NetCDF4 tab reports whether latitude runs south→north or north→south and longitude west→east or east→west, a common source of flipped maps.
@@ -73,6 +74,17 @@ HDFStudio.exe a.nc b.nc
 HDFStudio.exe --preview PRECT --layer 0 --png out.png data.nc
 ```
 
+`hdf_cli.exe` (in the same zip) runs the same reading code without a window, which helps when a file
+does not open or a value looks wrong:
+
+```
+hdf_cli probe  data.nc              format detected from the file header
+hdf_cli info   data.nc              dimensions, variables and attributes, laid out like netCDF4-python
+hdf_cli props  data.nc /ttr         the lines of the Properties dialog
+hdf_cli export data.nc /lat         values as text (add a file name to write a file)
+hdf_cli csv    data.nc /ttr plane.csv 7 42    one 2-D plane as the image view reads it
+```
+
 ## 🛠️ Build from source (Windows)
 
 Visual Studio 2022 x64, CMake, Qt 6.8 (`CMAKE_PREFIX_PATH`), HDF5 1.8.20 built into `build/hdf5-1.8.20`,
@@ -84,18 +96,20 @@ and netCDF-C 4.9.3 headers in `ext/netcdf-c-4.9.3/include` with `netcdf.lib`/`ne
 
 HDFStudio is a viewer and checker; it never modifies input files. CF diagnostics are advisory and not a
 conformance certification. Map projections and arbitrary unstructured meshes are not supported yet.
-Very large variables are read whole into memory today; chunked and sliced reading is on the roadmap.
+NetCDF-3 grids read one 2-D plane at a time; for NetCDF-4/HDF5 the grid still reads the whole variable,
+and chunked reading for those is on the roadmap.
 See `FORMAT_CAPABILITY.md` for the verified format boundary.
 
 ## 🗺️ Roadmap
 
-- Sliced and chunked reading for multi-gigabyte variables
+- Sliced and chunked reading for multi-gigabyte NetCDF-4 / HDF5 variables
 - Map projections and coastline overlay
 - More time-axis and calendar checks (bounds, irregular steps)
 - Linux and macOS builds
 
 Ideas and bug reports are welcome in [Issues](https://github.com/DuLiangMin/HDFStudio/issues). If a file
-opens wrongly, please attach the output of `ncdump -h file.nc` (header only, no data).
+opens wrongly, please attach the output of `hdf_cli probe file.nc` and `hdf_cli info file.nc` (or
+`ncdump -h file.nc`); these are header only, no data.
 
 ## 🙏 Credits and license
 

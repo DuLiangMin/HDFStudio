@@ -1,4 +1,5 @@
 #include "text_export.hpp"
+#include "nc_classic.hpp"
 #include "hdf5.h"
 #include <algorithm>
 #include <cmath>
@@ -39,11 +40,92 @@ QString numericText(hid_t type,const void *buffer,size_t index) {
 }
 }
 
+namespace {
+QString classicNumericText(const NcTypeInfo &type,const void *buffer,size_t index) {
+  if(type.kind==NcTypeInfo::Float) {
+    if(type.size==sizeof(float)) return QString::number(static_cast<const float*>(buffer)[index],'g',9);
+    return QString::number(static_cast<const double*>(buffer)[index],'g',17);
+  }
+  if(type.is_signed) {
+    switch(type.size) {
+      case 1:return QString::number(static_cast<const qint8*>(buffer)[index]);
+      case 2:return QString::number(static_cast<const qint16*>(buffer)[index]);
+      case 4:return QString::number(static_cast<const qint32*>(buffer)[index]);
+      default:return QString::number(static_cast<const qint64*>(buffer)[index]);
+    }
+  }
+  switch(type.size) {
+    case 1:return QString::number(static_cast<const quint8*>(buffer)[index]);
+    case 2:return QString::number(static_cast<const quint16*>(buffer)[index]);
+    case 4:return QString::number(static_cast<const quint32*>(buffer)[index]);
+    default:return QString::number(static_cast<const quint64*>(buffer)[index]);
+  }
+}
+
+// NetCDF-3 variant of write(): same row-wise layout (one line per last-axis row), read through
+// netCDF-C one chunk at a time so a multi-gigabyte variable never has to fit in memory.
+HdfTextExport::Result writeClassic(const QString &filePath,const QString &objectPath,
+    QIODevice &output,size_t chunkValues,
+    const std::function<bool(quint64,quint64)> &continueWriting) {
+  HdfTextExport::Result result;
+  const NcClassicFile file=nc_classic_inspect(filePath);
+  if(!file.error.isEmpty()) { result.error="Cannot open NetCDF file"; return result; }
+  const std::string wanted=objectPath.toStdString().substr(objectPath.startsWith('/')?1:0);
+  const NcClassicVariable *variable=nullptr;
+  for(const auto &candidate:file.variables) if(candidate.name==wanted) variable=&candidate;
+  if(!variable) { result.error="Object is not a readable numeric dataset"; return result; }
+  const NcTypeInfo type=nc_type_info(variable->type);
+  if(type.kind!=NcTypeInfo::Integer && type.kind!=NcTypeInfo::Float) {
+    result.error="Only supported signed integer and floating-point datasets can be exported";
+    return result;
+  }
+  const size_t rank=variable->shape.size();
+  quint64 total=1;
+  for(size_t length:variable->shape) {
+    if(length && total>std::numeric_limits<quint64>::max()/length) { result.error="Cannot determine dataset size"; return result; }
+    total*=length;
+  }
+  const size_t columns=rank>0?variable->shape.back():1;
+  if(columns==0 || chunkValues>std::numeric_limits<size_t>::max()/type.size) {
+    result.error="Invalid dataset or chunk size"; return result;
+  }
+  std::vector<unsigned char> buffer(chunkValues*type.size);
+  for(quint64 offset=0;offset<total;) {
+    if(continueWriting && !continueWriting(offset,total)) { result.error="Export cancelled"; return result; }
+    const size_t column=static_cast<size_t>(offset%columns);
+    size_t count=std::min({chunkValues,columns-column,static_cast<size_t>(total-offset)});
+    std::vector<size_t> start(rank,0), selected(rank,1);
+    quint64 rowIndex=offset/columns;
+    for(int axis=int(rank)-2;axis>=0;--axis) {
+      start[size_t(axis)]=static_cast<size_t>(rowIndex%variable->shape[size_t(axis)]);
+      rowIndex/=variable->shape[size_t(axis)];
+    }
+    if(rank>0) { start.back()=column; selected.back()=count; }
+    const QString error=nc_classic_read_variable(filePath,wanted,start,selected,buffer.data());
+    if(!error.isEmpty()) { result.error="Dataset chunk read failed: "+error; return result; }
+    for(size_t i=0;i<count;++i) {
+      if(offset+i && (offset+i)%columns==0) { if(output.write("\n",1)!=1) {result.error="Text output write failed";return result;} }
+      else if(offset+i) { if(output.write(",",1)!=1) {result.error="Text output write failed";return result;} }
+      QByteArray text=classicNumericText(type,buffer.data(),i).toUtf8();
+      if(output.write(text.constData(),text.size())!=text.size()) {
+        result.error="Text output write failed"; return result;
+      }
+    }
+    result.valuesWritten+=count;
+    offset+=count;
+  }
+  if(total && output.write("\n",1)!=1) {result.error="Text output write failed";return result;}
+  result.ok=true;
+  return result;
+}
+}
+
 HdfTextExport::Result HdfTextExport::write(const QString &filePath,
     const QString &objectPath,QIODevice &output,size_t chunkValues,
     const std::function<bool(quint64,quint64)> &continueWriting) {
   Result result;
   if(chunkValues==0) { result.error="Chunk size must be positive"; return result; }
+  if(is_classic_netcdf_file(filePath)) return writeClassic(filePath,objectPath,output,chunkValues,continueWriting);
   const QByteArray nativePath=filePath.toLocal8Bit(), objectName=objectPath.toUtf8();
   Handle file{H5Fopen(nativePath.constData(),H5F_ACC_RDONLY,H5P_DEFAULT),H5Fclose};
   if(file.id<0) { result.error="Cannot open HDF5 file"; return result; }

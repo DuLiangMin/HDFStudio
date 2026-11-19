@@ -13,7 +13,7 @@ bool valid_vector_pair(const NcVectorPlane &planes) {
 }
 
 FormatProbe probe_data_format(const QString &file) {
-  const QByteArray encoded=file.toUtf8();
+  const QByteArray encoded=nc_path_bytes(file);
   int ncid=-1;
   if(nc_open(encoded.constData(),NC_NOWRITE,&ncid)==NC_NOERR) {
     int format=0,mode=0,apiFormat=0;
