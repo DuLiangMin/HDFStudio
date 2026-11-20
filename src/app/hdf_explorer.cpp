@@ -18,6 +18,7 @@
 #include <algorithm>
 #include "hdf_explorer.hpp"
 #include "raster_view.hpp"
+#include "histogram_view.hpp"
 #include "nc_reader.hpp"
 #include "nc_classic.hpp"
 #include "properties_inspector.hpp"
@@ -95,7 +96,7 @@ int main(int argc, char *argv[])
 {
   Q_INIT_RESOURCE(hdf_explorer);
   QApplication app(argc, argv);
-  QCoreApplication::setApplicationVersion("0.10.30");
+  QCoreApplication::setApplicationVersion("0.12.02");
   QCoreApplication::setApplicationName(app_name);
 #if QT_VERSION >= 0x050000
   QCommandLineParser parser;
@@ -867,7 +868,7 @@ void MainWindow::about()
 {
   QMessageBox::about(this,
     tr("About HDFStudio"),
-    tr("HDFStudio 0.10.30\nAuthor: DuLiangMin\n\n"
+    tr("HDFStudio 0.12.02\nAuthor: DuLiangMin\n\n"
        "Metadata convention target: CF-1.8\n"
        "Product libraries: netCDF-C 4.9.3, HDF5 1.8.20\n\n"
        "Reference environment: Python 3.12.10, netCDF4-python 1.7.5.1.post1\n"
@@ -2138,6 +2139,12 @@ void FileTreeWidget::show_context_menu(const QPoint &p)
   action_image->setEnabled(numeric && variable && rank >= 2);
   connect(action_image, &QAction::triggered, this, [this, item_data]() { m_main_window->add_image(item_data); });
 
+  QAction *action_histogram = menu.addAction(tr("Histogram..."));
+  action_histogram->setToolTip(tr("One layer of this variable as a histogram, sampled at random "
+                                  "(1 value in 20 by default)"));
+  action_histogram->setEnabled(numeric && variable && rank >= 2);
+  connect(action_histogram, &QAction::triggered, this, [this, item_data]() { m_main_window->add_histogram(item_data); });
+
   QAction *action_dimensions = menu.addAction(tr("Dimension Selection..."));
   action_dimensions->setEnabled(variable && rank > 2);
   connect(action_dimensions, &QAction::triggered, this, &FileTreeWidget::add_grid);
@@ -3293,6 +3300,21 @@ void MainWindow::add_image(ItemData *item)
   sub->setAttribute(Qt::WA_DeleteOnClose);
   tag_view(sub, item);
   sub->resize(720, 510);
+  sub->show();
+}
+
+///////////////////////////////////////////////////////////////////////////////////////
+//MainWindow::add_histogram
+//one layer of the variable, sampled at random (initial 1 in 20) and drawn as bars
+///////////////////////////////////////////////////////////////////////////////////////
+
+void MainWindow::add_histogram(ItemData *item)
+{
+  auto view = new HistogramView(item->m_file_name, item->m_dataset->m_path, item->m_dataset->m_dim);
+  auto sub = m_mdi_area->addSubWindow(view);
+  sub->setAttribute(Qt::WA_DeleteOnClose);
+  tag_view(sub, item);
+  sub->resize(760, 560);
   sub->show();
 }
 

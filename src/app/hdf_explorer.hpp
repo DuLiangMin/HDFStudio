@@ -96,6 +96,7 @@ public:
   // mode: GridValueMode (0 decoded, 1 stored, 2 both side by side)
   void add_table(ItemData *item_data, int mode = 0);
   void add_image(ItemData *item_data);
+  void add_histogram(ItemData *item_data);
   void export_image(ItemData *item_data, QWidget *parent);
   int read_file(QString file_name);
   // Closes the file that owns `item` (any node below a top-level tree root): its views are

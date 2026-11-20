@@ -67,6 +67,7 @@ scientific stack. It is a small, portable program (about 15 MB) that opens a fil
 - 🧭 **Coordinate orientation**: the By NetCDF4 tab reports whether latitude runs south→north or north→south and longitude west→east or east→west, a common source of flipped maps.
 - ✅ **CF Conventions check**: a CF-1.8 report from the IOOS Compliance Checker, plus built-in advisory CF metadata diagnostics.
 - 🌬️ **Vector view** for U/V wind or current components, and a preview of **UGRID** triangular meshes.
+- 📊 **Histogram of one layer** (0.12.02): right-click a variable with at least two dimensions → **Histogram...**. The window reads the selected layer once and shows its distribution: a bar chart plus one summary line with values sampled, bins, min, max, mean, standard deviation and how many cells are NaN. **Sample 1 in N** (default 20, that is one value in twenty) draws a uniformly random subset and keeps exactly `round(finite / N)` values — no regular grid of every Nth cell — so a 1201 × 1401 plane answers in about 70 ms; type `1` for every value. Changing the step or the number of bins re-samples and re-bins values that are already in memory, so the file is not read again, and **Draw a new sample** takes another random subset of the same size. A seed keeps the bars reproducible: the same settings always show the same sample. Drop-down layers work for 3-D, 4-D and 5-D variables and follow the Layer toolbar. `hdf_cli hist` prints the same lines.
 - 💾 **Export** values to text and slices to PNG; batch preview from the command line.
 
 ## 📥 Download and run
@@ -99,6 +100,10 @@ hdf_cli export data.nc /lat         values as text (add a file name to write a f
 hdf_cli csv    data.nc /ttr plane.csv 7 42    one 2-D plane as the image view reads it
 hdf_cli mask   data.nc /precipitation 9999 - 0    Mask Range on decoded values ("-" = open end):
                                                  count masked and min/max of what remains
+hdf_cli hist   data.nc /precipitation 0.05 32 0   histogram of layer 0: keep a random 1 in 20,
+                                                 32 bins (fraction, bins, then one index per
+                                                 leading axis); the numbers match the Histogram
+                                                 window line for line
 ```
 
 ## 🛠️ Build from source (Windows)
@@ -107,6 +112,22 @@ Visual Studio 2022 x64, CMake, Qt 6.8 (`CMAKE_PREFIX_PATH`), HDF5 1.8.20 built i
 and netCDF-C 4.9.3 headers in `ext/netcdf-c-4.9.3/include` with `netcdf.lib`/`netcdf.dll` in
 `build/native-nc/Release`. See `CMakeLists.txt`. `tools/package-windows.ps1` builds the release zips.
 `build.cmake.sh` is the inherited Linux script and has not been tested for this release.
+
+Sources live in four folders, so a file can be found by what it does rather than by its name:
+
+```
+src/app/     hdf_explorer.cpp/.hpp (main window), layer_navigation, iterate, visit
+src/core/    nc_reader, nc_classic, properties_inspector, text_export, plane_reader
+             (plane decoding and the histogram, shared by the GUI and hdf_cli)
+src/views/   raster_view, vector_view, mesh_view, histogram_view
+src/cli/     hdf_cli.cpp, the window-less debug tool
+resources/   Qt resources, icon, sample.ico/.icns, netcdf_report.py, images/
+docs/        FORMAT_CAPABILITY.md, STAGE4_ACCEPTANCE.md
+```
+
+Headers are included by file name (`#include "nc_reader.hpp"`); `CMakeLists.txt` adds
+`src/app`, `src/core` and `src/views` to the include path, so moving a file between those folders
+needs no edit at the call sites.
 
 ## 📌 Scope
 

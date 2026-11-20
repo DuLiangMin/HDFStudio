@@ -10,13 +10,16 @@
 #include <QTemporaryFile>
 #include <QtTest>
 #include <limits>
+#include <numeric>
 
-#include "../hdf_explorer.hpp"
-#include "../raster_view.hpp"
-#include "../properties_inspector.hpp"
-#include "../text_export.hpp"
-#include "../nc_reader.hpp"
-#include "../mesh_view.hpp"
+#include "hdf_explorer.hpp"
+#include "raster_view.hpp"
+#include "properties_inspector.hpp"
+#include "text_export.hpp"
+#include "nc_reader.hpp"
+#include "plane_reader.hpp"
+#include "histogram_view.hpp"
+#include "mesh_view.hpp"
 #include <QPlainTextEdit>
 
 class DropTargetsTest : public QObject {
@@ -55,6 +58,7 @@ private slots:
   void maskRangeUsesDecodedValuesWithOpenEnds();
   void decodedAndStoredGridsShowScaleFactorAndOffset();
   void bothGridsShowDecodedAndRawSideBySide();
+  void histogramSamplesOneInTwentyAndBinsDecodedValues();
   void externalPackedSampleMatchesPython();
   void fileDropOpensFromEveryAreaOfTheMainWindow();
 };
@@ -1695,6 +1699,182 @@ void DropTargetsTest::bothGridsShowDecodedAndRawSideBySide() {
   QCOMPARE(model->data(model->index(0,1)).toString(),QString("0"));
   mdi->closeAllSubWindows();
   window.close_all_files();
+}
+
+// Histogram of one layer, sampled at random: the default keeps one value in twenty, the sample is
+// exactly round(finite / N) values drawn from the whole plane, the same seed keeps the same values,
+// NaN is left out, and the bars are built from decoded values.
+void DropTargetsTest::histogramSamplesOneInTwentyAndBinsDecodedValues() {
+  // 0 .. 9999, so every bin has values and a lattice sample would give exactly 50 per bin.
+  std::vector<double> values;
+  for(int i = 0; i < 10000; ++i) values.push_back(double(i));
+  const NcHistogram sampled = nc_histogram(values, 0.05, 10, 1);
+  QVERIFY2(sampled.valid, qPrintable(sampled.error));
+  QCOMPARE(sampled.total, size_t(10000));
+  QCOMPARE(sampled.missing, size_t(0));
+  QCOMPARE(sampled.every_nth, 20);
+  QCOMPARE(sampled.sampled, size_t(500));        // exactly a twentieth of 10000, not "about"
+  QCOMPARE(sampled.bins, 10);
+  QCOMPARE(std::accumulate(sampled.counts.begin(), sampled.counts.end(), size_t(0)), sampled.sampled);
+  // the values are drawn from the whole plane, so the axis covers (nearly) all of it
+  QVERIFY(sampled.minimum >= 0.0 && sampled.minimum < 1000.0);
+  QVERIFY(sampled.maximum <= 9999.0 && sampled.maximum > 9000.0);
+  QCOMPARE(sampled.edges.front(), sampled.minimum);
+  QCOMPARE(sampled.edges.back(), sampled.maximum);
+  // a uniform plane has values in every bin...
+  for(size_t count : sampled.counts) QVERIFY(count > 0);
+  // ...and a random draw is not the regular grid that would give exactly 50 per bin
+  QVERIFY(!std::all_of(sampled.counts.begin(), sampled.counts.end(),
+                       [](size_t count) { return count == 50; }));
+
+  // the same seed is repeatable, another seed is another sample of the same size
+  const NcHistogram again = nc_histogram(values, 0.05, 10, 1);
+  QCOMPARE(again.sampled, sampled.sampled);
+  QCOMPARE(again.counts, sampled.counts);
+  QCOMPARE(again.minimum, sampled.minimum);
+  const NcHistogram other = nc_histogram(values, 0.05, 10, 2);
+  QCOMPARE(other.sampled, size_t(500));
+  QVERIFY(other.counts != sampled.counts);
+
+  // keeping everything uses every value; NaN is missing, not a bin
+  std::vector<double> with_missing = values;
+  with_missing.push_back(NAN);
+  with_missing.push_back(NAN);
+  const NcHistogram all = nc_histogram(with_missing, 1.0, 4, 1);
+  QCOMPARE(all.total, size_t(10000));
+  QCOMPARE(all.missing, size_t(2));
+  QCOMPARE(all.sampled, size_t(10000));
+  QCOMPARE(all.minimum, 0.0);
+  QCOMPARE(all.maximum, 9999.0);          // 1 in 1 sees the exact extremes
+  QCOMPARE(all.edges.back(), 9999.0);
+  QVERIFY(qFuzzyCompare(all.mean + 1.0, 4999.5 + 1.0));
+  // the maximum value lands in the last bin, not outside it
+  QCOMPARE(all.counts.front(), size_t(2500));
+  QCOMPARE(all.counts.back(), size_t(2500));
+
+  // a plane smaller than the step still keeps one value (a twentieth of 3 rounds to nothing)
+  const std::vector<double> three{1.0, 2.0, 3.0};
+  const NcHistogram tiny = nc_histogram(three, 0.05, 4, 1);
+  QVERIFY(tiny.valid);
+  QCOMPARE(tiny.total, size_t(3));
+  QCOMPARE(tiny.sampled, size_t(1));
+  QCOMPARE(tiny.sampled, std::accumulate(tiny.counts.begin(), tiny.counts.end(), size_t(0)));
+
+  // a constant plane still draws one bar, and a bad fraction is refused
+  const NcHistogram constant = nc_histogram(std::vector<double>(100, 42.0), 1.0, 8, 1);
+  QVERIFY(constant.valid);
+  QCOMPARE(constant.bins, 1);
+  QCOMPARE(constant.counts.at(0), size_t(100));
+  QVERIFY(constant.edges.front() < 42.0 && constant.edges.back() > 42.0);
+  QVERIFY(!nc_histogram(values, 0.0, 8, 1).valid);
+  QVERIFY(!nc_histogram(values, 1.5, 8, 1).valid);
+  QVERIFY(!nc_histogram(std::vector<double>(4, NAN), 0.05, 8, 1).valid);
+
+  // decoded values: the packed fixture stores x*10000 and means x, so the histogram spans 0..9999
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString file=dir.filePath("histogram.nc");
+  {
+    const QByteArray path=file.toLocal8Bit();
+    int ncid=-1,timeDim=-1,latDim=-1,lonDim=-1,var=-1;
+    QCOMPARE(nc_create(path.constData(),NC_NETCDF4|NC_CLASSIC_MODEL|NC_CLOBBER,&ncid),NC_NOERR);
+    QCOMPARE(nc_def_dim(ncid,"time",1,&timeDim),NC_NOERR);
+    QCOMPARE(nc_def_dim(ncid,"lat",4,&latDim),NC_NOERR);
+    QCOMPARE(nc_def_dim(ncid,"lon",5,&lonDim),NC_NOERR);
+    const int dims[3]={timeDim,latDim,lonDim};
+    QCOMPARE(nc_def_var(ncid,"precipitation",NC_INT,3,dims,&var),NC_NOERR);
+    const double scale=0.0001, offset=0.0;
+    QCOMPARE(nc_put_att_double(ncid,var,"scale_factor",NC_DOUBLE,1,&scale),NC_NOERR);
+    QCOMPARE(nc_put_att_double(ncid,var,"add_offset",NC_DOUBLE,1,&offset),NC_NOERR);
+    const int fillValue=-32767;
+    QCOMPARE(nc_put_att_int(ncid,var,"_FillValue",NC_INT,1,&fillValue),NC_NOERR);
+    QCOMPARE(nc_enddef(ncid),NC_NOERR);
+    int stored[20];
+    for(int i=0;i<20;++i) stored[i]= i==0 ? -32767 : (i-1)*10000;   // 0 .. 18 -> decoded 0..18
+    QCOMPARE(nc_put_var_int(ncid,var,stored),NC_NOERR);
+    QCOMPARE(nc_close(ncid),NC_NOERR);
+  }
+
+  const NcPlaneResult plane=nc_read_plane_decoded(file,"/precipitation",{1,4,5},{0});
+  QVERIFY2(plane.error.isEmpty(),qPrintable(plane.error));
+  QCOMPARE(plane.reader,QString("netCDF-C"));
+  QCOMPARE(plane.plane.rows,size_t(4));
+  QCOMPARE(plane.plane.cols,size_t(5));
+  QCOMPARE(plane.plane.values.size(),size_t(20));
+  QVERIFY(std::isnan(plane.plane.values[0]));           // _FillValue became NaN
+  QCOMPARE(plane.plane.values[1],0.0);
+  QCOMPARE(plane.plane.values[19],18.0);
+
+  const NcHistogram packed=nc_histogram(plane.plane.values,1.0,6,1);
+  QVERIFY(packed.valid);
+  QCOMPARE(packed.total,size_t(19));                    // the missing value is not counted
+  QCOMPARE(packed.missing,size_t(1));
+  QCOMPARE(packed.minimum,0.0);
+  QCOMPARE(packed.maximum,18.0);
+  const QStringList lines=nc_histogram_lines(packed);
+  QVERIFY2(lines.first().contains("19 finite, 1 missing"),qPrintable(lines.first()));
+  QVERIFY2(lines.value(1).contains("range: [0, 18]"),qPrintable(lines.value(1)));
+
+  // the window: default sampling is 1 in 20, the plane is read once and resampling is a setting
+  HistogramView view(file.toLocal8Bit().toStdString(),"/precipitation",{1,4,5});
+  view.resize(800,600);
+  view.show();
+  QVERIFY(QTest::qWaitForWindowExposed(&view));
+  // the sampling field is found by its accessible name: the first spin box is the layer selector
+  QSpinBox *every=nullptr;
+  for(QSpinBox *spin:view.findChildren<QSpinBox*>())
+    if(spin->accessibleName()=="Sample 1 in N") every=spin;
+  QVERIFY(every);
+  QCOMPARE(every->value(),20);
+  QCOMPARE(QString::number(view.property("keepFraction").toDouble()),QString("0.05"));
+  QCOMPARE(view.property("planeValues").toULongLong(),qulonglong(20));
+  QCOMPARE(view.property("total").toULongLong(),qulonglong(19));
+  QCOMPARE(view.property("missing").toULongLong(),qulonglong(1));
+  auto *canvas=view.findChild<HistogramCanvas*>();
+  QVERIFY(canvas);
+  // one twentieth of the 19 finite values is one value, drawn at random from the plane
+  QCOMPARE(canvas->histogram().sampled,size_t(1));
+  QVERIFY(canvas->histogram().minimum>=0.0 && canvas->histogram().maximum<=18.0);
+  // the step only re-samples the values already in memory: no second read of the file
+  every->setValue(2);
+  QCOMPARE(view.property("sampled").toULongLong(),qulonglong(10));   // round(19 / 2)
+  QCOMPARE(view.property("planeValues").toULongLong(),qulonglong(20));
+  // 1 uses every value of the plane
+  every->setValue(1);
+  QCOMPARE(view.property("sampled").toULongLong(),qulonglong(19));
+  QCOMPARE(QString::number(view.property("keepFraction").toDouble()),QString("1"));
+  // the bins field re-bins the same values
+  QSpinBox *bins=nullptr;
+  for(QSpinBox *spin:view.findChildren<QSpinBox*>())
+    if(spin->accessibleName()=="Bins") bins=spin;
+  QVERIFY(bins);
+  QCOMPARE(bins->value(),32);
+  bins->setValue(5);
+  QCOMPARE(view.property("bins").toInt(),5);
+  QCOMPARE(canvas->histogram().counts.size(),size_t(5));
+  QCOMPARE(nc_histogram_lines(canvas->histogram()).size(),size_t(3+canvas->histogram().bins));
+  QVERIFY(!canvas->grab().isNull());
+
+  // hdf_cli hist is the same code path: same totals, same sample size, same lines
+  const QString cli=QDir(QCoreApplication::applicationDirPath()).absoluteFilePath("hdf_cli.exe");
+  QVERIFY2(QFileInfo(cli).isFile(),qPrintable(cli));
+  auto run_cli=[&cli](const QStringList &arguments) -> QString {
+    QProcess process;
+    process.start(cli,arguments);
+    if(!process.waitForFinished(60000) || process.exitCode()!=0)
+      return QString("exit %1: %2").arg(process.exitCode()).arg(QString::fromUtf8(process.readAllStandardError()));
+    return QString::fromUtf8(process.readAllStandardOutput());
+  };
+  const QString full=run_cli({"hist",file,"/precipitation","1.0","6","0"});
+  QVERIFY2(full.contains("19 finite, 1 missing"),qPrintable(full));
+  QVERIFY2(full.contains("sampled 19 at random (1 in 1, seed 1)"),qPrintable(full));
+  // the same lines, apart from the platform line ending of a console stream
+  const QString expected=nc_histogram_lines(nc_histogram(plane.plane.values,1.0,6,1)).join('\n');
+  QCOMPARE(QString(full).replace("\r\n","\n").trimmed(),expected.trimmed());
+  const QString fifth=run_cli({"hist",file,"/precipitation","0.05","6","0"});
+  QVERIFY2(fifth.contains("sampled 1 at random (1 in 20, seed 1)"),qPrintable(fifth));
+  QVERIFY2(run_cli({"hist",file,"/precipitation","0.0","6","0"}).contains("must be greater than 0"),
+           "a zero fraction must be refused");
 }
 
 // Optional reconciliation on a real packed NetCDF-4 classic product (CMPA FAST style: int32 with

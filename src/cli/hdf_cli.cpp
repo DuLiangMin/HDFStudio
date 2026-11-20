@@ -10,6 +10,9 @@
 //   mask    Image View Mask Range on one decoded plane     (nc_mask_range / nc_mask_bound):
 //           start and end are decoded values, "-" = open end (-inf / +inf); prints the
 //           decoding rule, counts and min/max of the values that remain
+//   hist    histogram of one decoded plane                (nc_read_plane_decoded / nc_histogram):
+//           the plane is sampled at random, default one value in twenty (0.05); prints the
+//           sampled count, range, mean, stddev and one bar per bin
 // Examples:
 //   hdf_cli probe  data.nc
 //   hdf_cli info   data.nc
@@ -18,9 +21,11 @@
 //   hdf_cli export data.nc /ttr ttr.txt
 //   hdf_cli csv    data.nc /ttr plane.csv 7 42
 //   hdf_cli mask   cmpa.nc /precipitation 9999 - 0
+//   hdf_cli hist   cmpa.nc /precipitation 0.05 32 0
 // Exit codes: 0 ok, 2 usage, 3 cannot read, 4 cannot write the output.
 #include "nc_reader.hpp"
 #include "nc_classic.hpp"
+#include "plane_reader.hpp"
 #include "properties_inspector.hpp"
 #include "text_export.hpp"
 #include <QCoreApplication>
@@ -39,7 +44,8 @@ void print_usage() {
          "  hdf_cli props  <file> <path>\n"
          "  hdf_cli export <file> <path> [out.txt]\n"
          "  hdf_cli csv    <file> <path> <new.csv> [index ...]\n"
-         "  hdf_cli mask   <file> <path> <start|-> <end|-> [index ...]   (decoded values)\n";
+         "  hdf_cli mask   <file> <path> <start|-> <end|-> [index ...]   (decoded values)\n"
+         "  hdf_cli hist   <file> <path> [keep_fraction] [bins] [index ...]   (default 0.05 = 1 in 20)\n";
 }
 
 // UTF-8 bytes to stdout, so attribute text survives redirection to a file.
@@ -172,6 +178,43 @@ int command_mask(const QStringList &args) {
   print_text(lines.join('\n') + "\n");
   return 0;
 }
+
+int command_hist(const QStringList &args) {
+  QTextStream err(stderr);
+  // hdf_cli hist <file> <path> [keep_fraction] [bins] [index ...]
+  bool ok = true;
+  const double keep = args.size() > 4 ? args[4].toDouble(&ok) : 0.05;
+  if(!ok) { print_usage(); return 2; }
+  const int bins = args.size() > 5 ? args[5].toInt(&ok) : 32;
+  if(!ok) { print_usage(); return 2; }
+  std::vector<size_t> indices;
+  for(int i = 6; i < args.size(); ++i) {
+    const qulonglong index = args[i].toULongLong(&ok);
+    if(!ok) { print_usage(); return 2; }
+    indices.push_back(size_t(index));
+  }
+  NcReader shape_reader(args[2]);
+  int group = -1, variable = -1;
+  if(!shape_reader.locate(args[3].toStdString(), group, variable)) {
+    err << "Variable not found\n"; return 3;
+  }
+  int rank = 0;
+  if(nc_inq_varndims(group, variable, &rank) != NC_NOERR || rank < 2) {
+    err << "A histogram needs a variable with at least two dimensions\n"; return 3;
+  }
+  std::vector<hsize_t> dims(size_t(rank), 0);
+  std::vector<int> dimids(size_t(rank), 0);
+  if(nc_inq_vardimid(group, variable, dimids.data()) != NC_NOERR) { err << "Cannot read dimensions\n"; return 3; }
+  for(int i = 0; i < rank; ++i) {
+    size_t length = 0;
+    if(nc_inq_dimlen(group, dimids[size_t(i)], &length) != NC_NOERR) { err << "Cannot read dimensions\n"; return 3; }
+    dims[size_t(i)] = hsize_t(length);
+  }
+  const NcPlaneResult plane = nc_read_plane_decoded(args[2], args[3].toStdString(), dims, indices);
+  if(!plane.error.isEmpty()) { err << plane.error << '\n'; return 3; }
+  print_text(nc_histogram_lines(nc_histogram(plane.plane.values, keep, bins)).join('\n') + "\n");
+  return 0;
+}
 }
 
 int main(int argc, char **argv) {
@@ -185,6 +228,7 @@ int main(int argc, char **argv) {
     return command_export(args[2], args[3], args.value(4));
   if(command == "csv" && args.size() >= 5) return command_csv(args);
   if(command == "mask" && args.size() >= 6) return command_mask(args);
+  if(command == "hist" && args.size() >= 4) return command_hist(args);
   print_usage();
   return 2;
 }

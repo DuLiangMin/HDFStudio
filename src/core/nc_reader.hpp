@@ -75,6 +75,7 @@ NcPacking nc_packing(const QString &file, const std::string &path);
 // Mask Range (Image View and `hdf_cli mask`): finite decoded values inside [start, end], inclusive,
 // become NaN; returns how many were masked. start may be -inf, end +inf. Decoded values only.
 size_t nc_mask_range(std::vector<double> &decoded_values, double start, double end);
+
 // One Mask Range field: empty text (or "-") = the open end (-inf for start, +inf for end);
 // false when the text is not a finite number.
 bool nc_mask_bound(const QString &text, double open_end, double &value);

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(HDFStudio VERSION 0.10.30 LANGUAGES C CXX)
+project(HDFStudio VERSION 0.12.02 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -19,32 +19,45 @@ include_directories(${CMAKE_SOURCE_DIR}/ext/hdf5-1.8.20/src)
 include_directories(${CMAKE_SOURCE_DIR}/build/hdf5-1.8.20)
 include_directories(${CMAKE_SOURCE_DIR}/ext/hdf5-1.8.20/test)
 
+# Source tree layout (flat includes "nc_reader.hpp" keep working through these directories):
+#   src/app     the main window, tree, grid, layer navigation (Qt Widgets)
+#   src/core    reading, Properties and text export shared by the GUI, the tests and hdf_cli
+#   src/views   image, vector and mesh windows
+#   src/cli     hdf_cli
+include_directories(${CMAKE_SOURCE_DIR}/src/app)
+include_directories(${CMAKE_SOURCE_DIR}/src/core)
+include_directories(${CMAKE_SOURCE_DIR}/src/views)
+
 #//////////////////////////
 # resources
 #//////////////////////////
 
-qt_add_resources(qrc_sources hdf_explorer.qrc)
+qt_add_resources(qrc_sources resources/hdf_explorer.qrc)
 if(WIN32)
-  set(windows_resources hdf_explorer.rc)
+  set(windows_resources resources/hdf_explorer.rc)
 endif()
 if(APPLE)
   set(MACOSX_BUNDLE_ICON_FILE sample.icns)
-  set(app_icon_macos sample.icns)
+  set(app_icon_macos resources/sample.icns)
   set_source_files_properties(${app_icon_macos} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
 endif()
 
 set(src 
-    hdf_explorer.hpp
-    hdf_explorer.cpp
-    vector_view.hpp
-    vector_view.cpp
-    mesh_view.hpp
-    mesh_view.cpp
-    raster_view.cpp
-    visit.hpp
-    visit.cpp
-    iterate.hpp
-    iterate.cpp
+    src/app/hdf_explorer.hpp
+    src/app/hdf_explorer.cpp
+    src/app/layer_navigation.hpp
+    src/app/visit.hpp
+    src/app/visit.cpp
+    src/app/iterate.hpp
+    src/app/iterate.cpp
+    src/views/vector_view.hpp
+    src/views/vector_view.cpp
+    src/views/mesh_view.hpp
+    src/views/mesh_view.cpp
+    src/views/raster_view.hpp
+    src/views/raster_view.cpp
+    src/views/histogram_view.hpp
+    src/views/histogram_view.cpp
 )
 
 #//////////////////////////
@@ -94,11 +107,11 @@ set_target_properties(hdf_explorer PROPERTIES
 # Layers shared by the GUI, the tests and hdf_cli (no Qt Widgets below hdf_explorer):
 #   nc_core  : netCDF-C reading (format probe, NetCDF-3 structure/values, image planes)
 #   hdf_core : Properties summary and text export (HDF5, plus nc_core for NetCDF-3)
-add_library(nc_core STATIC nc_reader.cpp nc_classic.cpp)
+add_library(nc_core STATIC src/core/nc_reader.cpp src/core/nc_classic.cpp)
 target_link_libraries(nc_core PUBLIC Qt6::Core)
-add_library(hdf_core STATIC properties_inspector.cpp text_export.cpp)
+add_library(hdf_core STATIC src/core/properties_inspector.cpp src/core/text_export.cpp src/core/plane_reader.cpp)
 target_link_libraries(hdf_core PUBLIC nc_core ${hdf5_dep})
-add_executable(hdf_cli hdf_cli.cpp)
+add_executable(hdf_cli src/cli/hdf_cli.cpp)
 target_link_libraries(hdf_cli PRIVATE hdf_core)
 set_target_properties(hdf_cli PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_SOURCE_DIR}/build/output/Debug"

@@ -2,6 +2,7 @@
 #include "raster_view.hpp"
 #include "nc_reader.hpp"
 #include "nc_classic.hpp"
+#include "plane_reader.hpp"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -301,42 +302,21 @@ void RasterView::refresh() {
   for(size_t i=0; i<layers.size(); ++i) start[i] = layers[i]->value();
   count[count.size()-2] = rows; count.back() = cols;
   // The HDF5 handles stay at -1 for a NetCDF-3 file; Handle ignores negative ids on destruction.
-  Handle fid{-1, H5Fclose}, ds{-1, H5Dclose}, space{-1, H5Sclose}, mem{-1, H5Sclose};
+  Handle fid{-1, H5Fclose}, ds{-1, H5Dclose};
   if(!classic) {
     fid.id = H5Fopen(file.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
     if(fid.id < 0) return;
     ds.id = H5Dopen2(fid.id, path.c_str(), H5P_DEFAULT);
     if(ds.id < 0) return;
-    space.id = H5Dget_space(ds.id);
-    if(space.id < 0 || H5Sget_simple_extent_ndims(space.id) != int(dims.size())) return;
-    if(H5Sselect_hyperslab(space.id,H5S_SELECT_SET,start.data(),nullptr,count.data(),nullptr)<0) return;
-    mem.id = H5Screate_simple(2,&count[count.size()-2],nullptr);
   }
-  std::vector<double> values;
-  bool use_nc=classic || filename.endsWith(".nc",Qt::CaseInsensitive) || filename.endsWith(".nc4",Qt::CaseInsensitive);
-  if(use_nc) {
-    NcReader nc(filename); int group, variable;
-    if(nc.locate(path,group,variable)) {
-      NcPlane plane;
-      auto error=nc.read_plane(path,{start.begin(),start.end()-2},plane);
-      if(!error.isEmpty()) { legend->setText(error); return; }
-      if(plane.rows!=rows || plane.cols!=cols) return;
-      values=std::move(plane.values);
-    } else if(classic) {
-      legend->setText(tr("Variable %1 not found in this NetCDF file.").arg(QString::fromStdString(path))); return;
-    } else use_nc=false;
-  }
-  if(!use_nc) {
-    values.resize(rows*cols);
-    if(mem.id<0 || H5Dread(ds.id,H5T_NATIVE_DOUBLE,mem.id,space.id,H5P_DEFAULT,values.data())<0) return;
-  }
-  setProperty("reader",use_nc?"netCDF-C":"HDF5");
-  double fill=NAN, missing=NAN, scale=1, offset=0;
-  if(!use_nc) {
-    scalar_attr(ds.id,"_FillValue",fill); scalar_attr(ds.id,"missing_value",missing);
-    scalar_attr(ds.id,"scale_factor",scale); scalar_attr(ds.id,"add_offset",offset);
-  }
-  for(double &v: values) v = (v==fill || v==missing) ? NAN : v*scale+offset;
+  // Values and decoding come from nc_read_plane_decoded, the same function the histogram window and
+  // hdf_cli use, so every view of one variable shows the same numbers.
+  const NcPlaneResult read = nc_read_plane_decoded(filename, path, dims,
+      std::vector<size_t>(start.begin(), start.end() - 2));
+  if(!read.error.isEmpty()) { legend->setText(read.error); return; }
+  std::vector<double> values = read.plane.values;
+  const bool use_nc = read.reader == "netCDF-C";
+  setProperty("reader", read.reader);
   // values are decoded from here on; NaN so far = _FillValue / missing_value (grey)
   double mask_from=-INFINITY, mask_to=INFINITY;
   const bool masking=!mask_start->text().trimmed().isEmpty() || !mask_end->text().trimmed().isEmpty();

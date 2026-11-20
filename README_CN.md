@@ -61,6 +61,7 @@ HDFStudio 几秒内就能回答，不需要开 Python、不需要 notebook、也
 - 🧭 **坐标方向**：By NetCDF4 页报告纬度是南→北还是北→南、经度是东→西还是西→东，这正是地图上下颠倒的常见原因。
 - ✅ **CF 规范检查**：调用 IOOS Compliance Checker 生成 CF-1.8 报告，另附内置的只读 CF 元信息诊断。
 - 🌬️ **矢量视图**：U/V 风或洋流分量；并提供 **UGRID** 三角网格预览。
+- 📊 **单层直方图**（0.12.02）：在至少二维的变量上右键 → **Histogram...**。窗口只读取所选那一层，给出分布：柱状图加一行摘要（抽样值个数、分箱数、最小/最大、均值、标准差、NaN 个数）。**Sample 1 in N** 缺省为 20（即取 1/20），在整层里**均匀随机**抽 `round(有限值 / N)` 个值——不是按固定步长取每第 N 个点——所以 1201 × 1401 的一层约 70 ms 出图；填 `1` 则用全部数值。改抽样步长或分箱数只是对已在内存里的数值重新抽样、重新分箱，不再读文件；**Draw a new sample** 在同样大小下换一组随机样本。种子保证可复现：同样的设置总是同样的样本。三维、四维、五维变量可直接选层，并跟随主工具栏的层导航。`hdf_cli hist` 输出同样的文本。
 - 💾 **导出**：数值导出为文本，切片导出为 PNG；命令行可批量出图。
 
 ## 📥 下载与运行
@@ -91,11 +92,28 @@ hdf_cli export data.nc /lat         数值导出为文本（加文件名则写�
 hdf_cli csv    data.nc /ttr plane.csv 7 42    图像视图所读的那一个二维平面
 hdf_cli mask   data.nc /precipitation 9999 - 0    按解码值做 Mask Range（"-" 表示开区间端点），
                                                  输出屏蔽个数和剩余数值的最小/最大值
+hdf_cli hist   data.nc /precipitation 0.05 32 0   第 0 层直方图：随机取 1/20、32 个箱
+                                                 （依次是抽样比例、箱数、各前导轴的层号），
+                                                 输出与 Histogram 窗口逐行一致
 ```
 
 ## 🛠️ 从源码构建（Windows）
 
 需要 Visual Studio 2022 x64、CMake、Qt 6.8（`CMAKE_PREFIX_PATH`）、编译到 `build/hdf5-1.8.20` 的 HDF5 1.8.20，以及 `ext/netcdf-c-4.9.3/include` 中的 netCDF-C 4.9.3 头文件和 `build/native-nc/Release` 下的 `netcdf.lib`/`netcdf.dll`。详见 `CMakeLists.txt`；`tools/package-windows.ps1` 用于生成发布 zip。`build.cmake.sh` 是继承而来的 Linux 脚本，本版本未验证。
+
+源码按“做什么”分成四个目录，不再平铺在一个文件夹里：
+
+```
+src/app/     hdf_explorer.cpp/.hpp（主窗口）、layer_navigation、iterate、visit
+src/core/    nc_reader、nc_classic、properties_inspector、text_export、plane_reader
+             （平面解码与直方图，图形界面和 hdf_cli 共用）
+src/views/   raster_view、vector_view、mesh_view、histogram_view
+src/cli/     hdf_cli.cpp，无界面的排查工具
+resources/   Qt 资源、图标、sample.ico/.icns、netcdf_report.py、images/
+docs/        FORMAT_CAPABILITY.md、STAGE4_ACCEPTANCE.md
+```
+
+头文件按文件名包含（`#include "nc_reader.hpp"`），`CMakeLists.txt` 把 `src/app`、`src/core`、`src/views` 加入头文件搜索路径，所以在这几个目录之间移动文件不必改动调用处。
 
 ## 📌 范围
 

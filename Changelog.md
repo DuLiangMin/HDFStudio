@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.12.02 - 2026-11-20
+
+- 📊 **Histogram of one layer**: right-click a variable with at least two dimensions → **Histogram...**. The window reads the selected layer once, then shows a bar chart and one summary line (values sampled, bins, min, max, mean, standard deviation, NaN cells). **Sample 1 in N** defaults to 20 and draws a **uniformly random** subset of exactly `round(finite / N)` values — not every Nth cell — so a 1201 × 1401 plane answers in about 70 ms; `1` uses every value and gives the exact extremes. Changing the step or the bins re-samples values that are already in memory (the file is not read again), and **Draw a new sample** takes another subset of the same size. A seed keeps the bars reproducible. Layer spin boxes implement `LayerNavigation`, so the main Layer toolbar drives the histogram too. `hdf_cli hist` prints the same lines.
+- 🧭 New source layout: `src/app` (main window, layer navigation, iterate, visit), `src/core` (readers, properties, text export, `plane_reader`), `src/views` (raster, vector, mesh, histogram), `src/cli`, `resources/`, `docs/`. `include_directories` keeps plain `#include "nc_reader.hpp"`, so files moved between these folders need no edit at the call sites.
+- 🧪 Race to the truth: an intermediate version read the plane with a stride (`nc_get_vars_double` / `H5Sselect_hyperslab`) to touch only 1/20 of the data. Measured cold-cache 63 ms against 80 ms, but a regular grid is not a random sample and its products aliased with the 4 × 5 split (1/400 of the values). The strided path was removed: the plane is read once, then sampled in memory at random, which is both faster and statistically sound.
+- 🧪 Validation: `nc_histogram` unit cases (exact sample size `round(finite / N)`, same seed → identical counts, another seed → same size / different counts, NaN counted as missing, max in the last bin, constant plane → one bin, fractions 0 and > 1 refused, packed fixture decoded 0..18). `tests/reconcile_histogram.py` against Python netCDF4 on the CMPA FAST 0.05° product: full plane 1,682,601 finite, 32 bins, **0 mismatched**; 1 in 20 → 84,130 = round(1,682,601 / 20), bars sum to the sample, mean off by 1.5 against an allowed 5 s.e. of 57.2; two runs of the same seed byte-identical; the sample file's size and mtime unchanged.
+- ⏱️ Timing (`hdf_cli hist`, Release, warm file cache, 1,682,601 cells): 1 in 20 → 69.4 ms, 1 in 1 → 91.7 ms.
+- 📦 Fix found by the move: `resources/images/*.png` had never been tracked because `.gitignore` ignores `*.png`, so earlier source zips shipped without icons. The rule now has `!/resources/images/*.png`.
+- ✅ Debug and Release QtTest 39 passed + 2 optional (the sample-driven ones are skipped without `HDFSTUDIO_PACKED_SAMPLE`), CTest 1/1; report in `HDFStudio/logs/S4-UI-Histogram/`.
+- 🔢 Version 0.12.02 (CMake project version, `setApplicationVersion`, About dialog).
+
 ## 0.10.30 - 2026-11-20
 
 - Image View **Mask Range**: a second toolbar row with start and end fields. Decoded values in [start, end] (inclusive) become NaN, are drawn white and are left out of the color range and min/max; an empty start is −∞, an empty end +∞. The file's own `_FillValue`/`missing_value` stay grey. Bounds are decoded values (`stored × scale_factor + add_offset`), never stored integers.

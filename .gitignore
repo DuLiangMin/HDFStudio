@@ -33,5 +33,7 @@ compile_commands.json
 *.hdf5
 *.png
 !/docs/*.png
+# icons shipped inside the program (qrc / .rc), small and part of the source
+!/resources/images/*.png
 *.csv
 *.jsonl
