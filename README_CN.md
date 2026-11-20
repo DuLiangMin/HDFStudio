@@ -4,7 +4,7 @@
 
 [English](README.md) | **简体中文**
 
-⬇️ **下载：** 在[最新发布页](https://github.com/DuLiangMin/HDFStudio/releases/latest)下载 `HDFStudio-<版本>-win64.zip`，解压后直接运行 `HDFStudio.exe`，无需安装。
+⬇️ **下载：** 在[最新发布页](https://github.com/DuLiangMin/HDFStudio/releases/latest)下载 `HDFStudio-<版本>-win64.zip`。**绿色安装**：解压到任意目录，直接双击 `HDFStudio.exe` 即可运行，无需安装，也不需要管理员权限。
 
 [![Release](https://img.shields.io/github/v/release/DuLiangMin/HDFStudio?label=release&color=3d99a4)](https://github.com/DuLiangMin/HDFStudio/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/DuLiangMin/HDFStudio/total?color=3d99a4)](https://github.com/DuLiangMin/HDFStudio/releases)
