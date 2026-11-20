@@ -315,13 +315,8 @@ RasterView::RasterView(std::string filename, std::string varpath, std::vector<hs
     canvas->setDragMode(enabled ? QGraphicsView::NoDrag : QGraphicsView::ScrollHandDrag);
     canvas->viewport()->setCursor(enabled ? Qt::CrossCursor : Qt::ArrowCursor);
     dragging_point_index = -1;
-    if(!enabled && !profile_points.empty()) {
-      // Second click on Profile exits picking mode and removes the curve.
-      profile_points.clear();
-      show_profile_action->setEnabled(false);
-      clear_profile_action->setEnabled(false);
-      redraw_profile_overlay();
-    }
+    // Toggling Profile off hides the overlay while keeping points; toggling it back on restores them.
+    redraw_profile_overlay();
   });
   connect(show_profile_action, &QAction::triggered, this, [this] { show_profile_window(); });
   connect(clear_profile_action, &QAction::triggered, this, [this] {
@@ -545,7 +540,7 @@ void RasterView::redraw_profile_overlay() {
       delete item;
     }
   }
-  if(profile_points.empty()) return;
+  if(profile_points.empty() || !profile_mode_action || !profile_mode_action->isChecked()) return;
 
   const std::vector<QPointF> sampled = curve_sample_path(profile_points, CurvePathMode::SmoothSpline, 0.5);
   if(sampled.size() >= 2) {

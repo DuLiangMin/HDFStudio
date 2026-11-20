@@ -2045,7 +2045,8 @@ void DropTargetsTest::curveProfileSamplesPolylineAndSplineOnDecodedPlane() {
   // Double-click on p1 deletes it, leaving 1 point (< 2).
   QTest::mouseDClick(canvas->viewport(), Qt::LeftButton, Qt::NoModifier, p1);
   QVERIFY(!showProfile->isEnabled() && clearProfile->isEnabled());
-  // Add back p2, right-drag p3 to a new position, then toggle Profile off to delete the curve.
+  // Add back p2, right-drag p3 to a new position, toggle Profile off (hides overlay, keeps points),
+  // toggle Profile back on (restores overlay), then Clear erases all points.
   QTest::mouseClick(canvas->viewport(), Qt::LeftButton, Qt::NoModifier, p2);
   QVERIFY(showProfile->isEnabled());
   QTest::mousePress(canvas->viewport(), Qt::RightButton, Qt::NoModifier, p3);
@@ -2053,7 +2054,20 @@ void DropTargetsTest::curveProfileSamplesPolylineAndSplineOnDecodedPlane() {
   QTest::mouseRelease(canvas->viewport(), Qt::RightButton, Qt::NoModifier,
                       canvas->mapFromScene(QPointF(20.0, 12.0)));
   QVERIFY(showProfile->isEnabled());
+  auto overlay_count = [&view]() {
+    int count = 0;
+    for(QGraphicsItem *item : view.findChild<QGraphicsView*>()->scene()->items())
+      if(item->data(0).toString() == "profileOverlay") ++count;
+    return count;
+  };
+  QVERIFY(overlay_count() > 0);
   profileMode->setChecked(false);
+  QCOMPARE(overlay_count(), 0);
+  QVERIFY(showProfile->isEnabled() && clearProfile->isEnabled());
+  profileMode->setChecked(true);
+  QVERIFY(overlay_count() > 0);
+  clearProfile->trigger();
+  QCOMPARE(overlay_count(), 0);
   QVERIFY(!showProfile->isEnabled() && !clearProfile->isEnabled());
 }
 
