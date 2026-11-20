@@ -17,6 +17,7 @@ struct Summary {
   QString storage;
   QString compression;
   QStringList attributes;
+  QStringList decoding;      // datasets: scale_factor/add_offset rule and valid range / fill in decoded units
   quint64 elements = 0;
   quint64 bytes = 0;
   bool byteCountOverflow = false;

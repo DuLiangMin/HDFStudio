@@ -199,6 +199,48 @@ RasterView::RasterView(std::string filename, std::string varpath, std::vector<hs
   discrete_toggle->setToolTip(tr("Render each distinct value as a category"));
   tools->addWidget(discrete_toggle);
   connect(discrete_toggle,&QCheckBox::toggled,this,[this](bool enabled){discrete_mode=enabled;refresh();});
+
+  // Mask Range works on decoded values, the numbers shown in the legend; the file's valid range
+  // attributes are in stored units, so both forms are shown in the tooltip to avoid mixing them up
+  const NcPacking packing=nc_packing(QString::fromLocal8Bit(file.c_str()),path);
+  QString mask_tip=tr("Mask Range: decoded values from start to end (inclusive) become NaN and are drawn white.\n"
+                      "Empty start = -infinity, empty end = +infinity; both empty = no mask.\n"
+                      "Decoded value = stored x scale_factor + add_offset, the value shown in the legend.");
+  if(packing.packed())
+    mask_tip+=tr("\nThis variable: decoded = stored x %1 + %2.").arg(packing.scale,0,'g',15).arg(packing.offset,0,'g',15);
+  if(packing.has_valid_min && packing.has_valid_max)
+    mask_tip+=tr("\n%1 in the file: stored [%2, %3] = decoded [%4, %5].").arg(packing.valid_source)
+        .arg(packing.valid_min,0,'g',15).arg(packing.valid_max,0,'g',15)
+        .arg(packing.decode(packing.valid_min),0,'g',15).arg(packing.decode(packing.valid_max),0,'g',15);
+  // a second row: on the first one the fields would end up behind the toolbar's overflow button
+  auto mask_bar=new QToolBar(this);
+  mask_bar->setObjectName("maskBar");
+  layout->addWidget(mask_bar);
+  mask_bar->addWidget(new QLabel(tr("Mask Range (decoded values): "),mask_bar));
+  mask_start=new QLineEdit(mask_bar);
+  mask_end=new QLineEdit(mask_bar);
+  mask_start->setObjectName("maskStart");
+  mask_end->setObjectName("maskEnd");
+  mask_start->setPlaceholderText(tr("-inf"));
+  mask_end->setPlaceholderText(tr("+inf"));
+  mask_start->setAccessibleName(tr("Mask start"));
+  mask_end->setAccessibleName(tr("Mask end"));
+  for(QLineEdit *edit:{mask_start,mask_end}) {
+    edit->setToolTip(mask_tip);
+    edit->setClearButtonEnabled(true);
+    edit->setMaximumWidth(110);
+    connect(edit,&QLineEdit::editingFinished,this,[this]{ refresh(); });
+  }
+  mask_bar->addWidget(mask_start);
+  mask_bar->addWidget(new QLabel(tr(" ~ "),mask_bar));
+  mask_bar->addWidget(mask_end);
+  QLabel *mask_hint=new QLabel(tr("  inclusive; empty = -inf / +inf; masked values are drawn white"),mask_bar);
+  mask_hint->setObjectName("maskHint");
+  mask_bar->addWidget(mask_hint);
+  if(packing.packed() && packing.has_valid_min && packing.has_valid_max)
+    mask_hint->setText(mask_hint->text()+tr("   (%1 decoded [%2, %3], stored [%4, %5])").arg(packing.valid_source)
+        .arg(packing.decode(packing.valid_min),0,'g',15).arg(packing.decode(packing.valid_max),0,'g',15)
+        .arg(packing.valid_min,0,'g',15).arg(packing.valid_max,0,'g',15));
   const std::vector<std::string> dimension_names = nc_dimension_names(QString::fromLocal8Bit(this->file.c_str()), this->path);
   for(size_t i = 0; i + 2 < dims.size(); ++i) {
     axis_names << (dimension_names.size() == dims.size() ? QString::fromStdString(dimension_names[i])
@@ -226,6 +268,7 @@ RasterView::RasterView(std::string filename, std::string varpath, std::vector<hs
   tools->addAction("+", this, [view]{ view->zoom(1.5); });
   tools->addAction("-", this, [view]{ view->zoom(1/1.5); });
   legend = new QLabel(this);
+  legend->setObjectName("rasterLegend");
   layout->addWidget(legend);
   QTimer::singleShot(0, this, [this]{ refresh(); canvas->fitInView(scene->sceneRect(), Qt::KeepAspectRatio); });
 }
@@ -293,10 +336,27 @@ void RasterView::refresh() {
     scalar_attr(ds.id,"_FillValue",fill); scalar_attr(ds.id,"missing_value",missing);
     scalar_attr(ds.id,"scale_factor",scale); scalar_attr(ds.id,"add_offset",offset);
   }
+  for(double &v: values) v = (v==fill || v==missing) ? NAN : v*scale+offset;
+  // values are decoded from here on; NaN so far = _FillValue / missing_value (grey)
+  double mask_from=-INFINITY, mask_to=INFINITY;
+  const bool masking=!mask_start->text().trimmed().isEmpty() || !mask_end->text().trimmed().isEmpty();
+  if(!nc_mask_bound(mask_start->text(),-INFINITY,mask_from) ||
+     !nc_mask_bound(mask_end->text(),INFINITY,mask_to)) {
+    legend->setText(tr("Mask Range: start and end must be numbers (empty = -inf / +inf)."));
+    return;
+  }
+  if(masking && mask_from>mask_to) {
+    legend->setText(tr("Mask Range: start must not be greater than end."));
+    return;
+  }
+  std::vector<bool> missing_in_file(values.size());
+  for(size_t i=0;i<values.size();++i) missing_in_file[i]=!std::isfinite(values[i]);
+  size_t masked=0;
+  if(masking) masked=nc_mask_range(values,mask_from,mask_to);
+  setProperty("masked",qulonglong(masked));
   double low=INFINITY, high=-INFINITY;
   category_values.clear();
   for(double &v: values) {
-    v = (v==fill || v==missing) ? NAN : v*scale+offset;
     if(std::isfinite(v)) {
       low=std::min(low,v); high=std::max(high,v);
       if(discrete_mode && std::find(category_values.begin(),category_values.end(),v)==category_values.end())
@@ -330,7 +390,9 @@ void RasterView::refresh() {
   for(int y=0;y<image.height();++y) {
     auto line = reinterpret_cast<QRgb*>(image.scanLine(y));
     for(int x=0;x<image.width();++x) {
-      double v=values[size_t(y)*cols+x];
+      const size_t index=size_t(y)*cols+x;
+      double v=values[index];
+      if(masked && std::isnan(v) && !missing_in_file[index]) { line[x]=qRgb(255,255,255); continue; }
       const auto palette=static_cast<RasterColorMap::Palette>(palette_selector->currentData().toInt());
       line[x]=(discrete_mode
         ? RasterColorMap::discreteValueColor(palette,v,category_values,reverse_palette->isChecked(),QColor(255,0,255))
@@ -348,8 +410,14 @@ void RasterView::refresh() {
     : tr("%1 x %2   Min %3   Max %4   Missing: grey%5")
     .arg(cols).arg(rows).arg(low,0,'g',9).arg(high,0,'g',9)
     .arg(automatic ? tr(" (automatic)") : tr(" (fixed)")));
+  if(masking) {
+    auto bound=[](double value) { return std::isinf(value) ? (value<0 ? QString("-inf") : QString("+inf")) : QString::number(value,'g',9); };
+    legend->setText(legend->text()+tr("   Masked [%1, %2] (decoded): %3, white")
+        .arg(bound(mask_from),bound(mask_to)).arg(masked));
+  }
   if(!coordinate_note.isEmpty()) legend->setText(legend->text()+coordinate_note);
 }
+
 
 int RasterView::layer_axis_count() const {
   return int(layers.size());

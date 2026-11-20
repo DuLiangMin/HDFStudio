@@ -53,6 +53,10 @@ private:
   QComboBox *range_mode;
   QDoubleSpinBox *fixed_minimum;
   QDoubleSpinBox *fixed_maximum;
+  // Mask Range in decoded units (stored x scale_factor + add_offset): values in [start, end] are
+  // masked (white); an empty field is open (-inf / +inf); both empty = no mask
+  QLineEdit *mask_start;
+  QLineEdit *mask_end;
   bool discrete_mode = false;
   std::vector<double> category_values;
   QStringList category_labels;

@@ -26,6 +26,17 @@ QWidget *create_startup_splash();
 //FileTreeWidget
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 
+// How a grid shows the values of a packed variable (scale_factor / add_offset):
+//   GridDecoded - the real values (stored x scale + offset), what the image view and legend show
+//   GridStored  - the numbers exactly as written in the file
+//   GridBoth    - both side by side, decoded column then stored column
+enum GridValueMode
+{
+  GridDecoded = 0,
+  GridStored  = 1,
+  GridBoth    = 2
+};
+
 class FileTreeWidget : public QTreeWidget
 {
   Q_OBJECT
@@ -38,7 +49,13 @@ protected:
   void dropEvent(QDropEvent *event) override;
   private slots:
   void show_context_menu(const QPoint &);
+  // Three grids of the selected item, all from the same buffer:
+  //   add_grid        decoded to real (stored x scale_factor + add_offset, what the image shows)
+  //   add_stored_grid the raw values exactly as written in the file
+  //   add_both_grids  both side by side, decoded column then raw column
   void add_grid();
+  void add_stored_grid();
+  void add_both_grids();
   void show_item_properties();
   void export_item_as_text();
   void export_item_as_image();
@@ -54,6 +71,7 @@ public:
 
 private:
   MainWindow *m_main_window;
+  void open_grid(GridValueMode mode);
   void load_item(QTreeWidgetItem *);
   void load_item_attribute(QTreeWidgetItem *);
 };
@@ -61,6 +79,10 @@ private:
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 //MainWindow
 /////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// true when HDFStudio runs with an elevated (administrator) token; Windows then blocks drag and
+// drop from a normal Explorer window (UIPI), whatever the program does
+bool process_is_elevated();
 
 class MainWindow : public QMainWindow
 {
@@ -71,7 +93,8 @@ public:
   // Child widgets are deleted after this destructor; the MDI area still emits subWindowActivated
   // while its views close, so its connections to this window are cut here first.
   ~MainWindow() override;
-  void add_table(ItemData *item_data);
+  // mode: GridValueMode (0 decoded, 1 stored, 2 both side by side)
+  void add_table(ItemData *item_data, int mode = 0);
   void add_image(ItemData *item_data);
   void export_image(ItemData *item_data, QWidget *parent);
   int read_file(QString file_name);
@@ -80,6 +103,7 @@ public:
   void close_file_of(QTreeWidgetItem *item);
   void close_all_files();
   bool accepts_file_drop(const QMimeData *mime_data) const;
+  bool owns_widget(const QWidget *widget) const;
   void handle_file_drop(const QMimeData *mime_data, QDropEvent *event);
 protected:
   bool eventFilter(QObject *watched, QEvent *event) override;

@@ -89,7 +89,7 @@ $ttr = (ByName $win 'ttr')[0]
 
 # --- Grid ---
 ClickElement $ttr $true; Start-Sleep -Milliseconds 700
-ClickElement (ByName $UIA::RootElement 'Grid...')[0] $false; Start-Sleep -Seconds 3
+ClickElement (ByName $UIA::RootElement 'Data Grid (decoded to real)...')[0] $false; Start-Sleep -Seconds 3
 Check "grid opens at time 1 of $($expected.times): python t0 lev0 cells" (Shows (UniqueCells 't0l0'))
 Check "label 'Layer 1 of $($expected.times)'" ((LayerLabel) -eq "Layer 1 of $($expected.times)")
 Shot 'desktop-1-grid-layer1'

@@ -1,5 +1,6 @@
 #include "properties_inspector.hpp"
 #include "nc_classic.hpp"
+#include "nc_reader.hpp"
 #include "hdf5.h"
 #include <limits>
 #include <algorithm>
@@ -150,6 +151,7 @@ QStringList HdfProperties::describe(const Summary &summary) {
   if(!summary.storage.isEmpty()) details << QString("Storage layout: %1").arg(summary.storage);
   if(!summary.compression.isEmpty()) details << QString("Filters: %1").arg(summary.compression);
   if(summary.byteCountOverflow) details << QString("Uncompressed byte count: overflow");
+  details.append(summary.decoding);
   if(summary.attributeListTruncated) details << QString("Attribute list was truncated.");
   if(!summary.attributes.isEmpty()) {
     details << QString("Attributes (name | datatype | shape | value):");
@@ -160,7 +162,12 @@ QStringList HdfProperties::describe(const Summary &summary) {
 
 HdfProperties::Summary HdfProperties::inspect(const QString &filePath,
                                                const QString &objectPath) {
-  if(is_classic_netcdf_file(filePath)) return inspectClassic(filePath,objectPath);
+  if(is_classic_netcdf_file(filePath)) {
+    Summary classic=inspectClassic(filePath,objectPath);
+    if(classic.valid && classic.objectType=="Dataset")
+      classic.decoding=nc_packing_lines(nc_packing(filePath,objectPath.toStdString()));
+    return classic;
+  }
   Summary result;
   QByteArray fileName=filePath.toLocal8Bit(), path=objectPath.toUtf8();
   Handle file{H5Fopen(fileName.constData(),H5F_ACC_RDONLY,H5P_DEFAULT),H5Fclose};
@@ -243,6 +250,8 @@ HdfProperties::Summary HdfProperties::inspect(const QString &filePath,
   if(result.attributeListTruncated)
     result.attributes << QString("Attribute list truncated after %1 of %2 attributes")
       .arg(maximumAttributes).arg(count);
+  // attribute values above are stored units; state the decoding so they are not read as image values
+  if(info.type==H5G_DATASET) result.decoding=nc_packing_lines(nc_packing(filePath,objectPath.toStdString()));
   result.valid=true;
   return result;
 }

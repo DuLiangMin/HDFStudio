@@ -3,6 +3,7 @@
 #include <cmath>
 #include <QRegularExpression>
 #include <QFile>
+#include <QLocale>
 
 bool valid_vector_pair(const NcVectorPlane &planes) {
   if(planes.u.rows==0 || planes.u.cols==0 || planes.v.rows==0 || planes.v.cols==0 ||
@@ -135,6 +136,91 @@ std::vector<std::string> nc_dimension_names(const QString &file, const std::stri
     names.push_back(name);
   }
   return names;
+}
+
+// one numeric value of an attribute (index 0 or 1), false when absent, textual or too short
+static bool numeric_attribute_at(int group,int variable,const char *name,size_t index,double &value) {
+  nc_type type; size_t length=0;
+  if(nc_inq_att(group,variable,name,&type,&length)!=NC_NOERR) return false;
+  if(type==NC_CHAR || type==NC_STRING || length<=index || length>16) return false;
+  std::vector<double> values(length);
+  if(nc_get_att_double(group,variable,name,values.data())!=NC_NOERR) return false;
+  value=values[index];
+  return true;
+}
+
+NcPacking nc_packing(const QString &file, const std::string &path) {
+  NcPacking packing;
+  NcReader reader(file);
+  int group=-1, variable=-1;
+  if(reader.id<0 || !reader.locate(path,group,variable)) return packing;
+  packing.found=true;
+  packing.has_scale=numeric_attribute_at(group,variable,"scale_factor",0,packing.scale);
+  packing.has_offset=numeric_attribute_at(group,variable,"add_offset",0,packing.offset);
+  if(!packing.has_scale) packing.scale=1;
+  if(!packing.has_offset) packing.offset=0;
+  double low=0, high=0;
+  if(numeric_attribute_at(group,variable,"valid_range",0,low) && numeric_attribute_at(group,variable,"valid_range",1,high)) {
+    packing.has_valid_min=packing.has_valid_max=true;
+    packing.valid_min=low; packing.valid_max=high;
+    packing.valid_source="valid_range";
+  } else {
+    packing.has_valid_min=numeric_attribute_at(group,variable,"valid_min",0,packing.valid_min);
+    packing.has_valid_max=numeric_attribute_at(group,variable,"valid_max",0,packing.valid_max);
+    if(packing.has_valid_min && packing.has_valid_max) packing.valid_source="valid_min/valid_max";
+    else if(packing.has_valid_min) packing.valid_source="valid_min";
+    else if(packing.has_valid_max) packing.valid_source="valid_max";
+  }
+  packing.has_fill=numeric_attribute_at(group,variable,"_FillValue",0,packing.fill);
+  packing.has_missing=numeric_attribute_at(group,variable,"missing_value",0,packing.missing);
+  return packing;
+}
+
+size_t nc_mask_range(std::vector<double> &decoded_values, double start, double end) {
+  size_t masked=0;
+  for(double &value:decoded_values) {
+    if(std::isfinite(value) && value>=start && value<=end) {
+      value=NAN;
+      ++masked;
+    }
+  }
+  return masked;
+}
+
+bool nc_mask_bound(const QString &text, double open_end, double &value) {
+  const QString trimmed=text.trimmed();
+  if(trimmed.isEmpty() || trimmed==QLatin1String("-")) { value=open_end; return true; }
+  bool ok=false;
+  const double number=QLocale::c().toDouble(trimmed,&ok);
+  if(!ok || !std::isfinite(number)) return false;
+  value=number;
+  return true;
+}
+
+QStringList nc_packing_lines(const NcPacking &packing) {
+  QStringList lines;
+  if(!packing.found) return lines;
+  const bool any=packing.packed() || packing.has_valid_min || packing.has_valid_max || packing.has_fill || packing.has_missing;
+  if(!any) return lines;
+  auto number=[](double value) { return QString::number(value,'g',15); };
+  if(packing.packed())
+    lines << QString("Decoding: decoded = stored x scale_factor + add_offset = stored x %1 + %2")
+               .arg(number(packing.scale),number(packing.offset));
+  else
+    lines << QString("Decoding: none (no scale_factor/add_offset; stored values are the decoded values)");
+  if(packing.has_valid_min && packing.has_valid_max)
+    lines << QString("%1 decoded: [%2, %3] (stored [%4, %5])").arg(packing.valid_source)
+               .arg(number(packing.decode(packing.valid_min)),number(packing.decode(packing.valid_max)))
+               .arg(number(packing.valid_min),number(packing.valid_max));
+  else if(packing.has_valid_min)
+    lines << QString("valid_min decoded: %1 (stored %2)").arg(number(packing.decode(packing.valid_min)),number(packing.valid_min));
+  else if(packing.has_valid_max)
+    lines << QString("valid_max decoded: %1 (stored %2)").arg(number(packing.decode(packing.valid_max)),number(packing.valid_max));
+  if(packing.has_fill)
+    lines << QString("_FillValue decoded: %1 (stored %2)").arg(number(packing.decode(packing.fill)),number(packing.fill));
+  if(packing.has_missing)
+    lines << QString("missing_value decoded: %1 (stored %2)").arg(number(packing.decode(packing.missing)),number(packing.missing));
+  return lines;
 }
 
 static bool scoped_variable(int scope,const QString &name,int &group,int &variable) {

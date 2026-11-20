@@ -52,6 +52,11 @@ private slots:
   void layerStepTargetMatchesOldHdfExplorerButtons();
   void mainToolbarStepsLayersOfTheCurrentView();
   void propertiesDialogCopiesReportAndWindowMenuListsViews();
+  void maskRangeUsesDecodedValuesWithOpenEnds();
+  void decodedAndStoredGridsShowScaleFactorAndOffset();
+  void bothGridsShowDecodedAndRawSideBySide();
+  void externalPackedSampleMatchesPython();
+  void fileDropOpensFromEveryAreaOfTheMainWindow();
 };
 
 void DropTargetsTest::acceptsExistingLocalFile() {
@@ -1296,6 +1301,288 @@ void DropTargetsTest::propertiesDialogCopiesReportAndWindowMenuListsViews() {
   window.close_all_files();
 }
 
+// Mask Range on decoded values. Fixture packed like the CMPA FAST product: int32, scale_factor 1e-4,
+// valid_range [0, 99990000] stored = [0, 9999] decoded, sentinel stored 99990000 = decoded 9999.
+// precipitation[y][x] stored = x*10000 (decoded x) for x < 4, sentinel at x == 4; 3 x 5 plane.
+void DropTargetsTest::maskRangeUsesDecodedValuesWithOpenEnds() {
+  // pure functions: inclusive range, open ends, already-missing values untouched
+  std::vector<double> values={0,1,2,9999,NAN,-1};
+  QCOMPARE(nc_mask_range(values,9999,INFINITY),size_t(1));
+  QVERIFY(std::isnan(values[3]));
+  QCOMPARE(values[2],2.0);
+  QCOMPARE(nc_mask_range(values,-INFINITY,0),size_t(2));   // 0 and -1
+  QCOMPARE(nc_mask_range(values,1,2),size_t(2));
+  double bound=0;
+  QVERIFY(nc_mask_bound("",-INFINITY,bound)); QVERIFY(std::isinf(bound) && bound<0);
+  QVERIFY(nc_mask_bound(" - ",INFINITY,bound)); QVERIFY(std::isinf(bound) && bound>0);
+  QVERIFY(nc_mask_bound("9999",INFINITY,bound)); QCOMPARE(bound,9999.0);
+  QVERIFY(nc_mask_bound("1e-4",INFINITY,bound)); QCOMPARE(bound,1e-4);
+  QVERIFY(!nc_mask_bound("abc",INFINITY,bound));
+  QVERIFY(!nc_mask_bound("inf",INFINITY,bound));
+
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString file=dir.filePath("packed.nc");
+  {
+    const QByteArray path=file.toLocal8Bit();
+    int ncid=-1,timeDim=-1,latDim=-1,lonDim=-1,var=-1;
+    QCOMPARE(nc_create(path.constData(),NC_NETCDF4|NC_CLASSIC_MODEL|NC_CLOBBER,&ncid),NC_NOERR);
+    QCOMPARE(nc_def_dim(ncid,"time",1,&timeDim),NC_NOERR);
+    QCOMPARE(nc_def_dim(ncid,"lat",3,&latDim),NC_NOERR);
+    QCOMPARE(nc_def_dim(ncid,"lon",5,&lonDim),NC_NOERR);
+    const int dims[3]={timeDim,latDim,lonDim};
+    QCOMPARE(nc_def_var(ncid,"precipitation",NC_INT,3,dims,&var),NC_NOERR);
+    const double scale=0.0001, offset=0.0;
+    const int validRange[2]={0,99990000};
+    QCOMPARE(nc_put_att_double(ncid,var,"scale_factor",NC_DOUBLE,1,&scale),NC_NOERR);
+    QCOMPARE(nc_put_att_double(ncid,var,"add_offset",NC_DOUBLE,1,&offset),NC_NOERR);
+    QCOMPARE(nc_put_att_int(ncid,var,"valid_range",NC_INT,2,validRange),NC_NOERR);
+    QCOMPARE(nc_enddef(ncid),NC_NOERR);
+    int stored[15];
+    for(int y=0;y<3;++y) for(int x=0;x<5;++x) stored[y*5+x]= x<4 ? x*10000 : 99990000;
+    QCOMPARE(nc_put_var_int(ncid,var,stored),NC_NOERR);
+    QCOMPARE(nc_close(ncid),NC_NOERR);
+  }
+
+  // decoding stated in decoded and stored units (Properties / hdf_cli props)
+  const NcPacking packing=nc_packing(file,"/precipitation");
+  QVERIFY(packing.found && packing.packed());
+  QCOMPARE(packing.decode(99990000),9999.0);
+  const QStringList lines=nc_packing_lines(packing);
+  QCOMPARE(lines.value(0),QString("Decoding: decoded = stored x scale_factor + add_offset = stored x 0.0001 + 0"));
+  QCOMPARE(lines.value(1),QString("valid_range decoded: [0, 9999] (stored [0, 99990000])"));
+  const QStringList props=HdfProperties::describe(HdfProperties::inspect(file,"/precipitation"));
+  QVERIFY(props.contains(lines.value(1)));
+
+  // Image View: the legend and the mask fields use decoded values
+  RasterView view(file.toLocal8Bit().toStdString(),"/precipitation",{1,3,5});
+  view.resize(900,400);
+  view.show();
+  QVERIFY(QTest::qWaitForWindowExposed(&view));
+  auto *start=view.findChild<QLineEdit*>("maskStart");
+  auto *end=view.findChild<QLineEdit*>("maskEnd");
+  QVERIFY(start);QVERIFY(end);
+  QCOMPARE(start->placeholderText(),QString("-inf"));
+  QCOMPARE(end->placeholderText(),QString("+inf"));
+  QVERIFY(start->toolTip().contains("stored [0, 99990000] = decoded [0, 9999]"));
+  // on its own row, so it is never hidden behind the first toolbar's overflow button
+  auto *maskBar=view.findChild<QToolBar*>("maskBar");
+  QVERIFY(maskBar);
+  QVERIFY(maskBar->isAncestorOf(start));
+  QVERIFY(start->isVisible() && end->isVisible());
+  QVERIFY(view.findChild<QLabel*>("maskHint")->text().contains("valid_range decoded [0, 9999], stored [0, 99990000]"));
+  QTRY_COMPARE(view.property("maximum").toDouble(),9999.0);   // sentinel stretches the colors
+  QCOMPARE(view.property("masked").toULongLong(),0ull);
+
+  auto apply=[](QLineEdit *edit,const QString &text){ edit->setText(text); emit edit->editingFinished(); };
+  apply(start,"9999");                                         // [9999, +inf]
+  QCOMPARE(view.property("masked").toULongLong(),3ull);
+  QCOMPARE(view.property("minimum").toDouble(),0.0);
+  QCOMPARE(view.property("maximum").toDouble(),3.0);
+  auto *legend=view.findChild<QLabel*>("rasterLegend");
+  QVERIFY(legend);
+  QVERIFY2(legend->text().contains("Masked [9999, +inf] (decoded): 3, white"),qPrintable(legend->text()));
+  // the masked column is white, the colored ones are not
+  QGraphicsView *canvas=view.findChild<QGraphicsView*>();
+  QImage image;
+  for(QGraphicsItem *item:canvas->scene()->items())
+    if(auto *pixmap=dynamic_cast<QGraphicsPixmapItem*>(item)) image=pixmap->pixmap().toImage();
+  QCOMPARE(image.size(),QSize(5,3));
+  for(int y=0;y<3;++y) {
+    QCOMPARE(image.pixel(4,y),qRgb(255,255,255));
+    QVERIFY(image.pixel(0,y)!=qRgb(255,255,255));
+  }
+
+  apply(start,""); apply(end,"0");                             // [-inf, 0]
+  QCOMPARE(view.property("masked").toULongLong(),3ull);
+  QCOMPARE(view.property("minimum").toDouble(),1.0);
+  QCOMPARE(view.property("maximum").toDouble(),9999.0);
+  apply(start,"1"); apply(end,"2");                            // inclusive inner range
+  QCOMPARE(view.property("masked").toULongLong(),6ull);
+  apply(start,"99990000"); apply(end,"");                      // stored value: no decoded value that large
+  QCOMPARE(view.property("masked").toULongLong(),0ull);
+  QCOMPARE(view.property("maximum").toDouble(),9999.0);
+  apply(start,"5"); apply(end,"1");                            // start > end
+  QVERIFY(legend->text().contains("start must not be greater than end"));
+  apply(start,"x");
+  QVERIFY(legend->text().contains("must be numbers"));
+  apply(start,""); apply(end,"");                              // no mask
+  QCOMPARE(view.property("masked").toULongLong(),0ull);
+  QCOMPARE(view.property("maximum").toDouble(),9999.0);
+}
+
+// Two grids of one variable: Data Grid (decoded to real) applies scale_factor/add_offset, Stored
+// Grid (raw value) shows the values exactly as the file holds them. Decoding starts from the stored
+// number, not from its "%g" text, so float32 precision survives.
+void DropTargetsTest::decodedAndStoredGridsShowScaleFactorAndOffset() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString file=dir.filePath("packed_grids.nc");
+  {
+    const QByteArray path=file.toLocal8Bit();
+    int ncid=-1,latDim=-1,lonDim=-1,precipVar=-1,tempVar=-1;
+    QCOMPARE(nc_create(path.constData(),NC_NETCDF4|NC_CLASSIC_MODEL|NC_CLOBBER,&ncid),NC_NOERR);
+    QCOMPARE(nc_def_dim(ncid,"lat",2,&latDim),NC_NOERR);
+    QCOMPARE(nc_def_dim(ncid,"lon",3,&lonDim),NC_NOERR);
+    const int dims[2]={latDim,lonDim};
+    QCOMPARE(nc_def_var(ncid,"precipitation",NC_INT,2,dims,&precipVar),NC_NOERR);
+    QCOMPARE(nc_def_var(ncid,"temperature",NC_FLOAT,2,dims,&tempVar),NC_NOERR);
+    const double precipScale=0.0001, precipOffset=0.0;
+    const float tempScale=2.5f, tempOffset=-100.0f;
+    QCOMPARE(nc_put_att_double(ncid,precipVar,"scale_factor",NC_DOUBLE,1,&precipScale),NC_NOERR);
+    QCOMPARE(nc_put_att_double(ncid,precipVar,"add_offset",NC_DOUBLE,1,&precipOffset),NC_NOERR);
+    QCOMPARE(nc_put_att_float(ncid,tempVar,"scale_factor",NC_FLOAT,1,&tempScale),NC_NOERR);
+    QCOMPARE(nc_put_att_float(ncid,tempVar,"add_offset",NC_FLOAT,1,&tempOffset),NC_NOERR);
+    QCOMPARE(nc_enddef(ncid),NC_NOERR);
+    const int stored[6]={0,10000,123800,250,99990000,-5000};
+    QCOMPARE(nc_put_var_int(ncid,precipVar,stored),NC_NOERR);
+    // 123456789 needs more than the 6 significant digits of "%g": a decoded grid that parsed the
+    // stored text would print 123457000 * 2.5 - 100 instead of the exact product
+    const float raw[6]={123456789.0f,0.0f,-1.5f,1e-5f,86399.0f,250000.5f};
+    QCOMPARE(nc_put_var_float(ncid,tempVar,raw),NC_NOERR);
+    QCOMPARE(nc_close(ncid),NC_NOERR);
+  }
+
+  MainWindow window;
+  auto *tree=window.findChild<FileTreeWidget*>();
+  auto *mdi=window.findChild<QMdiArea*>();
+  QVERIFY(tree);QVERIFY(mdi);
+  close_modal_dialogs_later();
+  QCOMPARE(window.read_file(file),0);
+  QTreeWidgetItem *root=tree->topLevelItem(0);
+  QVERIFY(root);
+  QTreeWidgetItem *precip=nullptr;
+  for(int i=0;i<root->childCount();i++)
+    if(root->child(i)->text(0)=="precipitation") precip=root->child(i);
+  QVERIFY(precip);
+
+  auto grid_model=[](QMdiSubWindow *sub) {
+    return sub->widget()->findChild<QTableView*>("gridTable")->model();
+  };
+  auto cell=[](QAbstractItemModel *model,int row,int column) {
+    return model->data(model->index(row,column)).toString();
+  };
+
+  // decoded: stored x 0.0001, the numbers the image view and the legend show
+  tree->setCurrentItem(precip);
+  QVERIFY(QMetaObject::invokeMethod(tree,"add_grid"));
+  QCOMPARE(mdi->subWindowList().size(),1);
+  QMdiSubWindow *decoded=mdi->subWindowList().last();
+  QAbstractItemModel *decodedModel=grid_model(decoded);
+  QCOMPARE(cell(decodedModel,0,1),QString("1"));
+  QCOMPARE(cell(decodedModel,0,2),QString("12.38"));
+  QCOMPARE(cell(decodedModel,1,0),QString("0.025"));
+  QCOMPARE(cell(decodedModel,1,1),QString("9999"));
+  QCOMPARE(cell(decodedModel,1,2),QString("-0.5"));
+  QCOMPARE(decodedModel->headerData(0,Qt::Horizontal).toString(),QString("Value (decoded to real)"));
+  QVERIFY(decodedModel->headerData(0,Qt::Horizontal,Qt::ToolTipRole).toString().contains("stored x 0.0001 + 0"));
+  QVERIFY(decoded->windowTitle().contains("Data Grid (decoded to real)"));
+
+  // stored: the integers exactly as written in the file
+  tree->setCurrentItem(precip);
+  QVERIFY(QMetaObject::invokeMethod(tree,"add_stored_grid"));
+  QCOMPARE(mdi->subWindowList().size(),2);
+  QMdiSubWindow *stored=mdi->subWindowList().last();
+  QAbstractItemModel *storedModel=grid_model(stored);
+  QCOMPARE(cell(storedModel,0,1),QString("10000"));
+  QCOMPARE(cell(storedModel,0,2),QString("123800"));
+  QCOMPARE(cell(storedModel,1,0),QString("250"));
+  QCOMPARE(cell(storedModel,1,1),QString("99990000"));
+  QCOMPARE(cell(storedModel,1,2),QString("-5000"));
+  QCOMPARE(storedModel->headerData(0,Qt::Horizontal).toString(),QString("Value (raw)"));
+  QVERIFY(stored->windowTitle().contains("Stored Grid (raw value)"));
+  // both windows stay open side by side, each showing its own numbers
+  QCOMPARE(cell(decodedModel,1,1),QString("9999"));
+
+  // float32 packing keeps its precision: the exact stored value is used, not its 6-digit text
+  mdi->closeAllSubWindows();
+  QTreeWidgetItem *temp=nullptr;
+  for(int i=0;i<root->childCount();i++)
+    if(root->child(i)->text(0)=="temperature") temp=root->child(i);
+  QVERIFY(temp);
+  tree->setCurrentItem(temp);
+  QVERIFY(QMetaObject::invokeMethod(tree,"add_grid"));
+  QAbstractItemModel *tempDecoded=grid_model(mdi->subWindowList().last());
+  const QString exact=QString::asprintf("%.15g",double(123456789.0f)*2.5-100.0);
+  const QString fromText=QString::asprintf("%.15g",double(QString::asprintf("%g",123456789.0f).toDouble())*2.5-100.0);
+  QCOMPARE(cell(tempDecoded,0,0),exact);
+  QVERIFY2(exact!=fromText,qPrintable(exact));
+  QCOMPARE(cell(tempDecoded,0,2),QString("-103.75"));
+  QCOMPARE(cell(tempDecoded,1,0),QString("-99.9999750000006"));
+  QCOMPARE(cell(tempDecoded,1,2),QString("624901.25"));
+  mdi->closeAllSubWindows();
+  window.close_all_files();
+}
+
+// A file dragged from Explorer can be released anywhere in the window: the tree, the empty MDI area,
+// the File Info / By NetCDF4 / CF Check panes, a grid or image view, a toolbar text field. Events go
+// through QApplication::notify, which (as for a real OLE drop) starts at the widget under the cursor
+// and propagates to parents that accept drops.
+void DropTargetsTest::fileDropOpensFromEveryAreaOfTheMainWindow() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString fixture=dir.filePath("first.nc");
+  const QString dropped=dir.filePath("dropped.nc");
+  write_classic_fixture(fixture,NC_CLOBBER);
+  write_classic_fixture(dropped,NC_CLOBBER);
+
+  MainWindow window;
+  window.resize(1200,800);
+  window.show();
+  QVERIFY(QTest::qWaitForWindowExposed(&window));
+  auto *tree=window.findChild<FileTreeWidget*>();
+  auto *mdi=window.findChild<QMdiArea*>();
+  close_modal_dialogs_later();
+  QCOMPARE(window.read_file(fixture),0);
+  QTreeWidgetItem *root=tree->topLevelItem(0);
+  QTreeWidgetItem *ttr=nullptr;
+  for(int i=0;i<root->childCount();i++) if(root->child(i)->text(0)=="ttr") ttr=root->child(i);
+  QVERIFY(ttr);
+  tree->setCurrentItem(ttr);
+  QVERIFY(QMetaObject::invokeMethod(tree,"add_grid"));
+  emit tree->itemDoubleClicked(ttr,0);   // image view
+  QTRY_COMPARE(mdi->subWindowList().size(),2);
+  QWidget *grid=mdi->subWindowList().at(0)->widget();
+  QWidget *image=mdi->subWindowList().at(1)->widget();
+
+  QList<QPair<QString,QWidget*>> targets;
+  targets << qMakePair(QString("tree"),tree->viewport());
+  targets << qMakePair(QString("empty MDI area"),mdi->viewport());
+  for(QPlainTextEdit *pane:window.findChildren<QPlainTextEdit*>())
+    if(!pane->window()->inherits("QDialog")) targets << qMakePair(QString("info pane ")+pane->objectName(),pane->viewport());
+  targets << qMakePair(QString("grid table"),static_cast<QWidget*>(grid->findChild<QTableView*>("gridTable")->viewport()));
+  targets << qMakePair(QString("image canvas"),static_cast<QWidget*>(image->findChild<QGraphicsView*>()->viewport()));
+  targets << qMakePair(QString("mask field"),static_cast<QWidget*>(image->findChild<QLineEdit*>("maskStart")));
+  targets << qMakePair(QString("layer combo"),static_cast<QWidget*>(window.findChild<QComboBox*>("layerIndexCombo")));
+  QVERIFY(targets.size()>=8);
+
+  QStringList failed;
+  for(const auto &target:targets) {
+    const int before=tree->topLevelItemCount();
+    QMimeData mime;
+    mime.setUrls({QUrl::fromLocalFile(dropped)});
+    mime.setText(QUrl::fromLocalFile(dropped).toString());   // Explorer also offers the path as text
+    const QPoint point=target.second->rect().center();
+    QDragEnterEvent enter(point,Qt::CopyAction|Qt::MoveAction|Qt::LinkAction,&mime,Qt::LeftButton,Qt::NoModifier);
+    QApplication::sendEvent(target.second,&enter);
+    QDragMoveEvent move(point,Qt::CopyAction|Qt::MoveAction|Qt::LinkAction,&mime,Qt::LeftButton,Qt::NoModifier);
+    QApplication::sendEvent(target.second,&move);
+    QDropEvent drop(QPointF(point),Qt::CopyAction|Qt::MoveAction|Qt::LinkAction,&mime,Qt::LeftButton,Qt::NoModifier);
+    QApplication::sendEvent(target.second,&drop);
+    const bool opened=QTest::qWaitFor([&]{ return tree->topLevelItemCount()==before+1; },2000);
+    if(!enter.isAccepted() || !drop.isAccepted() || !opened)
+      failed << QString("%1 (enter %2, drop %3, opened %4)").arg(target.first)
+                  .arg(enter.isAccepted()).arg(drop.isAccepted()).arg(opened);
+    if(opened) {
+      QTreeWidgetItem *added=tree->topLevelItem(tree->topLevelItemCount()-1);
+      window.close_file_of(added);
+    }
+  }
+  QVERIFY2(failed.isEmpty(),qPrintable(failed.join("; ")));
+  mdi->closeAllSubWindows();
+  window.close_all_files();
+}
+
 // Optional reconciliation on a real, large NetCDF-3 product; set HDFSTUDIO_CLASSIC_SAMPLE to its
 // path. The dump (one grid plane plus the decoded time column) is compared with netCDF4 by
 // tests/reconcile_classic_grid.py. Without the variable the test is skipped.
@@ -1348,6 +1635,140 @@ void DropTargetsTest::externalClassicSampleMatchesPython() {
   for(int row=0;row<timeModel->rowCount();row++)
     times.write(QString("%1\t%2\t%3\n").arg(timeModel->data(timeModel->index(row,0)).toString(),
         timeModel->data(timeModel->index(row,1)).toString(),timeModel->data(timeModel->index(row,2)).toString()).toUtf8());
+}
+
+// The third option: one table with the decoded column then the raw column, so a cell and the number
+// it came from can be read in the same row. Date columns follow the doubled value columns.
+void DropTargetsTest::bothGridsShowDecodedAndRawSideBySide() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString file=dir.filePath("both_grids.nc");
+  {
+    const QByteArray path=file.toLocal8Bit();
+    int ncid=-1,latDim=-1,lonDim=-1,precipVar=-1;
+    QCOMPARE(nc_create(path.constData(),NC_NETCDF4|NC_CLASSIC_MODEL|NC_CLOBBER,&ncid),NC_NOERR);
+    QCOMPARE(nc_def_dim(ncid,"lat",2,&latDim),NC_NOERR);
+    QCOMPARE(nc_def_dim(ncid,"lon",3,&lonDim),NC_NOERR);
+    const int dims[2]={latDim,lonDim};
+    QCOMPARE(nc_def_var(ncid,"precipitation",NC_INT,2,dims,&precipVar),NC_NOERR);
+    const double scale=0.0001, offset=0.0;
+    QCOMPARE(nc_put_att_double(ncid,precipVar,"scale_factor",NC_DOUBLE,1,&scale),NC_NOERR);
+    QCOMPARE(nc_put_att_double(ncid,precipVar,"add_offset",NC_DOUBLE,1,&offset),NC_NOERR);
+    QCOMPARE(nc_enddef(ncid),NC_NOERR);
+    const int stored[6]={0,10000,123800,250,99990000,-5000};
+    QCOMPARE(nc_put_var_int(ncid,precipVar,stored),NC_NOERR);
+    QCOMPARE(nc_close(ncid),NC_NOERR);
+  }
+
+  MainWindow window;
+  auto *tree=window.findChild<FileTreeWidget*>();
+  auto *mdi=window.findChild<QMdiArea*>();
+  QVERIFY(tree);QVERIFY(mdi);
+  close_modal_dialogs_later();
+  QCOMPARE(window.read_file(file),0);
+  QTreeWidgetItem *root=tree->topLevelItem(0);
+  QVERIFY(root);
+  QTreeWidgetItem *precip=nullptr;
+  for(int i=0;i<root->childCount();i++)
+    if(root->child(i)->text(0)=="precipitation") precip=root->child(i);
+  QVERIFY(precip);
+
+  tree->setCurrentItem(precip);
+  QVERIFY(QMetaObject::invokeMethod(tree,"add_both_grids"));
+  QCOMPARE(mdi->subWindowList().size(),1);
+  QMdiSubWindow *sub=mdi->subWindowList().last();
+  QAbstractItemModel *model=sub->widget()->findChild<QTableView*>("gridTable")->model();
+  // 3 lon columns become 6: decoded, raw, decoded, raw, decoded, raw
+  QCOMPARE(model->columnCount(),6);
+  QCOMPARE(model->headerData(0,Qt::Horizontal).toString(),QString("Value 1 (decoded)"));
+  QCOMPARE(model->headerData(1,Qt::Horizontal).toString(),QString("Value 1 (raw)"));
+  QCOMPARE(model->headerData(4,Qt::Horizontal).toString(),QString("Value 3 (decoded)"));
+  QCOMPARE(model->headerData(5,Qt::Horizontal).toString(),QString("Value 3 (raw)"));
+  QVERIFY(sub->windowTitle().contains("Both Grids (decoded and raw)"));
+  // the same cell twice: 99990000 stored next to its decoded 9999, and -5000 next to -0.5
+  QCOMPARE(model->data(model->index(1,2)).toString(),QString("9999"));
+  QCOMPARE(model->data(model->index(1,3)).toString(),QString("99990000"));
+  QCOMPARE(model->data(model->index(1,4)).toString(),QString("-0.5"));
+  QCOMPARE(model->data(model->index(1,5)).toString(),QString("-5000"));
+  // an unpacked value and its raw pair are identical
+  QCOMPARE(model->data(model->index(0,0)).toString(),QString("0"));
+  QCOMPARE(model->data(model->index(0,1)).toString(),QString("0"));
+  mdi->closeAllSubWindows();
+  window.close_all_files();
+}
+
+// Optional reconciliation on a real packed NetCDF-4 classic product (CMPA FAST style: int32 with
+// scale_factor/add_offset). Set HDFSTUDIO_PACKED_SAMPLE to its path and HDFSTUDIO_PACKED_VARIABLE
+// to the 2-D/3-D variable (default "precipitation"). The decoded and stored grids are dumped whole
+// to logs/S4-UI-DecodedGrid/ and compared with netCDF4 by tests/reconcile_decoded_grid.py.
+void DropTargetsTest::externalPackedSampleMatchesPython() {
+  const QString sample=qEnvironmentVariable("HDFSTUDIO_PACKED_SAMPLE");
+  if(sample.isEmpty() || !QFileInfo(sample).isFile())
+    QSKIP("HDFSTUDIO_PACKED_SAMPLE is not set");
+  const QString variable=qEnvironmentVariable("HDFSTUDIO_PACKED_VARIABLE").isEmpty()
+      ? QString("precipitation") : qEnvironmentVariable("HDFSTUDIO_PACKED_VARIABLE");
+
+  const QDir logs(QDir(QCoreApplication::applicationDirPath()).absoluteFilePath("../../../logs/S4-UI-DecodedGrid"));
+  QVERIFY(QDir().mkpath(logs.absolutePath()));
+  MainWindow window;
+  auto *tree=window.findChild<FileTreeWidget*>();
+  auto *mdi=window.findChild<QMdiArea*>();
+  QVERIFY(tree);QVERIFY(mdi);
+  close_modal_dialogs_later();
+  QCOMPARE(window.read_file(sample),0);
+  QTreeWidgetItem *root=tree->topLevelItem(0);
+  QVERIFY(root);
+  QTreeWidgetItem *target=nullptr;
+  for(int i=0;i<root->childCount();i++)
+    if(root->child(i)->text(0)==variable) target=root->child(i);
+  QVERIFY2(target,qPrintable(variable));
+
+  auto dump=[](QWidget *grid,const QString &path) {
+    QAbstractItemModel *model=grid->findChild<QTableView*>("gridTable")->model();
+    QFile out(path);
+    if(!out.open(QIODevice::WriteOnly|QIODevice::Truncate)) return false;
+    for(int row=0;row<model->rowCount();row++) {
+      QStringList cells;
+      for(int column=0;column<model->columnCount();column++) cells << model->data(model->index(row,column)).toString();
+      out.write((cells.join('\t')+"\n").toUtf8());
+    }
+    out.close();
+    return true;
+  };
+
+  QStringList meta;
+  struct ModeCase { const char *method; const char *name; const char *dump; };
+  const ModeCase cases[]={{"add_grid","decoded","grid-decoded.tsv"},
+                          {"add_stored_grid","stored","grid-stored.tsv"},
+                          {"add_both_grids","both","grid-both.tsv"}};
+  for(const ModeCase &testCase:cases) {
+    tree->setCurrentItem(target);
+    QElapsedTimer timer; timer.start();
+    QVERIFY(QMetaObject::invokeMethod(tree,testCase.method));
+    QWidget *grid=mdi->subWindowList().last()->widget();
+    QAbstractItemModel *model=grid->findChild<QTableView*>("gridTable")->model();
+    // first value of the first row: the cost of one cell shows in the 1.68 M cell benchmarks below
+    const QString first=model->data(model->index(0,0)).toString();
+    const qint64 milliseconds=timer.elapsed();
+    QVERIFY(dump(grid,logs.absoluteFilePath(testCase.dump)));
+
+    // whole-table read cost: every cell of the visible plane through the model
+    QElapsedTimer readTimer; readTimer.start();
+    for(int row=0;row<model->rowCount();row++)
+      for(int column=0;column<model->columnCount();column++)
+        model->data(model->index(row,column)).toString();
+    const qint64 readMilliseconds=readTimer.elapsed();
+
+    meta << QString("%1 rows=%2 columns=%3 first=\"%4\" open_ms=%5 all_cells_ms=%6")
+                .arg(testCase.name).arg(model->rowCount()).arg(model->columnCount())
+                .arg(first).arg(milliseconds).arg(readMilliseconds);
+    mdi->closeAllSubWindows();
+  }
+  QFile metaFile(logs.absoluteFilePath("grid-open.txt"));
+  QVERIFY(metaFile.open(QIODevice::WriteOnly|QIODevice::Truncate));
+  metaFile.write((meta.join('\n')+"\n").toUtf8());
+  metaFile.close();
+  window.close_all_files();
 }
 
 QTEST_MAIN(DropTargetsTest)

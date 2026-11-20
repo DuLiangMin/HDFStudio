@@ -41,15 +41,22 @@ HDFStudio 几秒内就能回答，不需要开 Python、不需要 notebook、也
 
 ## ✨ 功能
 
-- 📂 **打开 NetCDF 与 HDF5 文件**：NetCDF-3（CDF-1、CDF-2、CDF-5，0.10.27 起经 netCDF-C 读取）、NetCDF-4 / NetCDF-4 classic、普通 HDF5 容器；可同时打开多个文件，支持拖放。格式按文件头识别，不看 `.nc` 扩展名。
+- 📂 **打开 NetCDF 与 HDF5 文件**：NetCDF-3（CDF-1、CDF-2、CDF-5，0.10.27 起经 netCDF-C 读取）、NetCDF-4 / NetCDF-4 classic、普通 HDF5 容器；可同时打开多个文件。可以从资源管理器把文件拖到窗口任意位置（变量树、视图、信息面板、工具栏）打开；以管理员身份运行时 Windows 会阻止从资源管理器拖放，HDFStudio 会在状态栏提示。格式按文件头识别，不看 `.nc` 扩展名。
 - 🗂️ **干净地关闭文件**：**File → Close File**（`Ctrl+F4` 或 `Ctrl+W`）、**Close All Files**，或在任意节点右键 **Close File**；该文件的视图会随之关闭。
 - 🌳 **变量树**：组、维度、变量与属性，带类型和维度大小。
 - 🔢 **数值表格**：精确值表格，三维、四维、五维数组可选层。NetCDF-3 文件只读取当前显示的二维平面，700 MB 的变量不到 0.1 秒即可打开。
+- 🔀 **两种数值，三种表格**（0.10.30）：一个变量可以“存的是一个数、代表另一个数”（`解码值 = 存储值 × scale_factor + add_offset`），所以右键菜单提供三种表格：
+  - **Data Grid (decoded to real)...**：真实值，即图像视图和图例上的数。
+  - **Stored Grid (raw value)...**：文件里原样存储的数，未经 `scale_factor`/`add_offset`。
+  - **Both Grids (decoded and raw)...**：一张表里解码值列后面紧跟它的存储值列，同一行就能对照“这个数是从哪个数来的”。
+
+  表头都写明是哪种数（`Value (decoded to real)`、`Value (raw)`，并排时是 `Value 1 (decoded)` / `Value 1 (raw)`），窗口标题也重复一遍。解码是从存储的数值算起，不从被截短的文本算起，所以 `float32` 的 123456789 不会先被压成 6 位再乘系数。已在 1201 × 1401 的打包产品上与 Python netCDF4 逐格对账：解码、存储、并排三种表格各 1,682,601 格全部一致。
 - ⬆️⬇️ **主工具栏层导航**：打开按钮后面是上一层、下一层、最后一层、第一层与可选的维度/层号下拉框，工具栏实时显示 `Layer n of N`；另有 **Layer** 菜单（`Alt+←`/`Alt+→`/`Alt+Home`/`Alt+End`、`Ctrl+G` 跳转到指定层）。多轴变量（如 `time` 与 `lev`）可先选要翻的维度，再逐层查看。
 - 🔍 **属性详情**：类似 `print(netCDF4.Dataset(...))`，给出维度名、unlimited 维度，数组属性会展开显示。
 - 📋 **可拷贝的 Properties，为提取元数据而优化**（0.10.29）：在文件、组或变量上右键 → **Properties...**，弹出的是纯文本报告，可以用鼠标选择后按 `Ctrl+C` 拷贝，也可以点 **Copy All** 一次拷走全部内容。报告开头是文件路径和对象路径，后面依次是形状、类型、大小、维度、存储布局和全部属性。直接粘贴到搜索框、Issue 或 LLM 对话里，就能询问该文件的 NetCDF 元数据和数据信息，不必打开 Python。弹窗不是模态的，可以同时打开几个对照查看；`hdf_cli props` 输出相同的内容。
 - 🪟 **Window 菜单**：**Cascade** 把视图按顺序层叠排列，**Tile** 平铺；菜单下方是编号的已打开视图列表（当前视图打勾），点击即可切到该视图。
 - 🗺️ **图像视图**：二维切片支持连续与离散调色板（Viridis、Inferno、Turbo 等），CF 经纬网悬停可读出经纬度。
+- 🎭 **Mask Range（屏蔽区间）**（0.10.30）：图像工具栏下方单独一行，填开始值和结束值。落在 [开始, 结束]（含两端）内的值变成 NaN，显示为**白色**，不参与色标和最小/最大值。开始值留空表示负无穷，结束值留空表示正无穷。例如某降水产品用 `99990000` 存特殊值、`scale_factor = 0.0001`：开始填 `9999`、结束留空，即可把它白化，只给真实降水上色。Mask Range 按**解码后的数值**判断（`存储值 × scale_factor + add_offset`，即图例上的数），不按文件里存的整数。`valid_range`、`_FillValue` 等属性是按存储值写的，为免混淆，Properties 和 Mask Range 行会同时给出解码值，例如 `valid_range decoded: [0, 9999] (stored [0, 99990000])`。
 - ⏱️ **时间解码**：`seconds since 1970-01-01`、`days since 2024-10-01` 这类 `time` 变量会显示为 `yyyymmdd` 与 `yyyymmdd hh:mm:ss`，经 `netCDF4.num2date` 按文件自身日历解码。
 - 🧭 **坐标方向**：By NetCDF4 页报告纬度是南→北还是北→南、经度是东→西还是西→东，这正是地图上下颠倒的常见原因。
 - ✅ **CF 规范检查**：调用 IOOS Compliance Checker 生成 CF-1.8 报告，另附内置的只读 CF 元信息诊断。
@@ -82,6 +89,8 @@ hdf_cli info   data.nc              维度、变量与属性，排版接近 netC
 hdf_cli props  data.nc /ttr         Properties 对话框里的那几行
 hdf_cli export data.nc /lat         数值导出为文本（加文件名则写入文件）
 hdf_cli csv    data.nc /ttr plane.csv 7 42    图像视图所读的那一个二维平面
+hdf_cli mask   data.nc /precipitation 9999 - 0    按解码值做 Mask Range（"-" 表示开区间端点），
+                                                 输出屏蔽个数和剩余数值的最小/最大值
 ```
 
 ## 🛠️ 从源码构建（Windows）

@@ -13,6 +13,7 @@
 #include <QPainter>
 #include <string>
 #include <cassert>
+#include <cmath>
 #include <vector>
 #include <algorithm>
 #include "hdf_explorer.hpp"
@@ -23,8 +24,30 @@
 #include "text_export.hpp"
 #include "vector_view.hpp"
 #include "mesh_view.hpp"
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 static const char app_name[] = "HDFStudio";
+
+// true when HDFStudio runs with an elevated (administrator) token
+bool process_is_elevated()
+{
+#ifdef _WIN32
+  HANDLE token = nullptr;
+  if(!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token)) return false;
+  TOKEN_ELEVATION elevation{};
+  DWORD size = 0;
+  const bool ok = GetTokenInformation(token, TokenElevation, &elevation, sizeof(elevation), &size);
+  CloseHandle(token);
+  return ok && elevation.TokenIsElevated != 0;
+#else
+  return false;
+#endif
+}
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 //main
@@ -72,7 +95,7 @@ int main(int argc, char *argv[])
 {
   Q_INIT_RESOURCE(hdf_explorer);
   QApplication app(argc, argv);
-  QCoreApplication::setApplicationVersion("0.10.29");
+  QCoreApplication::setApplicationVersion("0.10.30");
   QCoreApplication::setApplicationName(app_name);
 #if QT_VERSION >= 0x050000
   QCommandLineParser parser;
@@ -397,9 +420,9 @@ MainWindow::MainWindow()
 
   m_mdi_area = new QMdiArea;
   m_mdi_area->setAcceptDrops(true);
-  m_mdi_area->installEventFilter(this);
   m_mdi_area->viewport()->setAcceptDrops(true);
-  m_mdi_area->viewport()->installEventFilter(this);
+  //file drops anywhere in this window: see MainWindow::eventFilter
+  qApp->installEventFilter(this);
 
   ///////////////////////////////////////////////////////////////////////////////////////
   //bottom information tabs
@@ -459,7 +482,12 @@ MainWindow::MainWindow()
   //status bar
   ///////////////////////////////////////////////////////////////////////////////////////
 
-  statusBar()->showMessage(tr("Ready"));
+  //an elevated process cannot receive drag and drop from a normal Explorer window (Windows UIPI)
+  if(process_is_elevated())
+    statusBar()->showMessage(tr("Running as administrator: Windows blocks dragging files here from Explorer. "
+                                "Start HDFStudio normally to use drag and drop, or use File > Open."));
+  else
+    statusBar()->showMessage(tr("Ready"));
 
   ///////////////////////////////////////////////////////////////////////////////////////
   //dock for tree
@@ -839,7 +867,7 @@ void MainWindow::about()
 {
   QMessageBox::about(this,
     tr("About HDFStudio"),
-    tr("HDFStudio 0.10.29\nAuthor: DuLiangMin\n\n"
+    tr("HDFStudio 0.10.30\nAuthor: DuLiangMin\n\n"
        "Metadata convention target: CF-1.8\n"
        "Product libraries: netCDF-C 4.9.3, HDF5 1.8.20\n\n"
        "Reference environment: Python 3.12.10, netCDF4-python 1.7.5.1.post1\n"
@@ -1047,25 +1075,33 @@ void MainWindow::dragMoveEvent(QDragMoveEvent *event)
   }
 }
 
+// true for this window and every widget inside it, including floating docks and its dialogs
+bool MainWindow::owns_widget(const QWidget *widget) const
+{
+  for(const QWidget *w = widget; w; w = w->parentWidget())
+    if(w == this) return true;
+  return false;
+}
+
+// Installed on the application (Qt 6 "The Event System": an application event filter sees an event
+// before the widget does). A local file dragged from Explorer is opened wherever it is released in
+// HDFStudio; child widgets that accept text drops (line edits, editable text) would otherwise take
+// the file path as text and the file would not open.
 bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 {
-  if((watched == m_mdi_area || watched == m_mdi_area->viewport()) && event->type() == QEvent::DragEnter) {
-    auto *drop_event = static_cast<QDragEnterEvent *>(event);
-    if(accepts_file_drop(drop_event->mimeData())) {
-      drop_event->setDropAction(Qt::CopyAction);
-      drop_event->accept();
+  const QEvent::Type type = event->type();
+  if(type == QEvent::DragEnter || type == QEvent::DragMove || type == QEvent::Drop) {
+    QWidget *widget = qobject_cast<QWidget *>(watched);
+    auto *drop_event = static_cast<QDropEvent *>(event);   // QDragEnterEvent and QDragMoveEvent derive from it
+    if(widget && owns_widget(widget) && accepts_file_drop(drop_event->mimeData())) {
+      if(type == QEvent::Drop) {
+        handle_file_drop(drop_event->mimeData(), drop_event);
+      } else {
+        drop_event->setDropAction(Qt::CopyAction);
+        drop_event->accept();
+      }
       return true;
     }
-  } else if((watched == m_mdi_area || watched == m_mdi_area->viewport()) && event->type() == QEvent::DragMove) {
-    auto *drop_event = static_cast<QDragMoveEvent *>(event);
-    if(accepts_file_drop(drop_event->mimeData())) {
-      drop_event->setDropAction(Qt::CopyAction);
-      drop_event->accept();
-      return true;
-    }
-  } else if((watched == m_mdi_area || watched == m_mdi_area->viewport()) && event->type() == QEvent::Drop) {
-    handle_file_drop(static_cast<QDropEvent *>(event)->mimeData(), static_cast<QDropEvent *>(event));
-    return true;
   }
   return QMainWindow::eventFilter(watched, event);
 }
@@ -2082,9 +2118,21 @@ void FileTreeWidget::show_context_menu(const QPoint &p)
   connect(action_properties, &QAction::triggered, this, &FileTreeWidget::show_item_properties);
   menu.addSeparator();
 
-  QAction *action_grid = menu.addAction(tr("Grid..."));
+  // three grids: what the data means, what the file stores, and both side by side for comparison
+  QAction *action_grid = menu.addAction(tr("Data Grid (decoded to real)..."));
+  action_grid->setToolTip(tr("Values as the image view reads them: stored x scale_factor + add_offset"));
   action_grid->setEnabled(numeric && (variable || attribute));
   connect(action_grid, &QAction::triggered, this, &FileTreeWidget::add_grid);
+
+  QAction *action_stored = menu.addAction(tr("Stored Grid (raw value)..."));
+  action_stored->setToolTip(tr("Values exactly as written in the file, before scale_factor/add_offset"));
+  action_stored->setEnabled(numeric && (variable || attribute));
+  connect(action_stored, &QAction::triggered, this, &FileTreeWidget::add_stored_grid);
+
+  QAction *action_both = menu.addAction(tr("Both Grids (decoded and raw)..."));
+  action_both->setToolTip(tr("One table with the decoded column and the raw column side by side"));
+  action_both->setEnabled(numeric && (variable || attribute));
+  connect(action_both, &QAction::triggered, this, &FileTreeWidget::add_both_grids);
 
   QAction *action_image = menu.addAction(tr("Image View"));
   action_image->setEnabled(numeric && variable && rank >= 2);
@@ -2372,6 +2420,32 @@ void FileTreeWidget::export_item_as_image()
 
 void FileTreeWidget::add_grid()
 {
+  open_grid(GridDecoded);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////
+//FileTreeWidget::add_stored_grid
+//same buffer, but the table shows it as stored in the file (no scale_factor/add_offset)
+///////////////////////////////////////////////////////////////////////////////////////
+
+void FileTreeWidget::add_stored_grid()
+{
+  open_grid(GridStored);
+}
+
+///////////////////////////////////////////////////////////////////////////////////////
+//FileTreeWidget::add_both_grids
+//one table with a decoded column and the raw column next to it, for comparing them
+///////////////////////////////////////////////////////////////////////////////////////
+
+void FileTreeWidget::add_both_grids()
+{
+  open_grid(GridBoth);
+}
+
+// Shared by the three grid commands: load the buffer of the current tree item, then open a table.
+void FileTreeWidget::open_grid(GridValueMode mode)
+{
   QTreeWidgetItem *item = static_cast <QTreeWidgetItem*> (currentItem());
   if(!item) return;
   ItemData *item_data = get_item_data(item);
@@ -2389,8 +2463,7 @@ void FileTreeWidget::add_grid()
   {
     this->load_item_attribute(item);
   }
-  if(item_data->m_dataset->m_buf) m_main_window->add_table(item_data);
-
+  if(item_data->m_dataset->m_buf) m_main_window->add_table(item_data, int(mode));
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -2400,7 +2473,9 @@ void FileTreeWidget::add_grid()
 class TableModel : public QAbstractTableModel
 {
 public:
-  TableModel(QObject *parent, ItemData *item_data);
+  // GridDecoded / GridStored / GridBoth, described in hdf_explorer.hpp
+  TableModel(QObject *parent, ItemData *item_data, GridValueMode mode = GridDecoded);
+  GridValueMode mode() const { return m_mode; }
   int rowCount(const QModelIndex &parent = QModelIndex()) const;
   int columnCount(const QModelIndex &parent = QModelIndex()) const;
   QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const;
@@ -2417,6 +2492,23 @@ public:
   QStringList m_days;    // decoded yyyymmdd per row; empty when the variable is not a time coordinate
   QStringList m_moments; // decoded yyyymmdd hh:mm:ss per row
   QString m_time_source; // "units | calendar" shown as the date header tooltip
+  // which of the two numbers this grid shows (decoded, stored, or both side by side)
+  GridValueMode m_mode = GridDecoded;
+  // CF packing of a decoded grid: decoded = stored x scale + offset (1 / 0 = not packed)
+  double m_scale = 1, m_offset = 0;
+  bool m_packed = false;
+  QString m_value_header;   // "Value (decoded to real)", "Value (raw)", …
+  QString m_value_tooltip;  // decoding rule, shown on the value header
+  QString value_header_for(bool stored) const;
+  void update_value_headers();
+  // Numeric text of one buffer cell: stored values keep their own integer/float formatting
+  QString stored_text(size_t index) const;
+  // Numeric value of one buffer cell as a double (false for text and unsupported types)
+  bool raw_number(size_t index, double &value) const;
+  // Decoded text of one buffer cell: stored x scale + offset at 15 significant digits
+  QString decoded_text(size_t index) const;
+  // Same cell as shown by this grid (decoded unless the mode asks for the stored number)
+  QString displayed_text(size_t index, bool stored) const;
 private:
   ItemData *m_item_data; // the tree item that generated this grid 
 };
@@ -2425,13 +2517,32 @@ private:
 //TableModel::TableModel
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 
-TableModel::TableModel(QObject *parent, ItemData *item_data) :
+TableModel::TableModel(QObject *parent, ItemData *item_data, GridValueMode mode) :
 QAbstractTableModel(parent),
 m_dataset(item_data->m_dataset),
 m_widget(NULL),
+m_mode(mode),
 m_item_data(item_data)
 {
   assert(m_dataset->m_dim.size() <= H5S_MAX_RANK);
+
+  // The file stores packed values: a decoded grid applies scale_factor/add_offset, the stored grid
+  // shows the values as written. Attributes such as valid_range and _FillValue are in stored units,
+  // so every header says which number it shows.
+  if(item_data->m_kind == ItemData::Variable)
+  {
+    const NcPacking packing = nc_packing(classic_file_of(item_data), m_dataset->m_path);
+    m_packed = packing.packed();
+    m_scale = packing.scale;
+    m_offset = packing.offset;
+  }
+  update_value_headers();
+  if(m_packed && (m_mode == GridDecoded || m_mode == GridBoth))
+    m_value_tooltip = QObject::tr("Decoded: stored x %1 + %2 (scale_factor / add_offset of the file)")
+        .arg(m_scale,0,'g',15).arg(m_offset,0,'g',15);
+  else if(item_data->m_kind == ItemData::Variable && m_mode != GridBoth)
+    m_value_tooltip = QObject::tr("Stored values exactly as written in the file "
+                                  "(no scale_factor/add_offset)");
 
   /////////////////////////////////////////////////////////////////////////////////////////////////////
   //define grid
@@ -2469,7 +2580,9 @@ int TableModel::rowCount(const QModelIndex &) const
 
 int TableModel::columnCount(const QModelIndex &) const
 {
-  return m_nbr_cols + (m_days.isEmpty() ? 0 : 2);
+  // side-by-side mode doubles the value columns: decoded, stored, decoded, stored, …
+  const int value_columns = m_mode == GridBoth ? m_nbr_cols * 2 : m_nbr_cols;
+  return value_columns + (m_days.isEmpty() ? 0 : 2);
 }
 
 void TableModel::set_time_columns(const QStringList &days, const QStringList &moments, const QString &source)
@@ -2482,18 +2595,48 @@ void TableModel::set_time_columns(const QStringList &days, const QStringList &mo
   endInsertColumns();
 }
 
+// In GridBoth every plane column is followed by its own stored column, so the date columns move
+// to the right of 2 x m_nbr_cols. Headers name the pair: "Value 1 (decoded)", "Value 1 (raw)", …
 QVariant TableModel::headerData(int section, Qt::Orientation orientation, int role) const
 {
-  if(orientation == Qt::Horizontal && !m_days.isEmpty()) {
+  const int value_columns = m_mode == GridBoth ? m_nbr_cols * 2 : m_nbr_cols;
+  if(orientation == Qt::Horizontal) {
     if(role == Qt::DisplayRole) {
-      if(section == 0) return tr("Value");
-      if(section == m_nbr_cols) return QStringLiteral("yyyymmdd");
-      if(section == m_nbr_cols + 1) return QStringLiteral("yyyymmdd hh:mm:ss");
+      if(section >= value_columns) {
+        if(m_days.isEmpty()) return QVariant();
+        if(section == value_columns) return QStringLiteral("yyyymmdd");
+        if(section == value_columns + 1) return QStringLiteral("yyyymmdd hh:mm:ss");
+        return QVariant();
+      }
+      if(m_mode == GridBoth) {
+        const int column = section / 2;
+        const QString kind = section % 2 ? tr("raw") : tr("decoded");
+        return tr("Value %1 (%2)").arg(column + 1).arg(kind);
+      }
+      if(section == 0) return m_value_header;
     }
-    if(role == Qt::ToolTipRole && section >= m_nbr_cols)
-      return tr("Decoded by netCDF4.num2date: %1").arg(m_time_source);
+    if(role == Qt::ToolTipRole) {
+      if(section < value_columns && !m_value_tooltip.isEmpty()) return m_value_tooltip;
+      if(m_mode == GridBoth && section < value_columns)
+        return section % 2 ? tr("Stored value exactly as written in the file")
+                           : tr("Decoded: stored x %1 + %2").arg(m_scale,0,'g',15).arg(m_offset,0,'g',15);
+      if(!m_days.isEmpty() && section >= value_columns)
+        return tr("Decoded by netCDF4.num2date: %1").arg(m_time_source);
+    }
   }
   return QAbstractTableModel::headerData(section, orientation, role);
+}
+
+// value_header_for: one place that decides the header text of a single-value grid
+QString TableModel::value_header_for(bool stored) const
+{
+  if(!m_packed) return tr("Value");
+  return stored ? tr("Value (raw)") : tr("Value (decoded to real)");
+}
+
+void TableModel::update_value_headers()
+{
+  m_value_header = value_header_for(m_mode == GridStored);
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -2522,12 +2665,21 @@ void TableModel::data_changed()
 QVariant TableModel::data(const QModelIndex &index, int role) const
 {
   ChildWindow* parent = m_widget;
-  QString str;
   size_t idx_buf = 0;
+  const int value_columns = m_mode == GridBoth ? m_nbr_cols * 2 : m_nbr_cols;
 
-  if(index.column() >= m_nbr_cols) {
+  if(index.column() >= value_columns) {
     if(role != Qt::DisplayRole || index.row() >= m_days.size()) return QVariant();
-    return index.column() == m_nbr_cols ? m_days.at(index.row()) : m_moments.at(index.row());
+    return index.column() == value_columns ? m_days.at(index.row()) : m_moments.at(index.row());
+  }
+
+  // side-by-side mode: decoded column then stored column for each plane column
+  int value_column = index.column();
+  bool stored = m_mode == GridStored;
+  if(m_mode == GridBoth)
+  {
+    value_column = index.column() / 2;
+    stored = (index.column() % 2) != 0;
   }
 
   //start of offset
@@ -2557,13 +2709,24 @@ QVariant TableModel::data(const QModelIndex &index, int role) const
   }
 
   //into current index
-  idx_buf += index.row() * m_nbr_cols + index.column();
+  idx_buf += index.row() * m_nbr_cols + value_column;
 
   if(role != Qt::DisplayRole)
   {
     return QVariant();
   }
 
+  return displayed_text(idx_buf, stored);
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+//TableModel::stored_text
+//numeric text of one buffer cell exactly as stored in the file
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+
+QString TableModel::stored_text(size_t idx_buf) const
+{
+  QString str;
   switch(m_dataset->m_datatype_class)
   {
     ///////////////////////////////////////////////////////////////////////////////////////
@@ -2782,7 +2945,77 @@ QVariant TableModel::data(const QModelIndex &index, int role) const
 
   }; //switch
 
-  return QVariant();
+  return str;
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+//TableModel::displayed_text
+//decoded values apply the file's scale_factor/add_offset (CF 8.1); the stored grid does not
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+
+QString TableModel::displayed_text(size_t idx_buf, bool stored) const
+{
+  // stored numbers, unpacked variables and text types keep the exact stored text
+  if(stored || !m_packed) return stored_text(idx_buf);
+  return decoded_text(idx_buf);
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+//TableModel::decoded_text
+//decoded = stored x scale_factor + add_offset, computed from the stored number (not from its text)
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+
+QString TableModel::decoded_text(size_t idx_buf) const
+{
+  double stored = 0;
+  if(!raw_number(idx_buf, stored)) return stored_text(idx_buf);
+  return QString::asprintf("%.15g", stored * m_scale + m_offset);
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+//TableModel::raw_number
+//one buffer cell as a double; false for text, long double and the other HDF5 classes.
+//Decoding must start from the stored number, not from its "%g" text (6 significant digits).
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+
+bool TableModel::raw_number(size_t idx_buf, double &value) const
+{
+  // One byte pointer for every width: a ternary over int*/unsigned int* would let MSVC choose one
+  // of the two pointer types for both branches and read a negative stored value as unsigned.
+  const size_t size = m_dataset->m_datatype_size;
+  const unsigned char *cell = static_cast<const unsigned char*>(m_dataset->m_buf) + idx_buf * size;
+  if(m_dataset->m_datatype_class == H5T_FLOAT)
+  {
+    if(size == sizeof(float)) { value = *reinterpret_cast<const float*>(cell); return true; }
+    if(size == sizeof(double)) { value = *reinterpret_cast<const double*>(cell); return true; }
+    return false;
+  }
+  if(m_dataset->m_datatype_class != H5T_INTEGER) return false;
+  const bool is_signed = m_dataset->m_datatype_sign != H5T_SGN_NONE;
+  if(size == 1) value = is_signed ? double(*reinterpret_cast<const signed char*>(cell))
+                                  : double(*reinterpret_cast<const unsigned char*>(cell));
+  else if(size == 2) value = is_signed ? double(*reinterpret_cast<const short*>(cell))
+                                       : double(*reinterpret_cast<const unsigned short*>(cell));
+  else if(size == 4) value = is_signed ? double(*reinterpret_cast<const int*>(cell))
+                                       : double(*reinterpret_cast<const unsigned int*>(cell));
+  else if(size == 8)
+  {
+    if(is_signed)
+    {
+      const long long stored = *reinterpret_cast<const long long*>(cell);
+      // beyond 2^53 a double cannot hold every integer: show the stored text unchanged
+      if(stored > 9007199254740992LL || stored < -9007199254740992LL) return false;
+      value = static_cast<double>(stored);
+    }
+    else
+    {
+      const unsigned long long stored = *reinterpret_cast<const unsigned long long*>(cell);
+      if(stored > 9007199254740992ULL) return false;
+      value = static_cast<double>(stored);
+    }
+  }
+  else return false;
+  return true;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -2790,14 +3023,30 @@ QVariant TableModel::data(const QModelIndex &index, int role) const
 //model/view
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 
+// Window titles of the three grids; the same words as the context menu entries.
+QString grid_mode_name(GridValueMode mode)
+{
+  switch(mode)
+  {
+  case GridStored: return QObject::tr("Stored Grid (raw value)");
+  case GridBoth:   return QObject::tr("Both Grids (decoded and raw)");
+  default:                     return QObject::tr("Data Grid (decoded to real)");
+  }
+}
+
 class ChildWindowTable : public ChildWindow
 {
 public:
-  ChildWindowTable(QWidget *parent, ItemData *item_data) :
+  // mode: GridDecoded (default), GridStored or GridBoth (side by side)
+  ChildWindowTable(QWidget *parent, ItemData *item_data, GridValueMode mode = GridDecoded) :
     ChildWindow(parent, item_data)
   {
+    //the title says which grid this is, so two tables of one variable cannot be mixed up
+    if(item_data->m_kind == ItemData::Variable)
+      setWindowTitle(windowTitle() + tr(" - ") + grid_mode_name(mode));
+
     //each new table widget has its own model
-    m_model = new TableModel(this, item_data);
+    m_model = new TableModel(this, item_data, mode);
     m_model->m_widget = this;
     m_table = new QTableView(this);
     m_table->setModel(m_model);
@@ -2916,6 +3165,7 @@ void MainWindow::update_window_menu()
 
 MainWindow::~MainWindow()
 {
+  qApp->removeEventFilter(this);
   disconnect(m_mdi_area, nullptr, this, nullptr);
   if(m_layer_view) disconnect(m_layer_view, nullptr, this, nullptr);
 }
@@ -3023,9 +3273,9 @@ void MainWindow::update_layer_controls()
 //MainWindow::add_table
 ///////////////////////////////////////////////////////////////////////////////////////
 
-void MainWindow::add_table(ItemData *item_data)
+void MainWindow::add_table(ItemData *item_data, int mode)
 {
-  ChildWindowTable *window = new ChildWindowTable(this, item_data);
+  ChildWindowTable *window = new ChildWindowTable(this, item_data, GridValueMode(mode));
   QMdiSubWindow *sub = m_mdi_area->addSubWindow(window);
   sub->setAttribute(Qt::WA_DeleteOnClose);
   tag_view(sub, item_data);

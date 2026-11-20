@@ -63,8 +63,8 @@ Shot 'desktop-2-image-view'
 
 # Grid through the real context menu
 [Mouse4]::Click([int]($r.X + 20), [int]($r.Y + $r.Height / 2), $true); Start-Sleep -Milliseconds 700
-$menu = ByName $UIA::RootElement 'Grid...'
-"context menu has Grid...: $($menu.Count -gt 0)"
+$menu = ByName $UIA::RootElement 'Data Grid (decoded to real)...'
+"context menu has Data Grid (decoded to real)...: $($menu.Count -gt 0)"
 $mr = $menu[0].Current.BoundingRectangle
 $sw.Restart()
 [Mouse4]::Click([int]($mr.X + $mr.Width / 2), [int]($mr.Y + $mr.Height / 2), $false); Start-Sleep -Seconds 3

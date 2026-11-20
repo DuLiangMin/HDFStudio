@@ -86,7 +86,7 @@ ClickElement (ByName $dialog 'Close')[0] $false; Start-Sleep -Seconds 1
 
 # --- Window menu ---
 ClickElement $ttr $true; Start-Sleep -Milliseconds 700
-ClickElement (ByName $UIA::RootElement 'Grid...')[0] $false; Start-Sleep -Seconds 3
+ClickElement (ByName $UIA::RootElement 'Data Grid (decoded to real)...')[0] $false; Start-Sleep -Seconds 3
 ClickElement $ttr $true; Start-Sleep -Milliseconds 700
 ClickElement (ByName $UIA::RootElement 'Image View')[0] $false; Start-Sleep -Seconds 3
 ClickElement (ByName $win 'Window')[0] $false; Start-Sleep -Milliseconds 800

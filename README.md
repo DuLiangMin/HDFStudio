@@ -47,15 +47,22 @@ scientific stack. It is a small, portable program (about 15 MB) that opens a fil
 
 ## ✨ Features
 
-- 📂 **Open NetCDF and HDF5 files**: NetCDF-3 (CDF-1, CDF-2, CDF-5; since 0.10.27, read through netCDF-C), NetCDF-4 / NetCDF-4 classic, and HDF5 containers; open several files at once, drag and drop supported. The format is detected from the file header, not the `.nc` extension.
+- 📂 **Open NetCDF and HDF5 files**: NetCDF-3 (CDF-1, CDF-2, CDF-5; since 0.10.27, read through netCDF-C), NetCDF-4 / NetCDF-4 classic, and HDF5 containers; open several files at once. Drag files from Explorer and drop them anywhere in the window (tree, views, info panel, toolbar). Windows blocks drag and drop into a program running as administrator; HDFStudio then says so in the status bar. The format is detected from the file header, not the `.nc` extension.
 - 🗂️ **Close files cleanly**: **File → Close File** (`Ctrl+F4` or `Ctrl+W`), **Close All Files**, or right-click any node → **Close File**. Views of a closed file close with it.
 - 🌳 **Dataset tree**: groups, dimensions, variables and attributes with type and shape details.
 - 🔢 **Data grid**: exact values in a table, with layer navigation for 3-D, 4-D and 5-D arrays. For NetCDF-3 files only the displayed 2-D plane is read, so a 700 MB variable opens in under 0.1 s.
+- 🔀 **Two numbers, three grids** (0.10.30): a file can store one number and mean another (`decoded = stored × scale_factor + add_offset`), so the right-click menu offers three tables of the same variable:
+  - **Data Grid (decoded to real)...** — the real values, the numbers the image view and the legend show.
+  - **Stored Grid (raw value)...** — the numbers exactly as written in the file, before `scale_factor`/`add_offset`.
+  - **Both Grids (decoded and raw)...** — one table with the decoded column next to its raw column, so a cell and the number it came from are read in the same row.
+
+  Every header says which number it holds (`Value (decoded to real)`, `Value (raw)`, or `Value 1 (decoded)` / `Value 1 (raw)`), and the window title repeats it. Decoding starts from the stored number, not from its shortened text, so a `float32` value such as 123456789 is not rounded to 6 digits first. Checked against Python netCDF4 cell by cell on a 1201 × 1401 packed product: decoded, raw and both grids all match (1,682,601 cells each).
 - ⬆️⬇️ **Layer toolbar**: next, previous, last and first layer buttons right after Open, with a dimension picker and a layer picker, and a `Layer n of N` readout. The **Layer** menu has the same commands (`Alt+←`/`Alt+→`/`Alt+Home`/`Alt+End`, `Ctrl+G` to type a layer number). Works on the grid and the image view of the active window, for any leading axis such as `time` or `lev`.
 - 🔍 **Properties** like `print(netCDF4.Dataset(...))`: dimension names, unlimited dimension, and attribute values with arrays expanded.
 - 📋 **Copyable Properties, built for extracting metadata** (0.10.29): right-click a file, group or variable → **Properties...**. The window shows a plain-text report you can select and copy (`Ctrl+C`), or copy in one go with **Copy All**. The report starts with the file path and object path, followed by shape, type, size, dimensions, storage layout and every attribute. Paste it into a search, an issue or an LLM prompt to ask about the file's NetCDF metadata and data without opening Python. The window is not modal, so you can keep several open side by side. `hdf_cli props` prints the same lines.
 - 🪟 **Window menu**: **Cascade** stacks the views one behind the other in order, **Tile** places them side by side, and a numbered list of open views (the current one is checked) brings any view to the front.
 - 🗺️ **Image view**: 2-D slices with continuous and discrete color palettes (Viridis, Inferno, Turbo, …), and latitude/longitude readout on hover for CF lat/lon grids.
+- 🎭 **Mask Range** (0.10.30): a row under the image toolbar with a start and an end value. Values from start to end (inclusive) become NaN, are drawn **white**, and are left out of the color range and the min/max. An empty start means −∞, an empty end means +∞. Example: a precipitation product stores the special value `99990000` with `scale_factor = 0.0001`; type `9999` as start and leave the end empty to blank it and color only real precipitation. Mask Range works on **decoded** values (`stored × scale_factor + add_offset`, the numbers in the legend), never on stored integers. Since attributes such as `valid_range` and `_FillValue` are written in stored units, Properties and the Mask Range row also show them in decoded units, e.g. `valid_range decoded: [0, 9999] (stored [0, 99990000])`.
 - ⏱️ **Time decoding**: `time` variables such as `seconds since 1970-01-01` or `days since 2024-10-01` are shown as `yyyymmdd` and `yyyymmdd hh:mm:ss`, using the file's own calendar via `netCDF4.num2date`.
 - 🧭 **Coordinate orientation**: the By NetCDF4 tab reports whether latitude runs south→north or north→south and longitude west→east or east→west, a common source of flipped maps.
 - ✅ **CF Conventions check**: a CF-1.8 report from the IOOS Compliance Checker, plus built-in advisory CF metadata diagnostics.
@@ -90,6 +97,8 @@ hdf_cli info   data.nc              dimensions, variables and attributes, laid o
 hdf_cli props  data.nc /ttr         the lines of the Properties dialog
 hdf_cli export data.nc /lat         values as text (add a file name to write a file)
 hdf_cli csv    data.nc /ttr plane.csv 7 42    one 2-D plane as the image view reads it
+hdf_cli mask   data.nc /precipitation 9999 - 0    Mask Range on decoded values ("-" = open end):
+                                                 count masked and min/max of what remains
 ```
 
 ## 🛠️ Build from source (Windows)

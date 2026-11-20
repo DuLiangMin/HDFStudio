@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.10.30 - 2026-11-20
+
+- Image View **Mask Range**: a second toolbar row with start and end fields. Decoded values in [start, end] (inclusive) become NaN, are drawn white and are left out of the color range and min/max; an empty start is −∞, an empty end +∞. The file's own `_FillValue`/`missing_value` stay grey. Bounds are decoded values (`stored × scale_factor + add_offset`), never stored integers.
+- Properties and `hdf_cli props`: new lines stating the decoding and giving `valid_range`/`valid_min`/`valid_max`/`_FillValue`/`missing_value` in decoded units next to the stored values, e.g. `valid_range decoded: [0, 9999] (stored [0, 99990000])`.
+- New `hdf_cli mask <file> <path> <start|-> <end|-> [index ...]`: same masking as the Image View; prints counts and min/max of the remaining values.
+- Drag and drop: a local file dropped anywhere in the window now opens, including on text fields that used to take the path as text. When HDFStudio runs as administrator, the status bar explains that Windows blocks drag and drop from Explorer.
+- **Three grids instead of one** (right-click → the menu entries are now separate): **Data Grid (decoded to real)...** applies `scale_factor`/`add_offset`, **Stored Grid (raw value)...** shows the numbers as written in the file, and **Both Grids (decoded and raw)...** puts the decoded column next to its raw column in one table, so a value and the stored number it came from are read in the same row. Headers say which number they hold (`Value (decoded to real)`, `Value (raw)`, `Value 1 (decoded)` / `Value 1 (raw)`), and the window title repeats it. The previous single **Grid...** always showed stored values, which is why the grid of a packed product disagreed with its image view.
+- Decoding now starts from the stored number, not from its formatted text: `float32` 123456789 used to be shown as `1.23457e+08` in the text (6 significant digits) and, if such text were decoded, would give 308642400 instead of 308641880.
+- Validation: three grids reconciled cell by cell with Python netCDF4 on the CMPA FAST 0.05° product (1201 × 1401): decoded, raw and both grids 1,682,601 cells each, 0 mismatched (`tests/reconcile_decoded_grid.py`); open 35 ms / 8 ms / 9 ms, full-table read 933 ms / 510 ms / 1499 ms.
+- Validation: Debug/Release QtTest 38 passed + 2 optional; new `maskRangeUsesDecodedValuesWithOpenEnds`, `decodedAndStoredGridsShowScaleFactorAndOffset`, `bothGridsShowDecodedAndRawSideBySide` and `fileDropOpensFromEveryAreaOfTheMainWindow`; real-mouse `tests/desktop_mask_range.ps1` 5/5 on a CMPA FAST 0.05° product (1,470,269 values masked, remaining max 6.4329, equal to Python netCDF4).
+
 ## 0.10.29 - 2026-11-20
 
 - Properties dialog improved for extracting metadata: right-click → **Properties...** now opens a non-modal window with selectable plain text (`Ctrl+C`, right-click Copy/Select All) and a **Copy All** button. The report starts with `HDFStudio <version> Properties`, `File:` (full path) and `Object:` (path in the file), then shape, type, size, dimensions, storage layout and all attributes: the same lines as `hdf_cli props`. It can be pasted as-is into a search, an issue or an LLM prompt.
