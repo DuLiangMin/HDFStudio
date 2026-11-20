@@ -3,8 +3,9 @@
 ## 0.12.03 - 2026-11-20
 
 - 🖼️ **Image View Flip V / Flip H / Reset**: added three buttons on the left of the second toolbar (`maskBar`) with custom 24×24 icons (`flip_vertical.png`, `flip_horizontal.png`, `reset_home.png`). **Flip V** and **Flip H** keep their pressed state (click to flip, click again to restore); **Reset** (home icon) unconditionally clears both flips and restores original zoom and position (`fitInView`). Zooming remains valid when horizontally flipped (`|m11|`), and `Fit` preserves the active flip state.
+- 📈 **Curve Profile**: added `Profile` (checkable point-picking mode), `Show Profile`, and `Clear` buttons on `maskBar`. Left-click adds control points (compatible with zoom, pan, and flips); right-press on a point drags/moves it; double-click on a point deletes it; clicking `Profile` a second time (toggling off) clears the curve. Catmull-Rom spline / polyline arc-length sampling (`src/core/curve_profile.*`) extracts bilinear or nearest-neighbor values from the decoded/masked plane into `ProfileView` (`src/views/profile_view.*`), with `NaN` gaps and CSV export.
 - 📸 Updated `docs/screenshot-main.png` from the active window.
-- ✅ Debug and Release QtTest 40 passed + 2 optional, CTest 1/1 (`S4-UI-RasterFlip`).
+- ✅ Debug and Release QtTest 41 passed + 2 optional, CTest 1/1 (`S4-UI-CurveProfile`).
 - 🔢 Version 0.12.03 (CMake project version, `setApplicationVersion`, About dialog).
 
 ## 0.12.02 - 2026-11-20

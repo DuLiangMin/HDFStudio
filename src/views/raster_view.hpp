@@ -4,6 +4,8 @@
 #include "hdf5.h"
 #include "nc_reader.hpp"
 #include "layer_navigation.hpp"
+#include "curve_profile.hpp"
+#include <QPointer>
 #include <vector>
 #include <string>
 #include <map>
@@ -41,6 +43,8 @@ protected:
   bool eventFilter(QObject *watched,QEvent *event) override;
 private:
   void refresh();
+  void redraw_profile_overlay();
+  void show_profile_window();
   std::string file, path;
   std::vector<hsize_t> dims;
   std::vector<QSpinBox*> layers;
@@ -59,6 +63,15 @@ private:
   QLineEdit *mask_end;
   QAction *flip_v_action = nullptr;
   QAction *flip_h_action = nullptr;
+  QAction *profile_mode_action = nullptr;
+  QAction *show_profile_action = nullptr;
+  QAction *clear_profile_action = nullptr;
+  std::vector<QPointF> profile_points;
+  int dragging_point_index = -1;
+  std::vector<double> last_values;
+  size_t last_rows = 0;
+  size_t last_cols = 0;
+  QPointer<QWidget> profile_window;
   bool discrete_mode = false;
   std::vector<double> category_values;
   QStringList category_labels;

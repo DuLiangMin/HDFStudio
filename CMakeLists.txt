@@ -58,6 +58,8 @@ set(src
     src/views/raster_view.cpp
     src/views/histogram_view.hpp
     src/views/histogram_view.cpp
+    src/views/profile_view.hpp
+    src/views/profile_view.cpp
 )
 
 #//////////////////////////
@@ -109,7 +111,7 @@ set_target_properties(hdf_explorer PROPERTIES
 #   hdf_core : Properties summary and text export (HDF5, plus nc_core for NetCDF-3)
 add_library(nc_core STATIC src/core/nc_reader.cpp src/core/nc_classic.cpp)
 target_link_libraries(nc_core PUBLIC Qt6::Core)
-add_library(hdf_core STATIC src/core/properties_inspector.cpp src/core/text_export.cpp src/core/plane_reader.cpp)
+add_library(hdf_core STATIC src/core/properties_inspector.cpp src/core/text_export.cpp src/core/plane_reader.cpp src/core/curve_profile.cpp)
 target_link_libraries(hdf_core PUBLIC nc_core ${hdf5_dep})
 add_executable(hdf_cli src/cli/hdf_cli.cpp)
 target_link_libraries(hdf_cli PRIVATE hdf_core)

@@ -14,6 +14,8 @@
 
 #include "hdf_explorer.hpp"
 #include "raster_view.hpp"
+#include "profile_view.hpp"
+#include "curve_profile.hpp"
 #include "properties_inspector.hpp"
 #include "text_export.hpp"
 #include "nc_reader.hpp"
@@ -60,6 +62,7 @@ private slots:
   void bothGridsShowDecodedAndRawSideBySide();
   void histogramSamplesOneInTwentyAndBinsDecodedValues();
   void rasterFlipAndResetRestoreOriginalView();
+  void curveProfileSamplesPolylineAndSplineOnDecodedPlane();
   void externalPackedSampleMatchesPython();
   void fileDropOpensFromEveryAreaOfTheMainWindow();
 };
@@ -1947,6 +1950,111 @@ void DropTargetsTest::rasterFlipAndResetRestoreOriginalView() {
   QVERIFY(canvas->transform().m11() > 0.0 && canvas->transform().m22() > 0.0);
   QVERIFY(qFuzzyCompare(canvas->transform().m11(), baseScaleX));
   QVERIFY(qFuzzyCompare(canvas->transform().m22(), baseScaleY));
+}
+
+void DropTargetsTest::curveProfileSamplesPolylineAndSplineOnDecodedPlane() {
+  // 1) Pure-function checks: polyline, Catmull-Rom spline, bilinear interpolation, NaN handling.
+  QVERIFY(curve_sample_path({QPointF(0, 0)}, CurvePathMode::Polyline, 0.5).empty());
+  const std::vector<QPointF> line = curve_sample_path({QPointF(0, 0), QPointF(4, 0)}, CurvePathMode::Polyline, 0.5);
+  QCOMPARE(line.size(), size_t(9));
+  QVERIFY(qFuzzyCompare(line.front().x(), 0.0) && qFuzzyCompare(line.back().x(), 4.0));
+
+  const std::vector<QPointF> controls{QPointF(0, 0), QPointF(2, 3), QPointF(5, 1), QPointF(8, 4)};
+  const std::vector<QPointF> spline = curve_sample_path(controls, CurvePathMode::SmoothSpline, 0.5);
+  QVERIFY(spline.size() > 10);
+  QVERIFY(std::hypot(spline.front().x() - controls.front().x(), spline.front().y() - controls.front().y()) < 1e-6);
+  QVERIFY(std::hypot(spline.back().x() - controls.back().x(), spline.back().y() - controls.back().y()) < 1e-6);
+
+  const std::vector<double> plane{1.0, 2.0, 3.0,
+                                  4.0, 5.0, 6.0,
+                                  7.0, 8.0, std::numeric_limits<double>::quiet_NaN()};
+  const CurveProfileResult invalid = curve_extract_profile(plane, 3, 3, {QPointF(0, 0)});
+  QVERIFY(!invalid.valid);
+
+  const CurveProfileResult half = curve_extract_profile(plane, 3, 3, {QPointF(0.5, 0.5), QPointF(2.0, 2.0)},
+                                                        ProfileInterpMode::Bilinear);
+  QVERIFY(half.valid);
+  QCOMPARE(half.finite_count, size_t(1));
+  QCOMPARE(half.missing_count, size_t(1));
+  // Mean of (1, 2, 4, 5) = 3.0
+  QVERIFY(qFuzzyCompare(half.points[0].value, 3.0));
+  QVERIFY(std::isnan(half.points[1].value));
+
+  // 2) GUI check on RasterView -> Profile mode -> click points -> Show Profile -> Clear.
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString file = dir.filePath("profile.nc");
+  {
+    const QByteArray path = file.toLocal8Bit();
+    int ncid = -1, latDim = -1, lonDim = -1, var = -1;
+    QCOMPARE(nc_create(path.constData(), NC_NETCDF4 | NC_CLASSIC_MODEL | NC_CLOBBER, &ncid), NC_NOERR);
+    QCOMPARE(nc_def_dim(ncid, "lat", 20, &latDim), NC_NOERR);
+    QCOMPARE(nc_def_dim(ncid, "lon", 30, &lonDim), NC_NOERR);
+    const int dims[2] = {latDim, lonDim};
+    QCOMPARE(nc_def_var(ncid, "temp", NC_DOUBLE, 2, dims, &var), NC_NOERR);
+    QCOMPARE(nc_enddef(ncid), NC_NOERR);
+    std::vector<double> values(20 * 30, 0.0);
+    for(int r = 0; r < 20; ++r)
+      for(int c = 0; c < 30; ++c)
+        values[size_t(r * 30 + c)] = double(r * 10 + c);
+    QCOMPARE(nc_put_var_double(ncid, var, values.data()), NC_NOERR);
+    QCOMPARE(nc_close(ncid), NC_NOERR);
+  }
+
+  RasterView view(file.toLocal8Bit().toStdString(), "/temp", {20, 30});
+  view.resize(800, 600);
+  view.show();
+  QVERIFY(QTest::qWaitForWindowExposed(&view));
+  QTest::qWait(50);
+
+  auto *canvas = view.findChild<QGraphicsView*>();
+  auto *profileMode = view.findChild<QAction*>("profileModeAction");
+  auto *showProfile = view.findChild<QAction*>("showProfileAction");
+  auto *clearProfile = view.findChild<QAction*>("clearProfileAction");
+  QVERIFY(canvas && profileMode && showProfile && clearProfile);
+  QVERIFY(!showProfile->isEnabled() && !clearProfile->isEnabled());
+
+  profileMode->setChecked(true);
+  const QPoint p1 = canvas->mapFromScene(QPointF(2.0, 2.0));
+  const QPoint p2 = canvas->mapFromScene(QPointF(15.0, 10.0));
+  const QPoint p3 = canvas->mapFromScene(QPointF(25.0, 15.0));
+  QTest::mouseClick(canvas->viewport(), Qt::LeftButton, Qt::NoModifier, p1);
+  QTest::mouseClick(canvas->viewport(), Qt::LeftButton, Qt::NoModifier, p2);
+  QTest::mouseClick(canvas->viewport(), Qt::LeftButton, Qt::NoModifier, p3);
+  QVERIFY(showProfile->isEnabled() && clearProfile->isEnabled());
+
+  showProfile->trigger();
+  auto *profileWin = view.findChild<ProfileView*>("profileView");
+  QVERIFY(profileWin && profileWin->isVisible());
+  QVERIFY(profileWin->property("finiteCount").toULongLong() > 10);
+  QVERIFY(profileWin->property("minimum").toDouble() >= 0.0);
+  QVERIFY(profileWin->property("maximum").toDouble() <= 19 * 10 + 29);
+
+  clearProfile->trigger();
+  QVERIFY(!showProfile->isEnabled() && !clearProfile->isEnabled());
+
+  // Fine-tuning interactions: right-drag moves a control point, double-click deletes it,
+  // and clicking Profile a second time (toggling off) clears the curve.
+  QTest::mouseClick(canvas->viewport(), Qt::LeftButton, Qt::NoModifier, p1);
+  QTest::mouseClick(canvas->viewport(), Qt::LeftButton, Qt::NoModifier, p2);
+  QTest::mouseClick(canvas->viewport(), Qt::LeftButton, Qt::NoModifier, p3);
+  QVERIFY(showProfile->isEnabled());
+  // Double-click on p2 deletes it, leaving 2 points (still >= 2).
+  QTest::mouseDClick(canvas->viewport(), Qt::LeftButton, Qt::NoModifier, p2);
+  QVERIFY(showProfile->isEnabled());
+  // Double-click on p1 deletes it, leaving 1 point (< 2).
+  QTest::mouseDClick(canvas->viewport(), Qt::LeftButton, Qt::NoModifier, p1);
+  QVERIFY(!showProfile->isEnabled() && clearProfile->isEnabled());
+  // Add back p2, right-drag p3 to a new position, then toggle Profile off to delete the curve.
+  QTest::mouseClick(canvas->viewport(), Qt::LeftButton, Qt::NoModifier, p2);
+  QVERIFY(showProfile->isEnabled());
+  QTest::mousePress(canvas->viewport(), Qt::RightButton, Qt::NoModifier, p3);
+  QTest::mouseMove(canvas->viewport(), canvas->mapFromScene(QPointF(20.0, 12.0)));
+  QTest::mouseRelease(canvas->viewport(), Qt::RightButton, Qt::NoModifier,
+                      canvas->mapFromScene(QPointF(20.0, 12.0)));
+  QVERIFY(showProfile->isEnabled());
+  profileMode->setChecked(false);
+  QVERIFY(!showProfile->isEnabled() && !clearProfile->isEnabled());
 }
 
 // Optional reconciliation on a real packed NetCDF-4 classic product (CMPA FAST style: int32 with

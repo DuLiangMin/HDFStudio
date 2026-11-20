@@ -1,5 +1,6 @@
 // Read one scalar plane as doubles, mask missing values, render in index order.
 #include "raster_view.hpp"
+#include "profile_view.hpp"
 #include "nc_reader.hpp"
 #include "nc_classic.hpp"
 #include "plane_reader.hpp"
@@ -231,6 +232,19 @@ RasterView::RasterView(std::string filename, std::string varpath, std::vector<hs
   reset_action->setObjectName("resetViewAction");
   reset_action->setToolTip(tr("Go home and reset: restore original orientation, zoom, and position"));
   mask_bar->addSeparator();
+  profile_mode_action = mask_bar->addAction(tr("Profile"));
+  profile_mode_action->setObjectName("profileModeAction");
+  profile_mode_action->setCheckable(true);
+  profile_mode_action->setToolTip(tr("Pick control points on the image to draw a curve profile"));
+  show_profile_action = mask_bar->addAction(tr("Show Profile"));
+  show_profile_action->setObjectName("showProfileAction");
+  show_profile_action->setEnabled(false);
+  show_profile_action->setToolTip(tr("Extract and show the curve profile for the picked points"));
+  clear_profile_action = mask_bar->addAction(tr("Clear"));
+  clear_profile_action->setObjectName("clearProfileAction");
+  clear_profile_action->setEnabled(false);
+  clear_profile_action->setToolTip(tr("Clear picked profile points"));
+  mask_bar->addSeparator();
   mask_bar->addWidget(new QLabel(tr("Mask Range (decoded values): "),mask_bar));
   mask_start=new QLineEdit(mask_bar);
   mask_end=new QLineEdit(mask_bar);
@@ -297,6 +311,25 @@ RasterView::RasterView(std::string filename, std::string varpath, std::vector<hs
     canvas->resetTransform();
     canvas->fitInView(scene->sceneRect(), Qt::KeepAspectRatio);
   });
+  connect(profile_mode_action, &QAction::toggled, this, [this](bool enabled) {
+    canvas->setDragMode(enabled ? QGraphicsView::NoDrag : QGraphicsView::ScrollHandDrag);
+    canvas->viewport()->setCursor(enabled ? Qt::CrossCursor : Qt::ArrowCursor);
+    dragging_point_index = -1;
+    if(!enabled && !profile_points.empty()) {
+      // Second click on Profile exits picking mode and removes the curve.
+      profile_points.clear();
+      show_profile_action->setEnabled(false);
+      clear_profile_action->setEnabled(false);
+      redraw_profile_overlay();
+    }
+  });
+  connect(show_profile_action, &QAction::triggered, this, [this] { show_profile_window(); });
+  connect(clear_profile_action, &QAction::triggered, this, [this] {
+    profile_points.clear();
+    show_profile_action->setEnabled(false);
+    clear_profile_action->setEnabled(false);
+    refresh();
+  });
   tools->addAction(tr("Fit"), this, [this, apply_flip] {
     canvas->fitInView(scene->sceneRect(), Qt::KeepAspectRatio);
     apply_flip();
@@ -310,6 +343,74 @@ RasterView::RasterView(std::string filename, std::string varpath, std::vector<hs
 }
 
 bool RasterView::eventFilter(QObject *watched,QEvent *event) {
+  if(watched==canvas->viewport() && profile_mode_action && profile_mode_action->isChecked()) {
+    auto nearest_point_index = [this](const QPoint &view_pos) -> int {
+      int best = -1;
+      double best_dist = 12.0;   // 12 px hit radius in viewport coordinates
+      for(size_t i = 0; i < profile_points.size(); ++i) {
+        const QPoint p = canvas->mapFromScene(profile_points[i]);
+        const double d = std::hypot(double(p.x() - view_pos.x()), double(p.y() - view_pos.y()));
+        if(d <= best_dist) {
+          best_dist = d;
+          best = int(i);
+        }
+      }
+      return best;
+    };
+    if(event->type()==QEvent::MouseButtonPress) {
+      auto *mouse=static_cast<QMouseEvent*>(event);
+      if(mouse->button()==Qt::LeftButton) {
+        const QPointF pt=canvas->mapToScene(mouse->pos());
+        profile_points.push_back(pt);
+        show_profile_action->setEnabled(profile_points.size()>=2);
+        clear_profile_action->setEnabled(!profile_points.empty());
+        redraw_profile_overlay();
+        return true;
+      }
+      if(mouse->button()==Qt::RightButton) {
+        const int hit = nearest_point_index(mouse->pos());
+        if(hit >= 0) {
+          dragging_point_index = hit;
+          canvas->viewport()->setCursor(Qt::ClosedHandCursor);
+          return true;
+        }
+        if(profile_points.size()>=2) {
+          show_profile_window();
+          return true;
+        }
+      }
+    } else if(event->type()==QEvent::MouseMove && dragging_point_index >= 0) {
+      auto *mouse=static_cast<QMouseEvent*>(event);
+      if(size_t(dragging_point_index) < profile_points.size()) {
+        profile_points[size_t(dragging_point_index)] = canvas->mapToScene(mouse->pos());
+        redraw_profile_overlay();
+        if(profile_window && profile_window->isVisible()) show_profile_window();
+      }
+      return true;
+    } else if(event->type()==QEvent::MouseButtonRelease) {
+      auto *mouse=static_cast<QMouseEvent*>(event);
+      if(mouse->button()==Qt::RightButton && dragging_point_index >= 0) {
+        dragging_point_index = -1;
+        canvas->viewport()->setCursor(Qt::CrossCursor);
+        return true;
+      }
+    } else if(event->type()==QEvent::MouseButtonDblClick) {
+      auto *mouse=static_cast<QMouseEvent*>(event);
+      const int hit = nearest_point_index(mouse->pos());
+      if(hit >= 0) {
+        profile_points.erase(profile_points.begin() + hit);
+        show_profile_action->setEnabled(profile_points.size()>=2);
+        clear_profile_action->setEnabled(!profile_points.empty());
+        redraw_profile_overlay();
+        if(profile_window && profile_window->isVisible() && profile_points.size()>=2) show_profile_window();
+        return true;
+      }
+      if(profile_points.size()>=2) {
+        show_profile_window();
+        return true;
+      }
+    }
+  }
   if(watched==canvas->viewport() && event->type()==QEvent::MouseMove && geographic && geo_grid.valid) {
     auto *mouse=static_cast<QMouseEvent*>(event);
     QPointF point=canvas->mapToScene(mouse->pos());
@@ -369,6 +470,9 @@ void RasterView::refresh() {
   size_t masked=0;
   if(masking) masked=nc_mask_range(values,mask_from,mask_to);
   setProperty("masked",qulonglong(masked));
+  last_values = values;
+  last_rows = size_t(rows);
+  last_cols = size_t(cols);
   double low=INFINITY, high=-INFINITY;
   category_values.clear();
   for(double &v: values) {
@@ -431,6 +535,55 @@ void RasterView::refresh() {
         .arg(bound(mask_from),bound(mask_to)).arg(masked));
   }
   if(!coordinate_note.isEmpty()) legend->setText(legend->text()+coordinate_note);
+  redraw_profile_overlay();
+}
+
+void RasterView::redraw_profile_overlay() {
+  for(QGraphicsItem *item : scene->items()) {
+    if(item->data(0).toString() == "profileOverlay") {
+      scene->removeItem(item);
+      delete item;
+    }
+  }
+  if(profile_points.empty()) return;
+
+  const std::vector<QPointF> sampled = curve_sample_path(profile_points, CurvePathMode::SmoothSpline, 0.5);
+  if(sampled.size() >= 2) {
+    QPainterPath path;
+    path.moveTo(sampled.front());
+    for(size_t i = 1; i < sampled.size(); ++i) path.lineTo(sampled[i]);
+    QPen pen(QColor(0, 220, 255), 0);
+    pen.setCosmetic(true);
+    pen.setWidthF(2.0);
+    auto *curve_item = scene->addPath(path, pen);
+    curve_item->setData(0, "profileOverlay");
+    curve_item->setZValue(10.0);
+  }
+  const double radius = std::max(1.5, std::min(last_rows, last_cols) * 0.004);
+  QPen dot_pen(QColor(255, 255, 255), 0);
+  dot_pen.setCosmetic(true);
+  dot_pen.setWidthF(1.0);
+  QBrush dot_brush(QColor(220, 40, 40));
+  for(const QPointF &pt : profile_points) {
+    auto *dot = scene->addEllipse(pt.x() - radius, pt.y() - radius, radius * 2.0, radius * 2.0,
+                                  dot_pen, dot_brush);
+    dot->setData(0, "profileOverlay");
+    dot->setZValue(11.0);
+  }
+}
+
+void RasterView::show_profile_window() {
+  if(profile_points.size() < 2 || last_values.empty()) return;
+  if(!profile_window) {
+    profile_window = new ProfileView(QString::fromUtf8(path.c_str()),
+                                     last_values, last_rows, last_cols,
+                                     profile_points, CurvePathMode::SmoothSpline, this);
+  } else if(auto *view = qobject_cast<ProfileView*>(profile_window.data())) {
+    view->update_data(last_values, last_rows, last_cols, profile_points, CurvePathMode::SmoothSpline);
+  }
+  profile_window->show();
+  profile_window->raise();
+  profile_window->activateWindow();
 }
 
 
