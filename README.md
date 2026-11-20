@@ -43,6 +43,7 @@ scientific stack. It is a small, portable program (about 15 MB) that opens a fil
 | CF-1.8 compliance check built in | ✅ | ❌ | ❌ | ❌ |
 | Packed and raw values side by side | ✅ decoded / stored / both grids | ❌ | ❌ | ❌ |
 | Histogram of one layer | ✅ random sample, adjustable bins | ❌ | ❌ | ❌ |
+| Custom curve profile | ✅ spline / polyline, bilinear, CSV export | ❌ | ❌ | ❌ |
 | Map projections and coastlines | ❌ not yet | ✅ | ❌ | ❌ |
 
 *Comparison reflects the author's understanding; check each tool's documentation for details. "Packed and raw" means showing `stored × scale_factor + add_offset` next to the integer in the file, in the same table; all four tools display decoded values, but only HDFStudio shows the two numbers together.*
