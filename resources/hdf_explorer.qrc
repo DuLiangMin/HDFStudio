@@ -11,5 +11,8 @@
 	<file>images/right.png</file>
 	<file>images/image_indexed.png</file>
 	<file>images/image_true.png</file>
+	<file>images/flip_vertical.png</file>
+	<file>images/flip_horizontal.png</file>
+	<file>images/reset_home.png</file>
 </qresource>
 </RCC>

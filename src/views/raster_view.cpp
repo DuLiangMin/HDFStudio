@@ -130,7 +130,8 @@ class Canvas : public QGraphicsView {
 public:
   using QGraphicsView::QGraphicsView;
   void zoom(double factor) {
-    double size = transform().m11() * factor;
+    // Use |m11| because a horizontal flip makes m11 negative.
+    double size = std::abs(transform().m11()) * factor;
     if(size >= 0.002 && size <= 2048) scale(factor, factor);
   }
   void wheelEvent(QWheelEvent *event) override {
@@ -217,6 +218,19 @@ RasterView::RasterView(std::string filename, std::string varpath, std::vector<hs
   auto mask_bar=new QToolBar(this);
   mask_bar->setObjectName("maskBar");
   layout->addWidget(mask_bar);
+  // Flip V / Flip H keep their pressed state; Reset always restores the original view.
+  flip_v_action = mask_bar->addAction(QIcon(":/images/flip_vertical.png"), tr("Flip V"));
+  flip_v_action->setObjectName("flipVerticalAction");
+  flip_v_action->setCheckable(true);
+  flip_v_action->setToolTip(tr("Flip the image top to bottom"));
+  flip_h_action = mask_bar->addAction(QIcon(":/images/flip_horizontal.png"), tr("Flip H"));
+  flip_h_action->setObjectName("flipHorizontalAction");
+  flip_h_action->setCheckable(true);
+  flip_h_action->setToolTip(tr("Flip the image left to right"));
+  auto *reset_action = mask_bar->addAction(QIcon(":/images/reset_home.png"), tr("Reset"));
+  reset_action->setObjectName("resetViewAction");
+  reset_action->setToolTip(tr("Go home and reset: restore original orientation, zoom, and position"));
+  mask_bar->addSeparator();
   mask_bar->addWidget(new QLabel(tr("Mask Range (decoded values): "),mask_bar));
   mask_start=new QLineEdit(mask_bar);
   mask_end=new QLineEdit(mask_bar);
@@ -265,7 +279,28 @@ RasterView::RasterView(std::string filename, std::string varpath, std::vector<hs
   canvas->viewport()->setMouseTracking(true);
   canvas->viewport()->installEventFilter(this);
   layout->addWidget(canvas, 1);
-  tools->addAction(tr("Fit"), this, [this]{ canvas->fitInView(scene->sceneRect(), Qt::KeepAspectRatio); });
+  auto apply_flip = [this] {
+    QTransform matrix = canvas->transform();
+    const double sx = std::abs(matrix.m11()) * (flip_h_action->isChecked() ? -1.0 : 1.0);
+    const double sy = std::abs(matrix.m22()) * (flip_v_action->isChecked() ? -1.0 : 1.0);
+    matrix.setMatrix(sx, matrix.m12(), matrix.m13(),
+                     matrix.m21(), sy, matrix.m23(),
+                     matrix.dx(), matrix.dy(), matrix.m33());
+    canvas->setTransform(matrix);
+  };
+  connect(flip_v_action, &QAction::toggled, this, [apply_flip](bool) { apply_flip(); });
+  connect(flip_h_action, &QAction::toggled, this, [apply_flip](bool) { apply_flip(); });
+  connect(reset_action, &QAction::triggered, this, [this] {
+    QSignalBlocker block_v(flip_v_action), block_h(flip_h_action);
+    flip_v_action->setChecked(false);
+    flip_h_action->setChecked(false);
+    canvas->resetTransform();
+    canvas->fitInView(scene->sceneRect(), Qt::KeepAspectRatio);
+  });
+  tools->addAction(tr("Fit"), this, [this, apply_flip] {
+    canvas->fitInView(scene->sceneRect(), Qt::KeepAspectRatio);
+    apply_flip();
+  });
   tools->addAction("+", this, [view]{ view->zoom(1.5); });
   tools->addAction("-", this, [view]{ view->zoom(1/1.5); });
   legend = new QLabel(this);

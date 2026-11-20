@@ -59,6 +59,7 @@ private slots:
   void decodedAndStoredGridsShowScaleFactorAndOffset();
   void bothGridsShowDecodedAndRawSideBySide();
   void histogramSamplesOneInTwentyAndBinsDecodedValues();
+  void rasterFlipAndResetRestoreOriginalView();
   void externalPackedSampleMatchesPython();
   void fileDropOpensFromEveryAreaOfTheMainWindow();
 };
@@ -1875,6 +1876,77 @@ void DropTargetsTest::histogramSamplesOneInTwentyAndBinsDecodedValues() {
   QVERIFY2(fifth.contains("sampled 1 at random (1 in 20, seed 1)"),qPrintable(fifth));
   QVERIFY2(run_cli({"hist",file,"/precipitation","0.0","6","0"}).contains("must be greater than 0"),
            "a zero fraction must be refused");
+}
+
+void DropTargetsTest::rasterFlipAndResetRestoreOriginalView() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString file = dir.filePath("flip.nc");
+  {
+    const QByteArray path = file.toLocal8Bit();
+    int ncid = -1, latDim = -1, lonDim = -1, var = -1;
+    QCOMPARE(nc_create(path.constData(), NC_NETCDF4 | NC_CLASSIC_MODEL | NC_CLOBBER, &ncid), NC_NOERR);
+    QCOMPARE(nc_def_dim(ncid, "lat", 2, &latDim), NC_NOERR);
+    QCOMPARE(nc_def_dim(ncid, "lon", 3, &lonDim), NC_NOERR);
+    const int dims[2] = {latDim, lonDim};
+    QCOMPARE(nc_def_var(ncid, "z", NC_DOUBLE, 2, dims, &var), NC_NOERR);
+    QCOMPARE(nc_enddef(ncid), NC_NOERR);
+    const double values[6] = {1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
+    QCOMPARE(nc_put_var_double(ncid, var, values), NC_NOERR);
+    QCOMPARE(nc_close(ncid), NC_NOERR);
+  }
+
+  RasterView view(file.toLocal8Bit().toStdString(), "/z", {2, 3});
+  view.resize(800, 600);
+  view.show();
+  QVERIFY(QTest::qWaitForWindowExposed(&view));
+  QTest::qWait(50);
+
+  auto *canvas = view.findChild<QGraphicsView*>();
+  auto *flipV = view.findChild<QAction*>("flipVerticalAction");
+  auto *flipH = view.findChild<QAction*>("flipHorizontalAction");
+  auto *reset = view.findChild<QAction*>("resetViewAction");
+  QVERIFY(canvas && flipV && flipH && reset);
+  QVERIFY(flipV->isCheckable() && flipH->isCheckable());
+  QVERIFY(!flipV->isChecked() && !flipH->isChecked());
+
+  const double baseScaleX = canvas->transform().m11();
+  const double baseScaleY = canvas->transform().m22();
+  QVERIFY(baseScaleX > 0.0 && baseScaleY > 0.0);
+
+  flipV->trigger();
+  QVERIFY(flipV->isChecked());
+  QVERIFY(canvas->transform().m22() < 0.0);
+  QVERIFY(canvas->transform().m11() > 0.0);
+
+  flipH->trigger();
+  QVERIFY(flipH->isChecked());
+  QVERIFY(canvas->transform().m11() < 0.0);
+  QVERIFY(canvas->transform().m22() < 0.0);
+
+  // Zoom must still work when m11 < 0.
+  QAction *zoomIn = nullptr;
+  for(QAction *action : view.findChildren<QAction*>())
+    if(action->text() == "+") { zoomIn = action; break; }
+  QVERIFY(zoomIn);
+  const double beforeZoom = std::abs(canvas->transform().m11());
+  zoomIn->trigger();
+  QVERIFY(std::abs(canvas->transform().m11()) > beforeZoom * 1.4);
+
+  // Toggle Flip V back off by clicking again.
+  flipV->trigger();
+  QVERIFY(!flipV->isChecked());
+  QVERIFY(canvas->transform().m22() > 0.0);
+  QVERIFY(canvas->transform().m11() < 0.0);
+
+  // Reset restores orientation, zoom, and button states unconditionally.
+  flipV->trigger();
+  QVERIFY(flipV->isChecked() && flipH->isChecked());
+  reset->trigger();
+  QVERIFY(!flipV->isChecked() && !flipH->isChecked());
+  QVERIFY(canvas->transform().m11() > 0.0 && canvas->transform().m22() > 0.0);
+  QVERIFY(qFuzzyCompare(canvas->transform().m11(), baseScaleX));
+  QVERIFY(qFuzzyCompare(canvas->transform().m22(), baseScaleY));
 }
 
 // Optional reconciliation on a real packed NetCDF-4 classic product (CMPA FAST style: int32 with

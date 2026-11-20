@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.12.03 - 2026-11-20
+
+- 🖼️ **Image View Flip V / Flip H / Reset**: added three buttons on the left of the second toolbar (`maskBar`) with custom 24×24 icons (`flip_vertical.png`, `flip_horizontal.png`, `reset_home.png`). **Flip V** and **Flip H** keep their pressed state (click to flip, click again to restore); **Reset** (home icon) unconditionally clears both flips and restores original zoom and position (`fitInView`). Zooming remains valid when horizontally flipped (`|m11|`), and `Fit` preserves the active flip state.
+- 📸 Updated `docs/screenshot-main.png` from the active window.
+- ✅ Debug and Release QtTest 40 passed + 2 optional, CTest 1/1 (`S4-UI-RasterFlip`).
+- 🔢 Version 0.12.03 (CMake project version, `setApplicationVersion`, About dialog).
+
 ## 0.12.02 - 2026-11-20
 
 - 📊 **Histogram of one layer**: right-click a variable with at least two dimensions → **Histogram...**. The window reads the selected layer once, then shows a bar chart and one summary line (values sampled, bins, min, max, mean, standard deviation, NaN cells). **Sample 1 in N** defaults to 20 and draws a **uniformly random** subset of exactly `round(finite / N)` values — not every Nth cell — so a 1201 × 1401 plane answers in about 70 ms; `1` uses every value and gives the exact extremes. Changing the step or the bins re-samples values that are already in memory (the file is not read again), and **Draw a new sample** takes another subset of the same size. A seed keeps the bars reproducible. Layer spin boxes implement `LayerNavigation`, so the main Layer toolbar drives the histogram too. `hdf_cli hist` prints the same lines.

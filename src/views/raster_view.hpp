@@ -57,6 +57,8 @@ private:
   // masked (white); an empty field is open (-inf / +inf); both empty = no mask
   QLineEdit *mask_start;
   QLineEdit *mask_end;
+  QAction *flip_v_action = nullptr;
+  QAction *flip_h_action = nullptr;
   bool discrete_mode = false;
   std::vector<double> category_values;
   QStringList category_labels;
