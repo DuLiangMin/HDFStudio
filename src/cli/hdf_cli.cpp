@@ -29,8 +29,12 @@
 #include "properties_inspector.hpp"
 #include "text_export.hpp"
 #include "color_map.hpp"
+#include "image_metrics.hpp"
+#include "texture_entropy.hpp"
 #include <QCoreApplication>
 #include <QFile>
+#include <QFileInfo>
+#include <QSaveFile>
 #include <QTextStream>
 #include <algorithm>
 #include <cmath>
@@ -47,7 +51,10 @@ void print_usage() {
          "  hdf_cli csv    <file> <path> <new.csv> [index ...]\n"
          "  hdf_cli mask   <file> <path> <start|-> <end|-> [index ...]   (decoded values)\n"
          "  hdf_cli hist   <file> <path> [keep_fraction] [bins] [index ...]   (default 0.05 = 1 in 20)\n";
-  err << "  hdf_cli cmap [palette-id [fraction]]   (list or sample bundled color maps)\n"
+   err << "  hdf_cli entropy <file> <path> [bins=256] [index ...]\n";
+   err << "  hdf_cli texture-entropy <file> <path> <output.csv> [index ...]\n";
+   err << "  hdf_cli corr <anchor_file> <anchor_var> <target_file> <target_var> [--anchor-idx i,j] [--target-idx i,j]\n";
+   err << "  hdf_cli cmap [palette-id [fraction]]   (list or sample bundled color maps)\n"
          "  hdf_cli rgb <file.rgb> <unit|byte>     (validate local RGB without installing it)\n";
 }
 
@@ -63,7 +70,8 @@ int command_probe(const QString &file) {
   print_text(QString("kind: %1\nnetcdf: %2\nclassic (read with netCDF-C): %3\ndetail: %4\n")
                  .arg(probe.kind, probe.netcdf ? "yes" : "no",
                       is_classic_netcdf_file(file) ? "yes" : "no", probe.detail));
-  return probe.kind.isEmpty() ? 3 : 0;
+   return probe.kind.isEmpty() || probe.kind == "Unreadable" || probe.kind == "Unknown" ||
+          probe.kind.contains("open failed") ? 3 : 0;
 }
 
 int command_info(const QString &file) {
@@ -182,6 +190,118 @@ int command_mask(const QStringList &args) {
   return 0;
 }
 
+NcPlaneResult read_metrics_plane(const QString &file, const QString &path, const std::vector<size_t> &indices) {
+  std::vector<hsize_t> shape;
+  if(probe_data_format(file).netcdf) {
+    NcReader reader(file);
+    int group=-1, variable=-1, rank=0;
+    if(!reader.locate(path.toStdString(),group,variable)) return {{},{},"Variable not found"};
+    if(nc_inq_varndims(group,variable,&rank)!=NC_NOERR || rank<2) return {{},{},"A metric needs at least two dimensions"};
+    std::vector<int> dimensions(size_t(rank),0);
+    if(nc_inq_vardimid(group,variable,dimensions.data())!=NC_NOERR) return {{},{},"Cannot read dimensions"};
+    for(int dimension:dimensions) {
+      size_t length=0;
+      if(nc_inq_dimlen(group,dimension,&length)!=NC_NOERR) return {{},{},"Cannot read dimensions"};
+      shape.push_back(hsize_t(length));
+    }
+  } else {
+    const hid_t handle=H5Fopen(file.toLocal8Bit().constData(),H5F_ACC_RDONLY,H5P_DEFAULT);
+    if(handle<0) return {{},{},"Cannot open file"};
+    const hid_t dataset=H5Dopen2(handle,path.toUtf8().constData(),H5P_DEFAULT);
+    const hid_t space=dataset<0 ? -1 : H5Dget_space(dataset);
+    const int rank=space<0 ? -1 : H5Sget_simple_extent_ndims(space);
+    if(rank>=2) { shape.resize(size_t(rank)); H5Sget_simple_extent_dims(space,shape.data(),nullptr); }
+    if(space>=0) H5Sclose(space);
+    if(dataset>=0) H5Dclose(dataset);
+    H5Fclose(handle);
+    if(rank<2) return {{},{},"A metric needs a dataset with at least two dimensions"};
+  }
+  if(indices.size()!=shape.size()-2) return {{},{},"Specify one zero-based index for every leading axis"};
+  for(size_t i=0;i<indices.size();++i) if(indices[i]>=shape[i]) return {{},{},"Index outside axis"};
+  return nc_read_plane_decoded(file,path.toStdString(),shape,indices);
+}
+
+int command_corr(const QStringList &args) {
+  std::vector<size_t> anchor_indices,target_indices;
+  bool anchor_seen=false,target_seen=false;
+  for(int i=6;i<args.size();i+=2) {
+    const bool anchor=args[i]=="--anchor-idx", target=args[i]=="--target-idx";
+    if((!anchor&&!target) || i+1>=args.size() || (anchor&&anchor_seen) || (target&&target_seen)) return 2;
+    if(anchor) anchor_seen=true; else target_seen=true;
+    auto &indices=anchor ? anchor_indices : target_indices;
+    for(const auto &part:args[i+1].split(',')) {
+      bool ok=false;
+      const auto index=part.toULongLong(&ok);
+      if(!ok || part.startsWith('-')) return 2;
+      indices.push_back(size_t(index));
+    }
+  }
+  const auto anchor=read_metrics_plane(args[2],args[3],anchor_indices);
+  if(!anchor.error.isEmpty()) { QTextStream(stderr)<<anchor.error<<'\n';return 3; }
+  const auto target=read_metrics_plane(args[4],args[5],target_indices);
+  if(!target.error.isEmpty()) { QTextStream(stderr)<<target.error<<'\n';return 3; }
+  const auto metrics=nc_pair_metrics(anchor.plane.values,anchor.plane.rows,anchor.plane.cols,
+                                    target.plane.values,target.plane.rows,target.plane.cols);
+  if(!metrics.valid) { QTextStream(stderr)<<metrics.error<<'\n';return 3; }
+  print_text(QString("shape: %1x%2\nvalid_pairs: %3\nexcluded_pairs: %4\npearson_r: %5\nrmse: %6\nmae: %7\nbias: %8\n")
+    .arg(anchor.plane.rows).arg(anchor.plane.cols).arg(metrics.valid_pairs).arg(metrics.excluded_pairs)
+    .arg(metrics.r_valid ? QString::number(metrics.pearson_r,'g',15) : QString("nan"))
+    .arg(metrics.rmse,0,'g',15).arg(metrics.mae,0,'g',15).arg(metrics.bias,0,'g',15));
+  return 0;
+}
+
+int command_texture_entropy(const QStringList &args) {
+  std::vector<size_t> indices;
+  for(int index = 5; index < args.size(); ++index) {
+    bool valid = false;
+    const auto value = args[index].toULongLong(&valid);
+    if(!valid || args[index].startsWith('-')) return 2;
+    indices.push_back(size_t(value));
+  }
+  const auto plane = read_metrics_plane(args[2], args[3], indices);
+  if(!plane.error.isEmpty()) { QTextStream(stderr) << plane.error << '\n'; return 3; }
+  const auto entropy = nc_texture_entropy(plane.plane.values, plane.plane.rows, plane.plane.cols);
+  if(!entropy.valid) { QTextStream(stderr) << entropy.error << '\n'; return 3; }
+  if(QFileInfo::exists(args[4])) { QTextStream(stderr) << "Output already exists\n"; return 3; }
+  QSaveFile output(args[4]);
+  if(!output.open(QIODevice::WriteOnly)) { QTextStream(stderr) << output.errorString() << '\n'; return 3; }
+  QTextStream text(&output); text.setRealNumberPrecision(17);
+  text << "row,col,entropy_bits,block_row,block_col,block_entropy_bits\n";
+  for(size_t row = 0; row < entropy.rows; ++row)
+    for(size_t col = 0; col < entropy.cols; ++col)
+      text << row << ',' << col << ',' << entropy.values[row * entropy.cols + col] << ','
+           << row / 4 << ',' << col / 4 << ','
+           << entropy.block_entropy[(row / 4) * entropy.block_cols + col / 4] << '\n';
+  text.flush();
+  if(text.status() != QTextStream::Ok || !output.commit()) { QTextStream(stderr) << output.errorString() << '\n'; return 3; }
+  print_text(QString("rows: %1\ncols: %2\nblock_rows: %3\nblock_cols: %4\nvalid_count: %5\nexcluded_count: %6\nvalid_blocks: %7\nminimum: %8\nmaximum: %9\nunits: bits\nblock_size: 4x4\nbins: 256\n")
+    .arg(entropy.rows).arg(entropy.cols).arg(entropy.block_rows).arg(entropy.block_cols)
+    .arg(entropy.valid_count).arg(entropy.excluded_count).arg(entropy.valid_blocks)
+    .arg(entropy.source_minimum, 0, 'g', 17).arg(entropy.source_maximum, 0, 'g', 17));
+  return 0;
+}
+
+int command_entropy(const QStringList &args) {
+  bool ok = true;
+  const int bins = args.size() > 4 ? args[4].toInt(&ok) : 256;
+  if(!ok || bins < 2 || bins > 65536) return 2;
+  std::vector<size_t> indices;
+  for(int i = 5; i < args.size(); ++i) {
+    const auto index = args[i].toULongLong(&ok);
+    if(!ok || args[i].startsWith('-')) return 2;
+    indices.push_back(size_t(index));
+  }
+  const auto plane=read_metrics_plane(args[2],args[3],indices);
+  if(!plane.error.isEmpty()) { QTextStream(stderr) << plane.error << '\n'; return 3; }
+  const auto entropy = nc_gray_entropy(plane.plane.values, bins);
+  if(!entropy.valid) { QTextStream(stderr) << entropy.error << '\n'; return 3; }
+  print_text(QString("valid_count: %1\nmissing_count: %2\nbins: %3\nminimum: %4\nmaximum: %5\nentropy_bits: %6\nnormalized_entropy: %7\n")
+    .arg(entropy.valid_count).arg(entropy.missing_count).arg(entropy.bins)
+    .arg(entropy.minimum,0,'g',15).arg(entropy.maximum,0,'g',15)
+    .arg(entropy.entropy_bits,0,'g',15).arg(entropy.normalized_entropy,0,'g',15));
+  return 0;
+}
+
 int command_hist(const QStringList &args) {
   QTextStream err(stderr);
   // hdf_cli hist <file> <path> [keep_fraction] [bins] [index ...]
@@ -190,6 +310,10 @@ int command_hist(const QStringList &args) {
   if(!ok) { print_usage(); return 2; }
   const int bins = args.size() > 5 ? args[5].toInt(&ok) : 32;
   if(!ok) { print_usage(); return 2; }
+  if(!std::isfinite(keep) || keep <= 0 || keep > 1) {
+    err << "The sampling fraction must be greater than 0 and at most 1\n"; return 2;
+  }
+  if(bins < 1) { err << "The number of bins must be at least 1\n"; return 2; }
   std::vector<size_t> indices;
   for(int i = 6; i < args.size(); ++i) {
     const qulonglong index = args[i].toULongLong(&ok);
@@ -215,8 +339,9 @@ int command_hist(const QStringList &args) {
   }
   const NcPlaneResult plane = nc_read_plane_decoded(args[2], args[3].toStdString(), dims, indices);
   if(!plane.error.isEmpty()) { err << plane.error << '\n'; return 3; }
-  print_text(nc_histogram_lines(nc_histogram(plane.plane.values, keep, bins)).join('\n') + "\n");
-  return 0;
+  const auto histogram = nc_histogram(plane.plane.values, keep, bins);
+  print_text(nc_histogram_lines(histogram).join('\n') + "\n");
+  return histogram.valid ? 0 : 3;
 }
 }
 
@@ -255,6 +380,9 @@ int main(int argc, char **argv) {
   if(command == "csv" && args.size() >= 5) return command_csv(args);
   if(command == "mask" && args.size() >= 6) return command_mask(args);
   if(command == "hist" && args.size() >= 4) return command_hist(args);
+  if(command == "entropy" && args.size() >= 4) return command_entropy(args);
+  if(command == "texture-entropy" && args.size() >= 5) return command_texture_entropy(args);
+  if(command == "corr" && args.size() >= 6) return command_corr(args);
   print_usage();
   return 2;
 }

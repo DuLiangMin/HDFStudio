@@ -18,6 +18,9 @@
 #include <algorithm>
 #include "hdf_explorer.hpp"
 #include "raster_view.hpp"
+#include "texture_entropy_view.hpp"
+#include "compare_panel.hpp"
+#include "layer_playback.hpp"
 #include "histogram_view.hpp"
 #include "nc_reader.hpp"
 #include "nc_classic.hpp"
@@ -96,7 +99,7 @@ int main(int argc, char *argv[])
 {
   Q_INIT_RESOURCE(hdf_explorer);
   QApplication app(argc, argv);
-  QCoreApplication::setApplicationVersion("0.12.06");
+  QCoreApplication::setApplicationVersion("0.12.08");
   QCoreApplication::setApplicationName(app_name);
 #if QT_VERSION >= 0x050000
   QCommandLineParser parser;
@@ -151,12 +154,19 @@ int main(int argc, char *argv[])
       if(items.size()!=1) return 6;
       auto raster=qgraphicsitem_cast<QGraphicsPixmapItem*>(items.front());
       auto output=parser.value("png");
-      if(!raster || !raster->pixmap().save(output,"PNG")) return 7;
+      if(!raster || raster->pixmap().isNull()) return 7;
+      // Batch mode has no overwrite confirmation. Reserve both new outputs before writing either.
+      QFile png(output);
+      if(!png.open(QIODevice::WriteOnly | QIODevice::NewOnly)) return 7;
+      QFile json(output+".json");
+      if(!json.open(QIODevice::WriteOnly | QIODevice::NewOnly)) { png.remove(); return 8; }
+      if(!raster->pixmap().save(&png,"PNG") || !png.flush()) { png.remove(); json.remove(); return 7; }
       QJsonObject report;
       for(auto key:{"minimum","maximum","reader"}) report[key]=QJsonValue::fromVariant(widget->property(key));
       report["width"]=raster->pixmap().width(); report["height"]=raster->pixmap().height();
-      QFile json(output+".json"); if(!json.open(QIODevice::WriteOnly)) return 8;
-      return json.write(QJsonDocument(report).toJson())<0 ? 9 : 0;
+      const auto bytes=QJsonDocument(report).toJson();
+      if(json.write(bytes)!=bytes.size() || !json.flush()) { png.remove(); json.remove(); return 9; }
+      return 0;
     }
     // Interactive start: every file named on the command line is opened, not only the first.
     for(int i=1;i<args.size();++i) window.read_file(args.at(i));
@@ -632,6 +642,7 @@ MainWindow::MainWindow()
   m_layer_axis_combo->setToolTip(tr("Dimension stepped by the layer buttons"));
   m_layer_axis_combo->setSizeAdjustPolicy(QComboBox::AdjustToContents);
   connect(m_layer_axis_combo, &QComboBox::activated, this, [this](int axis) {
+    m_layer_playback->stop();
     LayerNavigation *view = current_layer_view();
     if(!view) return;
     view->navigation_axis = axis;
@@ -643,6 +654,7 @@ MainWindow::MainWindow()
   m_layer_index_combo->setToolTip(tr("Select the layer to show"));
   m_layer_index_combo->setMinimumContentsLength(4);
   connect(m_layer_index_combo, &QComboBox::activated, this, [this](int index) {
+    m_layer_playback->stop();
     LayerNavigation *view = current_layer_view();
     if(view) view->set_layer_index(view->navigation_axis, index);
     update_layer_controls();
@@ -651,6 +663,35 @@ MainWindow::MainWindow()
   m_layer_label = new QLabel;
   m_layer_label->setObjectName("layerLabel");
   m_layer_label->setContentsMargins(6, 0, 6, 0);
+
+  m_layer_playback=new LayerPlayback(this);
+  m_action_layer_play=new QAction(QIcon(":/images/play_green.png"),tr("Play"),this);
+  m_action_layer_play->setObjectName("actionLayerPlay");m_action_layer_play->setCheckable(true);
+  m_action_layer_play->setToolTip(tr("Play / pause layers; linked images advance together through the Anchor"));
+  m_playback_interval=new QSpinBox(this);m_playback_interval->setObjectName("playbackIntervalSpin");
+  m_playback_interval->setAccessibleName(tr("Frame interval (ms)"));m_playback_interval->setRange(100,10000);
+  m_playback_interval->setValue(500);m_playback_interval->setSuffix(tr(" ms"));m_playback_interval->setSingleStep(100);
+  m_playback_interval->setToolTip(tr("Display interval per layer in milliseconds; not the dataset time interval"));
+  connect(m_playback_interval,&QSpinBox::valueChanged,m_layer_playback,&LayerPlayback::set_interval_ms);
+  connect(m_action_layer_play,&QAction::triggered,this,[this](bool checked){
+    if(!checked)m_layer_playback->stop();
+    else if(auto *view=current_layer_view())m_layer_playback->start(dynamic_cast<QWidget*>(view),view->navigation_axis);
+    update_layer_controls();
+  });
+  connect(m_layer_playback,&LayerPlayback::playing_changed,this,[this](bool playing){
+    const QSignalBlocker blocker(m_action_layer_play);m_action_layer_play->setChecked(playing);
+    m_action_layer_play->setText(playing?tr("Pause"):tr("Play"));
+    m_action_layer_play->setIcon(QIcon(playing?":/images/pause_green.png":":/images/play_green.png"));
+  });
+  m_layer_playback->set_ready_check([this]{
+    auto *raster=qobject_cast<RasterView*>(m_layer_playback->target());
+    if(!raster)return true;
+    if(raster->render_pending())return false;
+    if(m_workspace_sync && m_workspace_sync->anchor()==raster)
+      for(const auto &binding:m_workspace_sync->followers())
+        if(binding.sync_layer && binding.view && binding.view->render_pending())return false;
+    return true;
+  });
 
   connect(m_mdi_area, &QMdiArea::subWindowActivated, this, &MainWindow::watch_current_view);
 
@@ -682,6 +723,23 @@ MainWindow::MainWindow()
   m_menu_file->addSeparator();
   m_menu_file->addAction(m_action_exit);
 
+  auto *view_menu = menuBar()->addMenu(tr("&View"));
+  auto *image_action = view_menu->addAction(tr("Image View"), this, [this] {
+    if(m_tree->currentItem()) if(auto *item = get_item_data(m_tree->currentItem())) add_image(item);
+  });
+  image_action->setObjectName("actionImageView");
+  auto *texture_action = view_menu->addAction(tr("Texture Entropy Image"), this, &MainWindow::show_texture_entropy);
+  texture_action->setObjectName("actionTextureEntropyImage");
+  texture_action->setToolTip(tr("Open a 2D map of local 4x4 gray-level entropy, bilinear to source size; no comparison required"));
+  connect(view_menu, &QMenu::aboutToShow, this, [this, image_action, texture_action] {
+    const auto *item = m_tree->currentItem() ? get_item_data(m_tree->currentItem()) : nullptr;
+    const bool numeric_plane = item && item->m_kind == ItemData::Variable && item->m_dataset &&
+      item->m_dataset->m_dim.size() >= 2 && (item->m_dataset->m_datatype_class == H5T_INTEGER || item->m_dataset->m_datatype_class == H5T_FLOAT);
+    image_action->setEnabled(numeric_plane);
+    auto *sub = m_mdi_area->currentSubWindow();
+    texture_action->setEnabled(numeric_plane || (sub && qobject_cast<RasterView*>(sub->widget())));
+  });
+
   m_menu_layer = menuBar()->addMenu(tr("&Layer"));
   m_menu_layer->addAction(m_action_layer_next);
   m_menu_layer->addAction(m_action_layer_previous);
@@ -689,8 +747,15 @@ MainWindow::MainWindow()
   m_menu_layer->addAction(m_action_layer_first);
   m_menu_layer->addSeparator();
   m_menu_layer->addAction(m_action_layer_goto);
+  m_menu_layer->addSeparator();m_menu_layer->addAction(m_action_layer_play);
 
   m_menu_windows = menuBar()->addMenu(tr("&Window"));
+  m_workspace_sync=new WorkspaceSyncController(this);
+  connect(m_workspace_sync,&WorkspaceSyncController::sync_changed,this,[this]{m_layer_playback->stop();watch_current_view(nullptr);});
+  m_action_compare=new QAction(tr("Compare & Metrics"),this);
+  m_action_compare->setObjectName("actionCompareMetrics");
+  connect(m_action_compare,&QAction::triggered,this,&MainWindow::show_compare_panel);
+  connect(m_mdi_area,&QMdiArea::subWindowActivated,this,[this]{if(m_compare_panel)QTimer::singleShot(0,this,&MainWindow::update_compare_views);});
   connect(m_menu_windows, &QMenu::aboutToShow, this, &MainWindow::update_window_menu);
   update_window_menu();
 
@@ -714,6 +779,16 @@ MainWindow::MainWindow()
   m_tool_bar->addWidget(m_layer_axis_combo);
   m_tool_bar->addWidget(m_layer_index_combo);
   m_tool_bar->addWidget(m_layer_label);
+  m_tool_bar->addSeparator();m_tool_bar->addAction(m_action_layer_play);
+  auto *play_button=qobject_cast<QToolButton*>(m_tool_bar->widgetForAction(m_action_layer_play));
+  play_button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);play_button->setAccessibleName(tr("Play / pause layers"));
+  auto *interval_label=new QLabel(tr("Frame interval"),this);interval_label->setBuddy(m_playback_interval);
+  m_tool_bar->addWidget(interval_label);m_tool_bar->addWidget(m_playback_interval);
+  m_tool_bar->addSeparator();m_tool_bar->addAction(m_action_compare);
+  auto *compare_button=qobject_cast<QToolButton*>(m_tool_bar->widgetForAction(m_action_compare));
+  compare_button->setToolButtonStyle(Qt::ToolButtonTextOnly);
+  compare_button->setAccessibleName(tr("Compare & Metrics"));
+  m_action_compare->setToolTip(tr("Open image comparison: Anchor/Target, lag, metrics and residual maps"));
   update_layer_controls();
 
   //avoid popup on toolbar
@@ -871,7 +946,7 @@ void MainWindow::about()
 {
   QMessageBox::about(this,
     tr("About HDFStudio"),
-    tr("HDFStudio 0.12.06\nAuthor: DuLiangMin\n\n"
+    tr("HDFStudio 0.12.08\nAuthor: DuLiangMin\n\n"
        "Metadata convention target: CF-1.8\n"
        "Product libraries: netCDF-C 4.9.3, HDF5 1.8.20\n\n"
        "Reference environment: Python 3.12.10, netCDF4-python 1.7.5.1.post1\n"
@@ -884,6 +959,7 @@ void MainWindow::about()
 
 void MainWindow::closeEvent(QCloseEvent *eve)
 {
+  m_layer_playback->stop();
   QSettings settings("space", "hdf_explorer");
   settings.setValue("recentFiles", m_sl_recent_files);
   eve->accept();
@@ -989,6 +1065,18 @@ static void collect_item_data(QTreeWidgetItem *item, std::vector<ItemData*> &out
 void MainWindow::tag_view(QMdiSubWindow *sub, const ItemData *source)
 {
   sub->setProperty("sourceItem", QVariant::fromValue(reinterpret_cast<quintptr>(source)));
+  if(m_compare_panel)QTimer::singleShot(0,this,&MainWindow::update_compare_views);
+}
+
+void MainWindow::show_compare_panel() {
+  if(!m_compare_panel) {m_compare_panel=new ComparePanel(m_workspace_sync,this);addDockWidget(Qt::RightDockWidgetArea,m_compare_panel);}
+  update_compare_views();m_compare_panel->show();m_compare_panel->raise();
+}
+void MainWindow::update_compare_views() {
+  if(!m_compare_panel)return;
+  QList<RasterView*> views;
+  for(auto *sub:m_mdi_area->subWindowList(QMdiArea::CreationOrder))if(auto *view=qobject_cast<RasterView*>(sub->widget()))views.append(view);
+  m_compare_panel->set_views(views);
 }
 
 void MainWindow::update_close_actions()
@@ -2142,6 +2230,11 @@ void FileTreeWidget::show_context_menu(const QPoint &p)
   action_image->setEnabled(numeric && variable && rank >= 2);
   connect(action_image, &QAction::triggered, this, [this, item_data]() { m_main_window->add_image(item_data); });
 
+  auto *action_texture = menu.addAction(tr("Texture Entropy Image"));
+  action_texture->setEnabled(numeric && variable && rank >= 2);
+  action_texture->setToolTip(tr("2D local 4x4 texture entropy image (bits), interpolated to the source size"));
+  connect(action_texture, &QAction::triggered, this, [this, item_data] { m_main_window->add_texture_image(item_data); });
+
   QAction *action_histogram = menu.addAction(tr("Histogram..."));
   action_histogram->setToolTip(tr("One layer of this variable as a histogram, sampled at random "
                                   "(1 value in 20 by default)"));
@@ -3110,7 +3203,7 @@ private:
 
 ///////////////////////////////////////////////////////////////////////////////////////
 //MainWindow: Layer toolbar and menu
-//They act on the current view, like the old MFC command routing to the active view.
+// Synced image followers route to their anchor; independent views retain active-view routing.
 ///////////////////////////////////////////////////////////////////////////////////////
 
 LayerNavigation *MainWindow::current_layer_view() const
@@ -3118,20 +3211,27 @@ LayerNavigation *MainWindow::current_layer_view() const
   // currentSubWindow() stays valid while the focus is on the toolbar, activeSubWindow() may not
   QMdiSubWindow *sub = m_mdi_area->currentSubWindow();
   if(!sub || !sub->widget()) return nullptr;
+  if(auto *texture = qobject_cast<TextureEntropyView*>(sub->widget()))
+    if(auto *source = texture->source_view()) return m_workspace_sync ? m_workspace_sync->layer_navigation_target(source) : source;
+  if(m_workspace_sync)if(auto *raster=qobject_cast<RasterView*>(sub->widget()))
+    return m_workspace_sync->layer_navigation_target(raster);
   return dynamic_cast<LayerNavigation *>(sub->widget());
 }
 
 void MainWindow::watch_current_view(QMdiSubWindow *)
 {
-  if(m_layer_view) disconnect(m_layer_view, SIGNAL(layer_changed()), this, SLOT(update_layer_controls()));
+  if(m_layer_playback && m_layer_playback->is_playing()) {
+    auto *view=current_layer_view();
+    if(!view || dynamic_cast<QWidget*>(view)!=m_layer_playback->target() || view->navigation_axis!=m_layer_playback->axis())m_layer_playback->stop();
+  }
+  disconnect(m_layer_connection);m_layer_connection={};
   m_layer_view = nullptr;
   m_layer_combo_view = nullptr;   // another view: always refill the combos
-  QMdiSubWindow *sub = m_mdi_area->currentSubWindow();
-  if(sub && sub->widget() && dynamic_cast<LayerNavigation *>(sub->widget()))
+  if(auto *view=dynamic_cast<QWidget*>(current_layer_view()))
   {
-    m_layer_view = sub->widget();
+    m_layer_view = view;
     // ChildWindow and RasterView both declare the signal layer_changed()
-    connect(m_layer_view, SIGNAL(layer_changed()), this, SLOT(update_layer_controls()));
+    m_layer_connection=connect(m_layer_view, SIGNAL(layer_changed()), this, SLOT(update_layer_controls()));
   }
   update_layer_controls();
 }
@@ -3148,6 +3248,7 @@ void MainWindow::update_window_menu()
   m_menu_windows->addAction(m_action_cascade);
   m_menu_windows->addAction(m_action_tile);
   m_menu_windows->addAction(m_action_close_all);
+  m_menu_windows->addAction(m_action_compare);
   const QList<QMdiSubWindow *> windows = m_mdi_area->subWindowList(QMdiArea::CreationOrder);
   m_action_cascade->setEnabled(!windows.isEmpty());
   m_action_tile->setEnabled(!windows.isEmpty());
@@ -3175,9 +3276,14 @@ void MainWindow::update_window_menu()
 
 MainWindow::~MainWindow()
 {
+  m_layer_playback->stop();
   qApp->removeEventFilter(this);
   disconnect(m_mdi_area, nullptr, this, nullptr);
-  if(m_layer_view) disconnect(m_layer_view, nullptr, this, nullptr);
+  disconnect(m_layer_connection);
+  // Derived widgets outlive this destructor body; their source may emit while QWidget deletes them.
+  for(auto *view : findChildren<TextureEntropyView*>()) disconnect(view, nullptr, this, nullptr);
+  delete m_compare_panel;m_compare_panel=nullptr;
+  delete m_workspace_sync;m_workspace_sync=nullptr;
 }
 
 void MainWindow::cascade_windows()
@@ -3204,6 +3310,7 @@ void MainWindow::cascade_windows()
 
 void MainWindow::step_layer(LayerStep step)
 {
+  m_layer_playback->stop();
   LayerNavigation *view = current_layer_view();
   if(!view || view->layer_axis_count() == 0) return;
   const int axis = view->navigation_axis;
@@ -3213,6 +3320,7 @@ void MainWindow::step_layer(LayerStep step)
 
 void MainWindow::go_to_layer()
 {
+  m_layer_playback->stop();
   LayerNavigation *view = current_layer_view();
   if(!view || view->layer_axis_count() == 0) return;
   const int axis = view->navigation_axis;
@@ -3230,6 +3338,12 @@ void MainWindow::update_layer_controls()
 {
   LayerNavigation *view = current_layer_view();
   const int axes = view ? view->layer_axis_count() : 0;
+  if(axes>0)view->navigation_axis=layer_clamp(view->navigation_axis,axes);
+  const bool can_play=axes>0 && view->layer_count(view->navigation_axis)>=2;
+  m_action_layer_play->setEnabled(can_play);
+  if(m_layer_playback->is_playing() && (!can_play || dynamic_cast<QWidget*>(view)!=m_layer_playback->target() || view->navigation_axis!=m_layer_playback->axis()))m_layer_playback->stop();
+  const QSignalBlocker play_blocker(m_action_layer_play);
+  m_action_layer_play->setChecked(m_layer_playback->is_playing());
   const QList<QAction *> actions = {m_action_layer_next, m_action_layer_previous, m_action_layer_last,
                                     m_action_layer_first, m_action_layer_goto};
   if(axes == 0)
@@ -3268,15 +3382,15 @@ void MainWindow::update_layer_controls()
     m_layer_combo_count = count;
   }
   m_layer_axis_combo->setCurrentIndex(axis);
-  m_layer_index_combo->setCurrentIndex(index);
+  m_layer_index_combo->setCurrentIndex(count>0?index:-1);
   m_layer_axis_combo->setEnabled(true);
-  m_layer_index_combo->setEnabled(true);
+  m_layer_index_combo->setEnabled(count>1);
   m_action_layer_next->setEnabled(index < count - 1);
   m_action_layer_last->setEnabled(index < count - 1);
   m_action_layer_previous->setEnabled(index > 0);
   m_action_layer_first->setEnabled(index > 0);
   m_action_layer_goto->setEnabled(count > 1);
-  m_layer_label->setText(tr("Layer %1 of %2").arg(index + 1).arg(count));
+  m_layer_label->setText(count>0?tr("Layer %1 of %2").arg(index + 1).arg(count):tr("No frames on this axis"));
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////
@@ -3298,12 +3412,41 @@ void MainWindow::add_table(ItemData *item_data, int mode)
 
 void MainWindow::add_image(ItemData *item)
 {
+  if(!item || !item->m_dataset || item->m_kind != ItemData::Variable || item->m_dataset->m_dim.size() < 2 ||
+     (item->m_dataset->m_datatype_class != H5T_INTEGER && item->m_dataset->m_datatype_class != H5T_FLOAT)) return;
   auto view = new RasterView(item->m_file_name, item->m_dataset->m_path, item->m_dataset->m_dim);
   auto sub = m_mdi_area->addSubWindow(view);
   sub->setAttribute(Qt::WA_DeleteOnClose);
   tag_view(sub, item);
   sub->resize(720, 510);
   sub->show();
+}
+
+void MainWindow::show_texture_entropy() {
+  if(auto *sub = m_mdi_area->currentSubWindow()) {
+    if(auto *source = qobject_cast<RasterView*>(sub->widget())) {
+      auto *view = new TextureEntropyView(source);
+      connect(view, &TextureEntropyView::layer_changed, this, &MainWindow::update_layer_controls);
+      auto *derived = m_mdi_area->addSubWindow(view); derived->setAttribute(Qt::WA_DeleteOnClose);
+      derived->setProperty("sourceItem", sub->property("sourceItem"));
+      derived->resize(820, 660); derived->show(); return;
+    }
+  }
+  if(m_tree->currentItem()) add_texture_image(get_item_data(m_tree->currentItem()));
+}
+
+void MainWindow::add_texture_image(ItemData *item) {
+  if(!item || !item->m_dataset || item->m_kind != ItemData::Variable || item->m_dataset->m_dim.size() < 2 ||
+     (item->m_dataset->m_datatype_class != H5T_INTEGER && item->m_dataset->m_datatype_class != H5T_FLOAT)) return;
+  TextureEntropyView *view = nullptr;
+  if(auto *sub = m_mdi_area->currentSubWindow()) {
+    if(sub->property("sourceItem").value<quintptr>() == reinterpret_cast<quintptr>(item))
+      if(auto *source = qobject_cast<RasterView*>(sub->widget())) view = new TextureEntropyView(source);
+  }
+  if(!view) view = new TextureEntropyView(item->m_file_name, item->m_dataset->m_path, item->m_dataset->m_dim);
+  connect(view, &TextureEntropyView::layer_changed, this, &MainWindow::update_layer_controls);
+  auto *sub = m_mdi_area->addSubWindow(view); sub->setAttribute(Qt::WA_DeleteOnClose);
+  tag_view(sub, item); sub->resize(820, 660); sub->show();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////
@@ -3328,12 +3471,20 @@ void MainWindow::export_image(ItemData *item, QWidget *parent)
       QString::fromStdString(item->m_item_nm) + QStringLiteral(".png"), tr("PNG images (*.png)"));
   if(output.isEmpty()) return;
 
-  auto *view = new RasterView(item->m_file_name, item->m_dataset->m_path, item->m_dataset->m_dim);
-  view->resize(720, 510);
-  view->show();
-  QCoreApplication::processEvents();
-  const bool saved = view->grab().save(output, "PNG");
-  delete view;
+  RasterView *view=nullptr;
+  // Prefer this dataset's current image (layer, palette, Mask and orientation).
+  auto windows=m_mdi_area->subWindowList();
+  if(auto *active=m_mdi_area->activeSubWindow()) {windows.removeAll(active);windows.prepend(active);}
+  for(auto *sub:windows) {
+    if(sub->property("sourceItem").value<quintptr>()==reinterpret_cast<quintptr>(item))
+      if(auto *raster=qobject_cast<RasterView*>(sub->widget())) {view=raster;break;}
+  }
+  std::unique_ptr<RasterView> temporary;
+  if(!view) {temporary=std::make_unique<RasterView>(item->m_file_name,item->m_dataset->m_path,item->m_dataset->m_dim);view=temporary.get();}
+  const QImage image=view->image_for_export();
+  QSaveFile destination(output);
+  const bool saved=!image.isNull() && destination.open(QIODevice::WriteOnly) &&
+      image.save(&destination,"PNG") && destination.commit();
   if(!saved) QMessageBox::warning(parent, tr("Export As Image"), tr("Could not save the image."));
 }
 

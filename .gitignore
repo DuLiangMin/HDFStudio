@@ -6,6 +6,7 @@
 /testdata/*.h5
 /testdata/*.hdf5
 /logs/
+/tests/__pycache__/
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake

@@ -18,6 +18,9 @@ class MainWindow;
 class ItemData;
 class hdf_dataset_t;
 class TableModel;
+class WorkspaceSyncController;
+class ComparePanel;
+class LayerPlayback;
 
 // Startup waiting box, defined in hdf_explorer.cpp and shared with the regression test.
 QWidget *create_startup_splash();
@@ -96,6 +99,7 @@ public:
   // mode: GridValueMode (0 decoded, 1 stored, 2 both side by side)
   void add_table(ItemData *item_data, int mode = 0);
   void add_image(ItemData *item_data);
+  void add_texture_image(ItemData *item_data);
   void add_histogram(ItemData *item_data);
   void export_image(ItemData *item_data, QWidget *parent);
   int read_file(QString file_name);
@@ -118,6 +122,9 @@ protected:
   void close_current_file();
   void about();
   void show_cf_diagnostics();
+  void show_compare_panel();
+  void show_texture_entropy();
+  void update_compare_views();
   void update_file_info(const QString &file_name);
   void show_time_values();
   void load_report_tab(int index);
@@ -148,6 +155,9 @@ private:
   QMenu *m_menu_windows;
   QToolBar *m_tool_bar;
   QMdiArea *m_mdi_area;
+  WorkspaceSyncController *m_workspace_sync=nullptr;
+  ComparePanel *m_compare_panel=nullptr;
+  QAction *m_action_compare=nullptr;
   FileTreeWidget *m_tree;
   QDockWidget *m_tree_dock;
   QSplitter *m_main_splitter;
@@ -179,10 +189,14 @@ private:
   QAction *m_action_layer_last;
   QAction *m_action_layer_first;
   QAction *m_action_layer_goto;
+  QAction *m_action_layer_play;
+  LayerPlayback *m_layer_playback=nullptr;
+  QSpinBox *m_playback_interval;
   QComboBox *m_layer_axis_combo;   // which leading dimension is stepped (time, lev, ...)
   QComboBox *m_layer_index_combo;  // selected layer of that dimension, 1-based text
   QLabel *m_layer_label;           // "Layer n of N", as in the old status bar
   QPointer<QWidget> m_layer_view;  // view whose layer_changed() is connected
+  QMetaObject::Connection m_layer_connection;
   // what the index combo was filled for; it is refilled only when view, axis or length change
   const void *m_layer_combo_view = nullptr;
   int m_layer_combo_axis = -1;

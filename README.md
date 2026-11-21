@@ -4,7 +4,7 @@
 
 **English** | [简体中文](README_CN.md)
 
-🔢 **Current source version: 0.12.06** — includes the scientific color maps, cached recoloring and visible image zoom controls.
+🔢 **Version 0.12.08** — independent 2D texture entropy images, scientific color maps, cached recoloring, image zoom, lead/lag comparison, pair metrics, residual maps and joint slice playback.
 
 ⬇️ **Download:** get `HDFStudio-<version>-win64.zip` from the [latest release](https://github.com/DuLiangMin/HDFStudio/releases/latest). **Portable (green) app:** unzip it anywhere and double-click `HDFStudio.exe` to run. No installation and no administrator rights needed.
 
@@ -19,10 +19,21 @@ meteorology, climate and earth-science work. Open a `.nc`, `.nc4`, `.h5` or `.hd
 groups, variables and attributes, read values in a table, view 2-D slices as images, decode time
 coordinates into real dates, and check CF metadata conventions, all without writing code.
 
-![HDFStudio with two NetCDF files, the layer toolbar at time layer 10 of 180, two image views in Viridis and Inferno, and the By NetCDF4 panel](docs/screenshot-main.png)
+![HDFStudio playing 2-metre temperature in cmocean Thermal alongside the synchronized 2D texture entropy image](docs/demo-analysis.gif)
 
-*Two NetCDF files open: 2-metre temperature in the Viridis and Inferno palettes, the layer toolbar after
-Open stepping `time` (Layer 10 of 180), the dataset tree on the left, and the By NetCDF4 report at the bottom.*
+*Recorded from the running Windows application: 2-metre temperature (`TMP_2maboveground`, 384 × 190, 480 layers) in cmocean Thermal, alongside its synchronized 4×4 local texture entropy image in Viridis. The green Play button advances both views. Entropy has its own fixed 0–4 bits scale. [View the static screenshot](docs/screenshot-main.png).*
+
+### 🆕 New in 0.12.08
+
+| Capability | How to use it |
+|---|---|
+| 🖼️ Independent **2D texture entropy** | **View → Texture Entropy Image**, or right-click a variable. View local 4×4 complexity, browse layers, apply Mask, export original-size PNG and numeric CSV. |
+| 🔗 **Lead/lag and multi-view synchronization** | Choose Anchor/Targets in **Compare & Metrics**; set each integer lag and synchronize layers, zoom/pan/flips and optionally colors/ranges. |
+| 📐 **Live comparison metrics** | Read Pearson r, RMSE, MAE and Bias together; copy the report or export a CSV with file, variable, layer and unit identities. |
+| ➖ **Spatial residual map** | **Residual map** shows `Target − Anchor` with a zero-centered diverging scale and follows the selected layers and Mask. |
+| ▶️ **Green Play / Pause** | Animate one dataset or linked views with an adjustable interval; metrics, residuals and source-following entropy update with the layers. |
+
+**Validation:** clean Debug/Release builds each pass **83 QtTest checks**, with no failures or skips, plus CTest. Local entropy outputs are reconciled independently against NumPy, including exported PNG colors and missing/Mask pixels.
 
 ## 🤔 Why HDFStudio?
 
@@ -35,6 +46,33 @@ really inside** before you trust it. Typical questions:
 
 HDFStudio answers these in seconds, with no Python session, no notebook and no installation of a
 scientific stack. It is a small, portable program (about 15 MB) that opens a file and shows you the facts.
+
+### 🔬 From inspecting a slice to comparing model output
+
+HDFStudio brings the following analysis tasks into the same workspace:
+
+- **2D texture entropy images:** choose **View → Texture Entropy Image**, or the same variable context-menu item. Each non-overlapping 4×4 block produces a Shannon entropy value; numeric bilinear interpolation reconstructs the source image dimensions before coloring. The independent image has a fixed 0–4 bits colorbar, zoom/pan, layer navigation, and full-size PNG/numeric CSV exports. Opening it from an Image View follows that image's layer and Mask; no comparison is required.
+- **Sliding comparison along a shared index axis:** choose an Anchor and one or more Target image views, select a leading axis such as `time`, then drag the Anchor layer slider. Each Target follows `target_index = anchor_index + lag`, with its own positive, zero or negative integer offset. Zoom, pan and flips can follow the Anchor; color/range synchronization is optional. Out-of-range targets clear and recover automatically.
+- **Correlation and error together:** the live **Compare & Metrics** dock shows Pearson r, RMSE, MAE, Bias (`Target − Anchor`) and valid/excluded pair counts. Copy the report or export an atomic CSV record containing source paths, variables, layer indices, revisions and units. Single-image entropy is no longer included as a comparison result. The CLI uses the same core algorithms for independent numerical checks.
+- **Residual maps:** open **Residual map** to locate positive and negative `Target − Anchor` differences spatially, with a zero-centered symmetric diverging color scale. The map follows the current layer and Mask, clears when comparison becomes invalid, supports zoom/pan and exports a full-resolution PNG.
+
+**Try it:** open two image views (they may come from one file or different files), click the visible **Compare & Metrics** button in the main toolbar (or **Window → Compare & Metrics**), select Anchor/Target and the index axis, then set the lag and move the Anchor slider. Layer indices shown in this dock are **zero-based**.
+
+For two forecasts initialized at different times, inspect their decoded time coordinates first and choose the index offset that corresponds to your intended comparison. Changing the selected Target retains the other Targets' individual offsets, so several forecast sequences can follow one Anchor.
+
+**Scientific scope:** alignment is by integer layer index, including when the chosen axis is named `time`; HDFStudio does not infer hours/days or match coordinate timestamps. Pair calculations require identical plane shapes and use only pixels finite in both decoded, currently masked planes. There is no implicit interpolation, cropping, geographical registration or unit conversion. Units are retained, and differing units are marked unverified; a constant field has undefined Pearson r even when error metrics remain valid.
+
+### 🖼️ Reading a texture entropy image
+
+Decoded finite values share 256 gray levels spanning the current plane's min/max. Each 4×4 block uses `H=-Σp·log2(p)`: a constant block is 0 bits, and 16 equally frequent distinct gray levels give 4 bits. Partial edge blocks use actual samples without zero padding. All-missing blocks are invalid; source missing/Mask pixels remain gray. Interpolation ignores invalid neighbors and renormalizes weights without filling source gaps. Output row/column indices match the source, and PNG dimensions are identical; interpolation adds no physical detail.
+
+Higher values indicate a richer local gray distribution. Noise may also be high, smooth gradients may be nonzero, and different pixel arrangements with identical histograms have equal entropy. This measures local complexity, not proof of a useful signal source. Quantization is recalculated from each plane and does not depend on display colors, reverse or zoom. The original scalar is explicitly labeled **Whole-plane histogram entropy** as a separate distribution diagnostic.
+
+### ▶️ Slice playback — single dataset or linked comparison
+
+The main toolbar has a green bitmap **Play / Pause** button and **Frame interval** control (default 500 ms, range 100–10,000 ms); the **Layer** menu contains the same action. Open an image, select a leading axis and press **Play** to animate its layers. Playback stops at the last layer; pressing Play there restarts from the first. **Play is disabled when the selected playback axis has fewer than two frames; linked comparisons use the Anchor's frame count.** The interval is a display delay, not the physical time step of the dataset.
+
+For joint playback, open two images, select **Window → Compare & Metrics**, choose Anchor/Target and enable **Sync layer indices**. Set each Target's lag, then press **Play** from either linked image. **Next/Previous/First/Last, Go to Layer and the main layer selector also drive the Anchor** when a linked Target is active. Both images, metrics and an open residual map update together. Unlinked views retain independent navigation. Pause holds the current layer; changing the playback source/axis or comparison binding stops playback. This displays a slice sequence; it does not encode a video file.
 
 | | HDFStudio | Panoply | ncview | HDFView |
 |---|---|---|---|---|
@@ -76,6 +114,7 @@ scientific stack. It is a small, portable program (about 15 MB) that opens a fil
 - 🌬️ **Vector view** for U/V wind or current components, and a preview of **UGRID** triangular meshes.
 - 📊 **Histogram of one layer** (0.12.02): right-click a variable with at least two dimensions → **Histogram...**. The window reads the selected layer once and shows its distribution: a bar chart plus one summary line with values sampled, bins, min, max, mean, standard deviation and how many cells are NaN. **Sample 1 in N** (default 20, that is one value in twenty) draws a uniformly random subset and keeps exactly `round(finite / N)` values — no regular grid of every Nth cell — so a 1201 × 1401 plane answers in about 70 ms; type `1` for every value. Changing the step or the number of bins re-samples and re-bins values that are already in memory, so the file is not read again, and **Draw a new sample** takes another random subset of the same size. A seed keeps the bars reproducible: the same settings always show the same sample. Drop-down layers work for 3-D, 4-D and 5-D variables and follow the Layer toolbar. `hdf_cli hist` prints the same lines.
 - 💾 **Export** values to text and slices to PNG; batch preview from the command line.
+  PNG export uses the dataset's current image layer, palette, Mask and flips at full data resolution. Batch `--preview ... --png ...` refuses to overwrite either an existing PNG or its JSON sidecar.
 
 ## 📥 Download and run
 
@@ -105,6 +144,10 @@ hdf_cli info   data.nc              dimensions, variables and attributes, laid o
 hdf_cli props  data.nc /ttr         the lines of the Properties dialog
 hdf_cli export data.nc /lat         values as text (add a file name to write a file)
 hdf_cli csv    data.nc /ttr plane.csv 7 42    one 2-D plane as the image view reads it
+hdf_cli entropy data.nc /precipitation 256 0   full decoded plane, bits and normalized entropy
+hdf_cli texture-entropy data.nc /precipitation texture.csv 0   2D 4x4 local entropy values and block entropy
+hdf_cli corr a.nc /field b.nc /field --anchor-idx 0 --target-idx 1
+                                              identical shape, finite intersection, target-anchor errors
 hdf_cli mask   data.nc /precipitation 9999 - 0    Mask Range on decoded values ("-" = open end):
                                                  count masked and min/max of what remains
 hdf_cli hist   data.nc /precipitation 0.05 32 0   histogram of layer 0: keep a random 1 in 20,

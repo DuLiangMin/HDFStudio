@@ -7,6 +7,8 @@
 #include "curve_profile.hpp"
 #include "color_map.hpp"
 #include "color_bar.hpp"
+#include "plane_snapshot.hpp"
+#include "viewport_state.hpp"
 #include <QPointer>
 #include <memory>
 #include <atomic>
@@ -14,6 +16,7 @@
 #include <vector>
 #include <string>
 #include <map>
+#include <optional>
 
 namespace RasterColorMap {
 enum class Palette { Viridis, Plasma, Inferno, Turbo, Grayscale };
@@ -32,6 +35,12 @@ QColor discreteValueColor(Palette palette, double value,
                           bool reversed, const QColor &unknownColor);
 }
 
+struct RasterColorState {
+  HdfColorMap::Palette palette;
+  HdfColorMap::Mapping mapping;
+  bool discrete = false;
+};
+
 class RasterView : public QWidget, public LayerNavigation {
   Q_OBJECT
 public:
@@ -45,8 +54,21 @@ public:
   void set_layer_index(int axis, int index) override;
   // Used by the native dialog and deterministic GUI tests; imports are user-local.
   QString import_color_map(const QString &filename,HdfColorMap::RgbScale scale);
+  // Complete data-resolution raster, with current Mask/mapping/layer and flips; no UI chrome.
+  QImage image_for_export();
+  PlaneSnapshot plane_snapshot() const;
+  bool render_pending() const;
+  ViewportState viewport_state() const;
+  void apply_viewport_state(const ViewportState &state);
+  RasterColorState color_state() const;
+  void apply_color_state(const RasterColorState &state);
+  void set_sync_out_of_range(bool out_of_range, const QString &message);
+  bool apply_layer_indices(const std::vector<size_t> &indices);
 signals:
   void layer_changed();
+  void plane_snapshot_changed(quint64 revision);
+  void viewport_changed();
+  void color_mapping_changed();
 protected:
   bool eventFilter(QObject *watched,QEvent *event) override;
 private:
@@ -58,6 +80,7 @@ private:
   void choose_rgb_file();
   void clear_plane(const QString &error);
   void start_pending_render();
+  void notify_viewport_changed();
   std::string file, path;
   std::vector<hsize_t> dims;
   std::vector<QSpinBox*> layers;
@@ -66,6 +89,13 @@ private:
   QGraphicsScene *scene;
   QGraphicsPixmapItem *image_item = nullptr;
   QLabel *legend;
+  QLabel *entropy_summary;
+  bool snapshot_available = false;
+  quint64 snapshot_revision = 0;
+  bool sync_out_of_range = false;
+  QString sync_range_message;
+  bool applying_viewport = false;
+  std::optional<std::pair<double,double>> synced_color_range;
   ColorBar *color_bar;
   std::vector<HdfColorMap::Palette> color_maps;
   HdfColorMap::Mapping color_mapping;

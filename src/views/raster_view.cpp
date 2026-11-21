@@ -5,6 +5,8 @@
 #include "nc_reader.hpp"
 #include "nc_classic.hpp"
 #include "plane_reader.hpp"
+#include "image_metrics.hpp"
+#include "raster_budget.hpp"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -85,26 +87,6 @@ QColor RasterColorMap::discreteValueColor(Palette palette, double value,
 }
 
 namespace {
-// Conservative process-wide raster allowance: decoded/masked current and in-flight
-// planes, decoder scratch, QImage/pixmap replacement. The lease outlives closed views
-// while a cancelled worker still owns buffers. This is not the whole process RSS.
-std::atomic<quint64> raster_reserved_bytes{0};
-struct RasterReservation {
-  quint64 bytes;
-  explicit RasterReservation(quint64 count):bytes(count) {}
-  ~RasterReservation() {raster_reserved_bytes.fetch_sub(bytes);}
-};
-std::shared_ptr<void> reserve_raster(quint64 pixels) {
-  bool valid=false;
-  const quint64 configured=qEnvironmentVariable("HDFSTUDIO_RASTER_BUDGET_MIB").toULongLong(&valid);
-  const quint64 budget=(valid&&configured>=1&&configured<=16384?configured:1024)*1024*1024;
-  const quint64 bytes=pixels*64;
-  auto used=raster_reserved_bytes.load();
-  do {
-    if(bytes>budget||used>budget-bytes) return {};
-  } while(!raster_reserved_bytes.compare_exchange_weak(used,used+bytes));
-  return std::make_shared<RasterReservation>(bytes);
-}
 struct Handle {
   hid_t id;
   herr_t (*close)(hid_t);
@@ -174,6 +156,7 @@ QIcon zoom_icon(bool zoom_in) {
 class Canvas : public QGraphicsView {
 public:
   using QGraphicsView::QGraphicsView;
+  std::function<void()> viewport_changed_callback;
   void zoom(double factor) {
     zoom_at(factor,QPointF(viewport()->rect().center()),true);
   }
@@ -202,6 +185,7 @@ private:
     horizontalScrollBar()->setValue(horizontalScrollBar()->value()+qRound(offset.x()));
     verticalScrollBar()->setValue(verticalScrollBar()->value()+qRound(offset.y()));
     setTransformationAnchor(previous_anchor);
+    if(viewport_changed_callback) viewport_changed_callback();
   }
 };
 }
@@ -276,13 +260,14 @@ RasterView::RasterView(std::string filename, std::string varpath, std::vector<hs
   fixed_minimum->setEnabled(false);
   fixed_maximum->setEnabled(false);
   connect(range_mode, &QComboBox::currentIndexChanged, this, [this] {
+    synced_color_range.reset();
     bool fixed=!range_mode->currentData().toBool();
     fixed_minimum->setEnabled(fixed);
     fixed_maximum->setEnabled(fixed);
     refresh();
   });
-  connect(fixed_minimum, &QDoubleSpinBox::valueChanged, this, [this] { refresh(); });
-  connect(fixed_maximum, &QDoubleSpinBox::valueChanged, this, [this] { refresh(); });
+  connect(fixed_minimum, &QDoubleSpinBox::valueChanged, this, [this] { synced_color_range.reset();refresh(); });
+  connect(fixed_maximum, &QDoubleSpinBox::valueChanged, this, [this] { synced_color_range.reset();refresh(); });
   auto discrete_toggle=new QCheckBox(tr("Discrete"),tools);
   discrete_toggle->setObjectName("discreteColors");
   discrete_toggle->setToolTip(tr("Render each distinct value as a category"));
@@ -391,6 +376,9 @@ RasterView::RasterView(std::string filename, std::string varpath, std::vector<hs
   canvas->setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
   canvas->viewport()->setMouseTracking(true);
   canvas->viewport()->installEventFilter(this);
+  view->viewport_changed_callback=[this]{notify_viewport_changed();};
+  connect(canvas->horizontalScrollBar(),&QScrollBar::valueChanged,this,[this]{notify_viewport_changed();});
+  connect(canvas->verticalScrollBar(),&QScrollBar::valueChanged,this,[this]{notify_viewport_changed();});
   canvas->setContextMenuPolicy(Qt::CustomContextMenu);
   connect(canvas,&QWidget::customContextMenuRequested,this,[this](const QPoint &position){
     if(profile_mode_action->isChecked()) return;
@@ -420,6 +408,7 @@ RasterView::RasterView(std::string filename, std::string varpath, std::vector<hs
                      matrix.m21(), sy, matrix.m23(),
                      matrix.dx(), matrix.dy(), matrix.m33());
     canvas->setTransform(matrix);
+    notify_viewport_changed();
   };
   connect(flip_v_action, &QAction::toggled, this, [apply_flip](bool) { apply_flip(); });
   connect(flip_h_action, &QAction::toggled, this, [apply_flip](bool) { apply_flip(); });
@@ -448,6 +437,7 @@ RasterView::RasterView(std::string filename, std::string varpath, std::vector<hs
   });
   connect(fit_action,&QAction::triggered,this,[this,apply_flip] {
     canvas->fitInView(scene->sceneRect(), Qt::KeepAspectRatio);
+    notify_viewport_changed();
     apply_flip();
   });
   connect(zoom_in_action,&QAction::triggered,this,[view]{view->zoom(1.25);});
@@ -458,10 +448,16 @@ RasterView::RasterView(std::string filename, std::string varpath, std::vector<hs
   color_bar=new ColorBar(this);
   layout->addWidget(color_bar);
   layout->addWidget(legend);
-  QTimer::singleShot(0, this, [this]{ refresh(); canvas->fitInView(scene->sceneRect(), Qt::KeepAspectRatio); });
+  entropy_summary=new QLabel(this);
+  entropy_summary->setObjectName("rasterEntropySummary");
+  entropy_summary->setTextInteractionFlags(Qt::TextSelectableByMouse);
+  layout->addWidget(entropy_summary);
+  QTimer::singleShot(0, this, [this]{ refresh(); canvas->fitInView(scene->sceneRect(), Qt::KeepAspectRatio);notify_viewport_changed(); });
 }
 
 bool RasterView::eventFilter(QObject *watched,QEvent *event) {
+  if(watched==canvas->viewport() && event->type()==QEvent::Resize)
+    QTimer::singleShot(0,this,[this]{notify_viewport_changed();});
   if(watched==canvas->viewport() && profile_mode_action && profile_mode_action->isChecked()) {
     auto nearest_point_index = [this](const QPoint &view_pos) -> int {
       int best = -1;
@@ -553,6 +549,8 @@ bool RasterView::eventFilter(QObject *watched,QEvent *event) {
 }
 
 void RasterView::refresh() {
+  if(sync_out_of_range) { clear_plane(sync_range_message);return; }
+  canvas->viewport()->setToolTip({});legend->setToolTip({});
   const quint64 request=++render_revision;
   render_generation->store(request);
   if(dims.size()<2 || std::find(dims.begin(),dims.end(),0)!=dims.end()) {
@@ -614,6 +612,15 @@ void RasterView::refresh() {
   }
   if(values_changed&&profile_window) if(auto *view=qobject_cast<ProfileView*>(profile_window.data()))
     view->update_data(last_values,last_rows,last_cols,profile_points,CurvePathMode::SmoothSpline);
+  if(values_changed || !snapshot_available) {
+    const auto entropy=nc_gray_entropy(*last_values);
+    entropy_summary->setText(entropy.valid
+      ? tr("Whole-plane histogram entropy (256 bins): %1 bits   Normalized: %2").arg(entropy.entropy_bits,0,'f',4).arg(entropy.normalized_entropy,0,'g',9)
+      : tr("Whole-plane histogram entropy (256 bins): N/A"));
+    setProperty("entropyBits",entropy.valid ? QVariant(entropy.entropy_bits) : QVariant());
+    snapshot_available=true;
+    emit plane_snapshot_changed(++snapshot_revision);
+  }
   setProperty("masked",qulonglong(masked_count));
   double low=data_low,high=data_high;
   category_values.clear();
@@ -633,6 +640,7 @@ void RasterView::refresh() {
   const bool has_valid_values=std::isfinite(low);
   auto range=RasterColorMap::resolveRange(automatic,low,high,
       fixed_minimum->value(),fixed_maximum->value(),std::isfinite(low));
+  if(!automatic && synced_color_range) range={synced_color_range->first,synced_color_range->second,true};
   if(discrete_mode) range={low,high,std::isfinite(low)};
   // With no finite data, keep the missing/Mask image visible without inventing a range.
   const bool no_auto_range=!has_valid_values&&(automatic||discrete_mode);
@@ -716,17 +724,122 @@ void RasterView::refresh() {
         .arg(bound(mask_from),bound(mask_to)).arg(masked_count));
   }
   if(!coordinate_note.isEmpty()) legend->setText(legend->text()+coordinate_note);
+  emit color_mapping_changed();
 }
 
 void RasterView::clear_plane(const QString &error) {
   ++render_revision;render_generation->store(render_revision);pending_render={};pending_apply={};
   display_valid=false;mask_valid=false;show_profile_action->setEnabled(false);
   image_item->setPixmap(QPixmap());color_bar->clear();legend->setText(error);
+  canvas->viewport()->setToolTip({});legend->setToolTip({});
+  snapshot_available=false;
+  entropy_summary->setText(tr("Whole-plane histogram entropy (256 bins): N/A"));setProperty("entropyBits",QVariant());
+  emit plane_snapshot_changed(++snapshot_revision);
   setProperty("minimum",QVariant());setProperty("maximum",QVariant());
   if(profile_window) if(auto *view=qobject_cast<ProfileView*>(profile_window.data()))
     view->update_data({},0,0,{},CurvePathMode::SmoothSpline);
 }
 RasterView::~RasterView() {render_generation->fetch_add(1);pending_render={};}
+bool RasterView::render_pending() const {return render_running || bool(pending_render);}
+PlaneSnapshot RasterView::plane_snapshot() const {
+  PlaneSnapshot snapshot;
+  snapshot.file_path=QString::fromLocal8Bit(file.c_str());
+  snapshot.variable_path=QString::fromUtf8(path.c_str());
+  for(auto *spin:layers) snapshot.leading_indices.push_back(size_t(spin->value()));
+  snapshot.rows=dims.size()<2 ? 0 : size_t(dims[dims.size()-2]);
+  snapshot.cols=dims.empty() ? 0 : size_t(dims.back());
+  snapshot.units=cached_units.isEmpty() ? QString("unspecified") : cached_units;
+  snapshot.revision=snapshot_revision;
+  snapshot.out_of_range=sync_out_of_range;
+  if(snapshot_available) {snapshot.values=last_values;snapshot.storage_lease=raster_reservation;}
+  return snapshot;
+}
+
+void RasterView::notify_viewport_changed() {
+  if(!applying_viewport) emit viewport_changed();
+}
+
+ViewportState RasterView::viewport_state() const {
+  ViewportState state;
+  state.transform=canvas->transform();
+  auto ratio=[](QScrollBar *bar) {
+    return bar->maximum()==bar->minimum() ? .5 : double(bar->value()-bar->minimum())/double(bar->maximum()-bar->minimum());
+  };
+  state.h_ratio=ratio(canvas->horizontalScrollBar());state.v_ratio=ratio(canvas->verticalScrollBar());
+  state.flip_h=flip_h_action->isChecked();state.flip_v=flip_v_action->isChecked();
+  return state;
+}
+
+void RasterView::apply_viewport_state(const ViewportState &state) {
+  if(!state.transform.isInvertible() || !std::isfinite(state.h_ratio) || !std::isfinite(state.v_ratio)) return;
+  const auto previous=viewport_state();
+  if(previous.transform==state.transform && previous.flip_h==state.flip_h && previous.flip_v==state.flip_v &&
+     std::abs(previous.h_ratio-state.h_ratio)<1e-12 && std::abs(previous.v_ratio-state.v_ratio)<1e-12) return;
+  applying_viewport=true;
+  {
+    QSignalBlocker horizontal(flip_h_action),vertical(flip_v_action);
+    flip_h_action->setChecked(state.flip_h);flip_v_action->setChecked(state.flip_v);
+    canvas->setTransform(state.transform);
+    auto set_ratio=[](QScrollBar *bar,double ratio) {
+      bar->setValue(bar->minimum()+qRound(std::clamp(ratio,0.0,1.0)*double(bar->maximum()-bar->minimum())));
+    };
+    set_ratio(canvas->horizontalScrollBar(),state.h_ratio);set_ratio(canvas->verticalScrollBar(),state.v_ratio);
+  }
+  applying_viewport=false;
+  emit viewport_changed();
+}
+
+RasterColorState RasterView::color_state() const {
+  return {color_maps[size_t(palette_selector->currentIndex())],color_mapping,discrete_mode};
+}
+
+void RasterView::apply_color_state(const RasterColorState &state) {
+  if(!HdfColorMap::validate(state.palette,state.mapping).isEmpty()) return;
+  int selected=-1;
+  for(size_t i=0;i<color_maps.size();++i) if(color_maps[i].id==state.palette.id && color_maps[i].source_hash==state.palette.source_hash) selected=int(i);
+  if(selected<0) {color_maps.push_back(state.palette);fill_palette_selector();selected=int(color_maps.size()-1);}
+  auto *discrete_toggle=findChild<QCheckBox*>("discreteColors");
+  QSignalBlocker palette(palette_selector),reverse(reverse_palette),mode(range_mode),low(fixed_minimum),high(fixed_maximum),discrete(discrete_toggle);
+  palette_selector->setCurrentIndex(selected);reverse_palette->setChecked(state.mapping.reversed);
+  color_mapping=state.mapping;discrete_mode=state.discrete;discrete_toggle->setChecked(state.discrete);
+  // Optional color sync deliberately shares the anchor's resolved decoded range.
+  range_mode->setCurrentIndex(1);fixed_minimum->setEnabled(true);fixed_maximum->setEnabled(true);
+  fixed_minimum->setValue(state.mapping.minimum);fixed_maximum->setValue(state.mapping.maximum);
+  synced_color_range=std::make_pair(state.mapping.minimum,state.mapping.maximum);
+  refresh();
+}
+
+void RasterView::set_sync_out_of_range(bool out_of_range,const QString &message) {
+  if(sync_out_of_range==out_of_range && (!out_of_range || sync_range_message==message)) return;
+  sync_out_of_range=out_of_range;sync_range_message=message;
+  setProperty("syncOutOfRange",out_of_range);
+  if(out_of_range) clear_plane(tr("Out of range: %1").arg(message));
+  else refresh();
+}
+
+bool RasterView::apply_layer_indices(const std::vector<size_t> &indices) {
+  if(indices.size()!=layers.size()) return false;
+  bool changed=false;
+  for(size_t i=0;i<indices.size();++i) {
+    if(indices[i]>=size_t(layer_count(int(i)))) return false;
+    changed=changed || indices[i]!=size_t(layers[i]->value());
+  }
+  if(!changed) return true;
+  for(size_t i=0;i<indices.size();++i) {QSignalBlocker blocker(layers[i]);layers[i]->setValue(int(indices[i]));}
+  if(!sync_out_of_range) refresh();
+  emit layer_changed();
+  return true;
+}
+QImage RasterView::image_for_export() {
+  // A foreground export must not save an older asynchronous revision. A synchronous refresh uses
+  // the same immutable plane/cache and mapping, and invalidates queued older workers.
+  const QVariant previous=qApp->property("synchronousRasterPreview");
+  qApp->setProperty("synchronousRasterPreview",true);
+  refresh();
+  qApp->setProperty("synchronousRasterPreview",previous);
+  if(!display_valid || image_item->pixmap().isNull()) return {};
+  return image_item->pixmap().toImage().mirrored(flip_h_action->isChecked(),flip_v_action->isChecked());
+}
 void RasterView::start_pending_render() {
   if(render_running||!pending_render) return;
   static QThreadPool render_pool;
@@ -839,6 +952,7 @@ QString RasterView::layer_axis_name(int axis) const {
 
 int RasterView::layer_count(int axis) const {
   if(axis < 0 || axis >= layer_axis_count()) return 0;
+  if(dims[size_t(axis)]==0)return 0;
   return layers[size_t(axis)]->maximum() + 1;
 }
 

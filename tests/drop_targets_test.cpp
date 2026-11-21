@@ -15,12 +15,20 @@
 #include "hdf_explorer.hpp"
 #include "raster_view.hpp"
 #include "profile_view.hpp"
+#include "vector_view.hpp"
 #include "curve_profile.hpp"
 #include "properties_inspector.hpp"
 #include "text_export.hpp"
 #include "nc_reader.hpp"
 #include "plane_reader.hpp"
 #include "histogram_view.hpp"
+#include "image_metrics.hpp"
+#include "texture_entropy.hpp"
+#include "texture_entropy_view.hpp"
+#include "raster_budget.hpp"
+#include "workspace_sync.hpp"
+#include "compare_panel.hpp"
+#include "layer_playback.hpp"
 #include "mesh_view.hpp"
 #include "color_map.hpp"
 #include "color_map_picker.hpp"
@@ -31,6 +39,22 @@ class DropTargetsTest : public QObject {
   Q_OBJECT
 
 private slots:
+  void textureEntropyBlocksAndInterpolation();
+  void textureEntropyViewIsIndependent2DImage();
+  void textureEntropySnapshotFollowsMaskAndSourceLifetime();
+  void textureEntropyBudgetAndInvalidRecovery();
+  void imageMetricsEntropyAccuracy();
+  void imageMetricsEntropyAndPairAccuracy();
+  void histogramOrRasterShowsGrayEntropy();
+  void workspaceSyncAnchorLagAndOutOfRange();
+  void imageMetricsResidualAccuracy();
+  void comparePanelComputesLivePairMetricsAndExportsCsv();
+  void forecastPairResidualMatchesEveryDecodedPixel();
+  void linkedLayerToolbarNavigatesAnchorFromEitherImage();
+  void layerPlaybackSingleAndLinkedPlanes();
+  void layerPlaybackStopsOnContextChanges();
+  void layerPlaybackFrameCountBoundaries();
+  void cleanup();
   void acceptsExistingLocalFile();
   void rejectsMissingLocalFile();
   void opensNetcdfFromEachTarget();
@@ -73,6 +97,17 @@ private slots:
   void rasterZoomButtonsWheelAndCyclesPreserveData();
   void curveProfileSamplesPolylineAndSplineOnDecodedPlane();
   void externalPackedSampleMatchesPython();
+  void regressionCliRejectsInvalidParameters_data();
+  void regressionCliRejectsInvalidParameters();
+  void regressionBatchPreservesExistingOutputs();
+  void regressionGuiExportsCurrentFullResolutionRaster();
+  void regressionMappingDialogAndImportRecovery();
+  void regressionAsyncLayersMasksAndRecovery();
+  void regressionFiveDimensionalSlicesAndTypes();
+  void regressionBudgetIsReleasedAfterClose();
+  void regressionCorruptFileDoesNotBreakOpenSession();
+  void regressionVectorViewChangesLayerAndOmitsMissingPairs();
+  void regressionProfileCsvMatchesAnalyticField();
   void fileDropOpensFromEveryAreaOfTheMainWindow();
 };
 
@@ -1496,7 +1531,8 @@ void DropTargetsTest::propertiesDialogCopiesReportAndWindowMenuListsViews() {
   QVERIFY(cascade);
   refresh();
   QVERIFY(!cascade->isEnabled());
-  QCOMPARE(windowMenu->actions().size(),3);   // Cascade, Tile, Close All Views
+  QCOMPARE(windowMenu->actions().size(),4);   // Cascade, Tile, Close All Views, Compare & Metrics
+  QVERIFY(window.findChild<QAction*>("actionCompareMetrics")->isEnabled());
 
   for(const char *name:{"ttr","count","ttr"}) {
     tree->setCurrentItem(child_named(name));
@@ -1507,7 +1543,7 @@ void DropTargetsTest::propertiesDialogCopiesReportAndWindowMenuListsViews() {
   refresh();
   QVERIFY(cascade->isEnabled());
   QCOMPARE(windowMenu->actions().at(0),cascade);
-  QVERIFY(windowMenu->actions().at(3)->isSeparator());
+  QVERIFY(windowMenu->actions().at(4)->isSeparator());
   for(int i=0;i<3;i++) {
     QAction *entry=window.findChild<QAction*>(QString("actionWindow%1").arg(i+1));
     QVERIFY(entry);
@@ -1538,7 +1574,7 @@ void DropTargetsTest::propertiesDialogCopiesReportAndWindowMenuListsViews() {
 
   mdi->closeAllSubWindows();
   refresh();
-  QCOMPARE(windowMenu->actions().size(),3);
+  QCOMPARE(windowMenu->actions().size(),4);
   window.close_all_files();
 }
 
@@ -2467,6 +2503,849 @@ void DropTargetsTest::externalPackedSampleMatchesPython() {
   metaFile.write((meta.join('\n')+"\n").toUtf8());
   metaFile.close();
   window.close_all_files();
+}
+
+void DropTargetsTest::regressionCliRejectsInvalidParameters_data() {
+  QTest::addColumn<QStringList>("arguments");
+  QTest::addColumn<int>("expected");
+  QTest::newRow("zero-fraction") << QStringList{"hist","@file","/field","0","32"} << 2;
+  QTest::newRow("negative-fraction") << QStringList{"hist","@file","/field","-0.1","32"} << 2;
+  QTest::newRow("large-fraction") << QStringList{"hist","@file","/field","1.1","32"} << 2;
+  QTest::newRow("zero-bins") << QStringList{"hist","@file","/field","1","0"} << 2;
+  QTest::newRow("negative-bins") << QStringList{"hist","@file","/field","1","-3"} << 2;
+  QTest::newRow("invalid-index") << QStringList{"csv","@file","/field","@out","9"} << 3;
+  QTest::newRow("missing-variable") << QStringList{"props","@file","/absent"} << 3;
+  QTest::newRow("missing-file") << QStringList{"probe","@missing"} << 3;
+  QTest::newRow("corrupt-file") << QStringList{"info","@broken"} << 3;
+  QTest::newRow("bad-mask") << QStringList{"mask","@file","/field","9","2","0"} << 2;
+}
+void DropTargetsTest::regressionCliRejectsInvalidParameters() {
+  QFETCH(QStringList,arguments);QFETCH(int,expected);
+  QTemporaryDir dir;QVERIFY(dir.isValid());const auto path=dir.filePath("valid.nc");
+  int file=-1,y=-1,x=-1,var=-1;QCOMPARE(nc_create(nc_path_bytes(path).constData(),NC_CLOBBER,&file),NC_NOERR);
+  nc_def_dim(file,"y",2,&y);nc_def_dim(file,"x",3,&x);int dims[]={y,x};nc_def_var(file,"field",NC_DOUBLE,2,dims,&var);nc_enddef(file);
+  double data[]={0,1,2,3,4,5};nc_put_var_double(file,var,data);nc_close(file);
+  QFile broken(dir.filePath("broken.nc"));QVERIFY(broken.open(QIODevice::WriteOnly));broken.write("not a netcdf file");broken.close();
+  for(auto &arg:arguments) {if(arg=="@file")arg=path;else if(arg=="@out")arg=dir.filePath("out.csv");else if(arg=="@missing")arg=dir.filePath("missing.nc");else if(arg=="@broken")arg=broken.fileName();}
+  QProcess child;child.start(QDir(QCoreApplication::applicationDirPath()).filePath("hdf_cli.exe"),arguments);
+  QVERIFY(child.waitForFinished(30000));QCOMPARE(child.exitStatus(),QProcess::NormalExit);
+  QCOMPARE(child.exitCode(),expected);
+}
+void DropTargetsTest::regressionBatchPreservesExistingOutputs() {
+  QTemporaryDir dir;QVERIFY(dir.isValid());const auto filename=dir.filePath("preview.nc");
+  int file=-1,y=-1,x=-1,var=-1;QCOMPARE(nc_create(nc_path_bytes(filename).constData(),NC_CLOBBER,&file),NC_NOERR);
+  nc_def_dim(file,"y",2,&y);nc_def_dim(file,"x",3,&x);int dims[]={y,x};nc_def_var(file,"field",NC_DOUBLE,2,dims,&var);nc_enddef(file);double data[]={0,1,2,3,4,5};nc_put_var_double(file,var,data);nc_close(file);
+  const auto target=dir.filePath("existing.png");QFile old(target);QVERIFY(old.open(QIODevice::WriteOnly));old.write("KEEP");old.close();
+  QProcess child;child.start(QDir(QCoreApplication::applicationDirPath()).filePath("HDFStudio.exe"),{"--preview","field","--png",target,filename});
+  QVERIFY(child.waitForFinished(30000));QCOMPARE(child.exitStatus(),QProcess::NormalExit);QVERIFY(child.exitCode()!=0);
+  QVERIFY(old.open(QIODevice::ReadOnly));QCOMPARE(old.readAll(),QByteArray("KEEP"));old.close();
+  QFile sidecar(target+".json");QVERIFY(sidecar.open(QIODevice::WriteOnly));sidecar.write("KEEP-JSON");sidecar.close();QVERIFY(old.remove());
+  child.start(QDir(QCoreApplication::applicationDirPath()).filePath("HDFStudio.exe"),{"--preview","field","--png",target,filename});
+  QVERIFY(child.waitForFinished(30000));QVERIFY(child.exitCode()!=0);QVERIFY(!QFileInfo::exists(target));
+  QVERIFY(sidecar.open(QIODevice::ReadOnly));QCOMPARE(sidecar.readAll(),QByteArray("KEEP-JSON"));
+}
+void DropTargetsTest::regressionMappingDialogAndImportRecovery() {
+  using namespace HdfColorMap;
+  QStandardPaths::setTestModeEnabled(true);QString error;const auto maps=load_registry(error);QVERIFY(error.isEmpty());
+  Mapping mapping;mapping.minimum=-2;mapping.maximum=6;mapping.reversed=true;
+  ColorMapPicker picker(maps,5,mapping);picker.show();QVERIFY(QTest::qWaitForWindowExposed(&picker));
+  auto *selector=picker.findChild<QComboBox*>("colorCardSelector");QVERIFY(selector);
+  QLineEdit *search=nullptr;for(auto *edit:picker.findChildren<QLineEdit*>())if(edit->placeholderText()=="Search color cards")search=edit;
+  QVERIFY(search);search->setText("thermal");auto *list=qobject_cast<QListView*>(selector->view());QVERIFY(list);
+  for(int index=0;index<selector->count();++index)QCOMPARE(list->isRowHidden(index),!selector->itemText(index).contains("thermal",Qt::CaseInsensitive));
+  search->clear();picker.findChild<QComboBox*>("colorNormalization")->setCurrentIndex(2);
+  auto *period=picker.findChild<QLineEdit*>("colorPeriod");period->setText("0");
+  QTimer::singleShot(50,&picker,[]{for(auto *widget:QApplication::topLevelWidgets())if(auto *box=qobject_cast<QMessageBox*>(widget))box->accept();});
+  QTest::mouseClick(picker.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok),Qt::LeftButton);
+  QVERIFY(picker.isVisible());period->setText("360");
+  QTest::mouseClick(picker.findChild<QDialogButtonBox*>()->button(QDialogButtonBox::Ok),Qt::LeftButton);
+  QCOMPARE(picker.result(),int(QDialog::Accepted));QCOMPARE(picker.selected_mapping().period,360.);QVERIFY(picker.selected_mapping().reversed);
+  QTemporaryDir dir;QFile invalid(dir.filePath("bad.rgb"));QVERIFY(invalid.open(QIODevice::WriteOnly));invalid.write("ncolors=2\n0 0 0\n999 2 3\n");invalid.close();
+  Palette output=maps[5];const auto id=output.id;QVERIFY(!import_rgb(invalid.fileName(),RgbScale::Byte,output).isEmpty());QCOMPARE(output.id,id);
+}
+void DropTargetsTest::regressionGuiExportsCurrentFullResolutionRaster() {
+  QTemporaryDir dir;const auto filename=dir.filePath("export.nc");int file=-1,t=-1,y=-1,x=-1,var=-1;
+  QCOMPARE(nc_create(nc_path_bytes(filename).constData(),NC_CLOBBER,&file),NC_NOERR);
+  nc_def_dim(file,"t",2,&t);nc_def_dim(file,"y",300,&y);nc_def_dim(file,"x",300,&x);int dims[]={t,y,x};nc_def_var(file,"field",NC_DOUBLE,3,dims,&var);nc_enddef(file);
+  std::vector<double> data(180000);std::iota(data.begin(),data.end(),0.);nc_put_var_double(file,var,data.data());nc_close(file);
+  MainWindow window;window.resize(1200,850);window.show();QVERIFY(QTest::qWaitForWindowExposed(&window));QCOMPARE(window.read_file(filename),0);
+  auto *tree=window.findChild<FileTreeWidget*>();auto *mdi=window.findChild<QMdiArea*>();const auto targets=tree->findItems("field",Qt::MatchExactly|Qt::MatchRecursive);QCOMPARE(targets.size(),1);
+  tree->setCurrentItem(targets.first());emit tree->itemDoubleClicked(targets.first(),0);
+  QVERIFY(!mdi->subWindowList().isEmpty());
+  auto *view=qobject_cast<RasterView*>(mdi->subWindowList().last()->widget());QVERIFY(view);
+  view->set_layer_index(0,1);view->findChild<QCheckBox*>("reverseColorMap")->setChecked(true);
+  auto *start=view->findChild<QLineEdit*>("maskStart"),*end=view->findChild<QLineEdit*>("maskEnd");start->setText("90000");end->setText("90099");QMetaObject::invokeMethod(end,"editingFinished");
+  view->findChild<QAction*>("flipHorizontalAction")->setChecked(true);
+  auto *canvas=view->findChild<QGraphicsView*>();QGraphicsPixmapItem *item=nullptr;for(auto *candidate:canvas->scene()->items())if(candidate->type()==QGraphicsPixmapItem::Type)item=static_cast<QGraphicsPixmapItem*>(candidate);QVERIFY(item);
+  QTRY_COMPARE(item->pixmap().toImage().pixel(0,0),HdfColorMap::masked_color);
+  const auto expected=item->pixmap().toImage().convertToFormat(QImage::Format_RGB32).mirrored(true,false);
+  const auto output=dir.filePath("current.png");
+  const bool old=QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);QApplication::setAttribute(Qt::AA_DontUseNativeDialogs,true);
+  const auto restore=qScopeGuard([old]{QApplication::setAttribute(Qt::AA_DontUseNativeDialogs,old);});
+  QTimer answer;answer.setInterval(20);connect(&answer,&QTimer::timeout,&window,[&]{for(auto *widget:QApplication::topLevelWidgets())if(auto *dialog=qobject_cast<QFileDialog*>(widget)){dialog->selectFile(output);QMetaObject::invokeMethod(dialog,"accept");}});answer.start();
+  QVERIFY(QMetaObject::invokeMethod(tree,"export_item_as_image"));answer.stop();
+  const QImage actual(output);QCOMPARE(actual.size(),QSize(300,300));QCOMPARE(actual.convertToFormat(QImage::Format_RGB32),expected);
+  window.close_all_files();
+}
+void DropTargetsTest::regressionAsyncLayersMasksAndRecovery() {
+  using namespace HdfColorMap;QTemporaryDir dir;const auto filename=dir.filePath("mixed.nc");
+  int file=-1,t=-1,y=-1,x=-1,var=-1;QCOMPARE(nc_create(nc_path_bytes(filename).constData(),NC_CLOBBER,&file),NC_NOERR);
+  nc_def_dim(file,"t",2,&t);nc_def_dim(file,"y",300,&y);nc_def_dim(file,"x",300,&x);int dims[]={t,y,x};nc_def_var(file,"field",NC_DOUBLE,3,dims,&var);nc_enddef(file);
+  std::vector<double> data(180000);std::iota(data.begin(),data.end(),0.);nc_put_var_double(file,var,data.data());nc_close(file);
+  RasterView view(filename.toLocal8Bit().toStdString(),"/field",{2,300,300});view.resize(1100,750);view.show();QVERIFY(QTest::qWaitForWindowExposed(&view));
+  auto *canvas=view.findChild<QGraphicsView*>();QGraphicsPixmapItem *item=nullptr;for(auto *candidate:canvas->scene()->items())if(candidate->type()==QGraphicsPixmapItem::Type)item=static_cast<QGraphicsPixmapItem*>(candidate);QVERIFY(item);
+  QTRY_VERIFY(!item->pixmap().isNull());
+  auto *palette=view.findChild<QComboBox*>("colorMapSelector");auto *reverse=view.findChild<QCheckBox*>("reverseColorMap");
+  auto *start=view.findChild<QLineEdit*>("maskStart"),*end=view.findChild<QLineEdit*>("maskEnd");
+  for(int i=0;i<30;++i){view.set_layer_index(0,i%2);palette->setCurrentIndex(i%18);reverse->setChecked(i%2);}
+  view.set_layer_index(0,1);palette->setCurrentIndex(palette->findData("bids:viridis"));reverse->setChecked(true);
+  start->setText("90000");end->setText("90099");QMetaObject::invokeMethod(end,"editingFinished");
+  QTRY_COMPARE(item->pixmap().toImage().pixel(0,0),masked_color);
+  QString error;const auto maps=load_registry(error);auto found=std::find_if(maps.begin(),maps.end(),[](const Palette &p){return p.id=="bids:viridis";});QVERIFY(found!=maps.end());
+  Mapping settings;settings.minimum=90100;settings.maximum=179999;settings.reversed=true;
+  QImage expected(300,300,QImage::Format_RGB32);for(int r=0;r<300;++r)for(int c=0;c<300;++c){const int index=r*300+c;expected.setPixel(c,r,index<100?masked_color:map_value(*found,settings,90000+index));}
+  QTRY_VERIFY(item->pixmap().toImage().convertToFormat(QImage::Format_RGB32)==expected);
+  QCOMPARE(view.layer_index(0),1);QCOMPARE(view.property("masked").toULongLong(),qulonglong(100));
+  auto *bar=view.findChild<ColorBar*>();const auto bar_image=bar->grab().toImage().convertToFormat(QImage::Format_RGB32);
+  const int bar_x=bar->width()/2;const double bar_fraction=double(bar_x-44)/(bar->width()-88);
+  QCOMPARE(bar_image.pixel(qRound(bar_x*bar_image.devicePixelRatio()),qRound(32*bar_image.devicePixelRatio())),map_value(*found,settings,value_at(bar_fraction,settings)));
+  const auto read_count=view.property("planeReadCount");
+  const QPoint probe=canvas->mapFromScene(QPointF(.5,.5));
+  QMouseEvent hover(QEvent::MouseMove,QPointF(probe),QPointF(canvas->viewport()->mapToGlobal(probe)),Qt::NoButton,Qt::NoButton,Qt::NoModifier);
+  QApplication::sendEvent(canvas->viewport(),&hover);QVERIFY(canvas->viewport()->toolTip().contains("Mask"));
+  start->setText("invalid");QMetaObject::invokeMethod(start,"editingFinished");QVERIFY(item->pixmap().isNull());QVERIFY(!view.property("minimum").isValid());
+  QVERIFY(canvas->viewport()->toolTip().isEmpty());QVERIFY(view.findChild<QLabel*>("rasterLegend")->toolTip().isEmpty());
+  start->clear();end->clear();QMetaObject::invokeMethod(end,"editingFinished");
+  QTRY_VERIFY(!item->pixmap().isNull());QTRY_COMPARE(item->pixmap().toImage().pixel(0,0),uint32_t(qRgb(253,231,37)));QCOMPARE(view.property("planeReadCount"),read_count);
+  view.set_layer_index(0,999);QCOMPARE(view.layer_index(0),1);view.set_layer_index(0,-9);QCOMPARE(view.layer_index(0),0);
+  for(int i=0;i<5;++i){auto *closing=new RasterView(filename.toLocal8Bit().toStdString(),"/field",{2,300,300});closing->show();QTest::qWait(5);delete closing;}QTest::qWait(100);
+}
+void DropTargetsTest::regressionFiveDimensionalSlicesAndTypes() {
+  QTemporaryDir dir;const auto filename=dir.filePath("types.nc");int file=-1;QCOMPARE(nc_create(nc_path_bytes(filename).constData(),NC_NETCDF4|NC_CLOBBER,&file),NC_NOERR);
+  int dims[5];for(int i=0;i<5;++i){const auto name=QString("d%1").arg(i).toLatin1();QCOMPARE(nc_def_dim(file,name.constData(),2,&dims[i]),NC_NOERR);}
+  int var=-1,text=-1;nc_def_var(file,"signed64",NC_INT64,5,dims,&var);nc_def_var(file,"text",NC_STRING,2,dims+3,&text);nc_enddef(file);
+  long long data[32];for(int i=0;i<32;++i)data[i]=-5000000000LL+i;nc_put_var_longlong(file,var,data);nc_close(file);
+  NcReader reader(filename);NcPlane plane;QVERIFY(reader.read_plane("/signed64",{1,0,1},plane).isEmpty());QCOMPARE(plane.rows,size_t(2));QCOMPARE(plane.cols,size_t(2));for(int i=0;i<4;++i)QCOMPARE(plane.values[size_t(i)],double(data[20+i]));
+  QVERIFY(!reader.read_plane("/signed64",{2,0,0},plane).isEmpty());QVERIFY(!reader.read_plane("/text",{},plane).isEmpty());
+  QVERIFY(!reader.read_plane("/absent",{},plane).isEmpty());QVERIFY(reader.read_plane("/signed64",{0,0,0},plane).isEmpty());QCOMPARE(plane.values[0],-5000000000.);
+}
+void DropTargetsTest::regressionBudgetIsReleasedAfterClose() {
+  QTemporaryDir dir;const auto filename=dir.filePath("budget.nc");int file=-1,y=-1,x=-1,var=-1;QCOMPARE(nc_create(nc_path_bytes(filename).constData(),NC_CLOBBER,&file),NC_NOERR);
+  nc_def_dim(file,"y",100,&y);nc_def_dim(file,"x",100,&x);int dims[]={y,x};nc_def_var(file,"field",NC_DOUBLE,2,dims,&var);nc_enddef(file);std::vector<double> data(10000,1.);nc_put_var_double(file,var,data.data());nc_close(file);
+  const auto previous=qgetenv("HDFSTUDIO_RASTER_BUDGET_MIB");qputenv("HDFSTUDIO_RASTER_BUDGET_MIB","1");const auto restore=qScopeGuard([previous]{if(previous.isNull())qunsetenv("HDFSTUDIO_RASTER_BUDGET_MIB");else qputenv("HDFSTUDIO_RASTER_BUDGET_MIB",previous);});
+  auto *first=new RasterView(filename.toLocal8Bit().toStdString(),"/field",{100,100});first->show();QTRY_COMPARE(first->property("planeReadCount").toULongLong(),qulonglong(1));
+  {RasterView blocked(filename.toLocal8Bit().toStdString(),"/field",{100,100});blocked.show();QTRY_VERIFY(blocked.findChild<QLabel*>("rasterLegend")->text().contains("memory budget"));QVERIFY(!blocked.property("planeReadCount").isValid());}
+  delete first;RasterView recovered(filename.toLocal8Bit().toStdString(),"/field",{100,100});recovered.show();QTRY_COMPARE(recovered.property("planeReadCount").toULongLong(),qulonglong(1));
+}
+
+void DropTargetsTest::regressionCorruptFileDoesNotBreakOpenSession() {
+  QTemporaryDir dir;const auto filename=dir.filePath("valid.nc");int file=-1,y=-1,x=-1,var=-1;
+  QCOMPARE(nc_create(nc_path_bytes(filename).constData(),NC_CLOBBER,&file),NC_NOERR);nc_def_dim(file,"y",2,&y);nc_def_dim(file,"x",3,&x);int dims[]={y,x};nc_def_var(file,"field",NC_DOUBLE,2,dims,&var);nc_enddef(file);double data[]={0,1,2,3,4,5};nc_put_var_double(file,var,data);nc_close(file);
+  QFile corrupt(dir.filePath("corrupt.nc"));QVERIFY(corrupt.open(QIODevice::WriteOnly));corrupt.write("not a netcdf file");corrupt.close();
+  MainWindow window;window.show();QVERIFY(QTest::qWaitForWindowExposed(&window));QCOMPARE(window.read_file(filename),0);
+  auto *tree=window.findChild<FileTreeWidget*>();QCOMPARE(tree->topLevelItemCount(),1);
+  // A dedicated watchdog only closes the expected error message, not unrelated dialogs.
+  QTimer watchdog;watchdog.setInterval(20);connect(&watchdog,&QTimer::timeout,&window,[]{for(auto *w:QApplication::topLevelWidgets())if(auto *box=qobject_cast<QMessageBox*>(w))box->accept();});watchdog.start();
+  QVERIFY(window.read_file(corrupt.fileName())!=0);watchdog.stop();QCOMPARE(tree->topLevelItemCount(),1);
+  QCOMPARE(tree->findItems("field",Qt::MatchExactly|Qt::MatchRecursive).size(),1);
+  window.close_all_files();QCOMPARE(tree->topLevelItemCount(),0);QCOMPARE(window.read_file(filename),0);QCOMPARE(tree->topLevelItemCount(),1);window.close_all_files();
+  QVERIFY(QFile::remove(filename));
+}
+
+void DropTargetsTest::cleanup() {
+  if(!QTest::currentTestFailed()) return;
+  const QString directory=qEnvironmentVariable("HDFSTUDIO_TEST_LOG_DIR");if(directory.isEmpty())return;
+  const QString name=QString::fromLatin1(QTest::currentTestFunction());
+  if(auto *screen=QGuiApplication::primaryScreen())screen->grabWindow(0).save(QDir(directory).filePath(name+"-failure.png"));
+  QFile details(QDir(directory).filePath(name+"-widgets.txt"));if(details.open(QIODevice::WriteOnly)){
+    for(auto *widget:QApplication::topLevelWidgets())details.write(QString("%1 | %2 | visible=%3\n").arg(widget->metaObject()->className(),widget->windowTitle()).arg(widget->isVisible()).toUtf8());
+  }
+}
+
+void DropTargetsTest::regressionVectorViewChangesLayerAndOmitsMissingPairs() {
+  QTemporaryDir dir;const auto filename=dir.filePath("vectors.nc");int file=-1,t=-1,y=-1,x=-1,u=-1,v=-1;
+  QCOMPARE(nc_create(nc_path_bytes(filename).constData(),NC_CLOBBER,&file),NC_NOERR);nc_def_dim(file,"t",2,&t);nc_def_dim(file,"y",24,&y);nc_def_dim(file,"x",24,&x);int dims[]={t,y,x};nc_def_var(file,"u",NC_DOUBLE,3,dims,&u);nc_def_var(file,"v",NC_DOUBLE,3,dims,&v);const double fill=-999;nc_put_att_double(file,u,"_FillValue",NC_DOUBLE,1,&fill);nc_put_att_double(file,v,"_FillValue",NC_DOUBLE,1,&fill);nc_enddef(file);
+  std::vector<double> ud(1152),vd(1152);std::fill(ud.begin(),ud.begin()+576,4.);std::fill(ud.begin()+576,ud.end(),0.);std::fill(vd.begin(),vd.begin()+576,0.);std::fill(vd.begin()+576,vd.end(),4.);ud[0]=fill;nc_put_var_double(file,u,ud.data());nc_put_var_double(file,v,vd.data());nc_close(file);
+  NcReader reader(filename);NcVectorPlane pair;QVERIFY(reader.read_vector_planes("/u","/v",{0},pair).isEmpty());QVERIFY(std::isnan(pair.u.values[0]));QCOMPARE(pair.u.values[1],4.);QCOMPARE(pair.v.values[1],0.);
+  VectorView view(filename,"/u","/v",{2,24,24});view.resize(700,500);view.show();QVERIFY(QTest::qWaitForWindowExposed(&view));
+  QLabel *canvas=nullptr;for(auto *label:view.findChildren<QLabel*>())if(!label->pixmap().isNull())canvas=label;QVERIFY(canvas);
+  const auto first=canvas->pixmap().toImage().convertToFormat(QImage::Format_RGB32);QCOMPARE(first.size(),QSize(24,24));
+  auto *axis=view.findChild<QSpinBox*>();QVERIFY(axis);axis->setValue(1);const auto second=canvas->pixmap().toImage().convertToFormat(QImage::Format_RGB32);QVERIFY(first!=second);
+  axis->setValue(0);QCOMPARE(canvas->pixmap().toImage().convertToFormat(QImage::Format_RGB32),first);
+}
+
+void DropTargetsTest::regressionProfileCsvMatchesAnalyticField() {
+  QTemporaryDir dir;auto values=std::make_shared<std::vector<double>>(100);for(int r=0;r<10;++r)for(int c=0;c<10;++c)(*values)[size_t(r*10+c)]=2.*r+3.*c+1.;
+  ProfileView view("analytic",values,10,10,{QPointF(1,1),QPointF(7,7)},CurvePathMode::Polyline);view.show();QVERIFY(QTest::qWaitForWindowExposed(&view));
+  const bool old=QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);QApplication::setAttribute(Qt::AA_DontUseNativeDialogs,true);const auto restore=qScopeGuard([old]{QApplication::setAttribute(Qt::AA_DontUseNativeDialogs,old);});
+  const auto path=dir.filePath("profile.csv");QTimer answer;answer.setInterval(20);connect(&answer,&QTimer::timeout,&view,[&]{for(auto *widget:QApplication::topLevelWidgets())if(auto *dialog=qobject_cast<QFileDialog*>(widget)){dialog->selectFile(path);QMetaObject::invokeMethod(dialog,"accept");}});answer.start();view.findChild<QAction*>("exportProfileCsvAction")->trigger();answer.stop();
+  QFile output(path);QVERIFY(output.open(QIODevice::ReadOnly));const auto rows=QString::fromUtf8(output.readAll()).trimmed().split('\n');QCOMPARE(rows.first().trimmed(),QString("index,distance,row,col,value"));QCOMPARE(rows.size()-1,int(view.property("pointCount").toULongLong()));
+  double last_distance=-1;for(int index=1;index<rows.size();++index){const auto cells=rows[index].split(',');QCOMPARE(cells.size(),5);QCOMPARE(cells[0].toInt(),index-1);const double distance=cells[1].toDouble(),r=cells[2].toDouble(),c=cells[3].toDouble(),value=cells[4].toDouble();QVERIFY(distance>last_distance);last_distance=distance;QVERIFY(std::abs(value-(2*r+3*c+1))<1e-9);}
+}
+
+namespace {
+bool write_texture_fixture(const QString &path, size_t rows = 12, size_t cols = 16) {
+  int file = -1, time = -1, y = -1, x = -1, variable = -1;
+  if(nc_create(nc_path_bytes(path).constData(), NC_CLOBBER, &file) != NC_NOERR) return false;
+  const auto close = qScopeGuard([&] { nc_close(file); });
+  nc_def_dim(file, "time", 3, &time); nc_def_dim(file, "y", rows, &y); nc_def_dim(file, "x", cols, &x);
+  const int dimensions[] = {time, y, x};
+  nc_def_var(file, "field", NC_DOUBLE, 3, dimensions, &variable);
+  const double fill = -9999.; nc_put_att_double(file, variable, "_FillValue", NC_DOUBLE, 1, &fill);
+  nc_enddef(file);
+  std::vector<double> values(3 * rows * cols, fill);
+  for(size_t row = 0; row < rows; ++row) for(size_t col = 0; col < cols; ++col) {
+    values[row * cols + col] = col < cols / 2 ? 0 : double((row % 4) * 4 + col % 4);
+    values[rows * cols + row * cols + col] = 5;
+  }
+  return nc_put_var_double(file, variable, values.data()) == NC_NOERR;
+}
+}
+
+void DropTargetsTest::textureEntropyViewIsIndependent2DImage() {
+  QTemporaryDir directory; QVERIFY(directory.isValid());
+  const QString file = directory.filePath("texture.nc"); QVERIFY(write_texture_fixture(file));
+  MainWindow window; window.resize(1450, 1000); window.show(); QVERIFY(QTest::qWaitForWindowExposed(&window));
+  QCOMPARE(window.read_file(file), 0);
+  auto *tree = window.findChild<FileTreeWidget*>(); auto *mdi = window.findChild<QMdiArea*>();
+  const auto nodes = tree->findItems("field", Qt::MatchExactly | Qt::MatchRecursive); QCOMPARE(nodes.size(), 1);
+  tree->setCurrentItem(nodes.first());
+  auto *action = window.findChild<QAction*>("actionTextureEntropyImage"); QVERIFY(action);
+  QMenu *view_menu = nullptr;
+  for(auto *menu : window.findChildren<QMenu*>()) if(menu->actions().contains(action)) view_menu = menu;
+  QVERIFY(view_menu); QVERIFY(view_menu->actions().contains(window.findChild<QAction*>("actionImageView")));
+  action->trigger();
+  QCOMPARE(mdi->subWindowList().size(), 1); QVERIFY(window.findChildren<RasterView*>().empty());
+  QVERIFY(!window.findChild<ComparePanel*>());
+  auto *view = qobject_cast<TextureEntropyView*>(mdi->subWindowList().first()->widget()); QVERIFY(view);
+  QVERIFY(view->entropy_plane().valid); QVERIFY(!view->source_view());
+  QCOMPARE(view->image_for_export().size(), QSize(16, 12));
+  auto *canvas = view->findChild<QGraphicsView*>("textureEntropyCanvas"); QVERIFY(canvas);
+  QCOMPARE(canvas->sceneRect(), QRectF(0, 0, 16, 12));
+  const auto &entropy = view->entropy_plane();
+  QCOMPARE(entropy.block_entropy[0], 0.); QCOMPARE(entropy.block_entropy[3], 4.);
+  QString error; const auto palettes = HdfColorMap::load_registry(error);
+  const auto palette = std::find_if(palettes.begin(), palettes.end(), [](const HdfColorMap::Palette &value) { return value.id == "bids:viridis"; });
+  QVERIFY(palette != palettes.end()); HdfColorMap::Mapping mapping; mapping.minimum = 0; mapping.maximum = 4;
+  const auto image = view->image_for_export().convertToFormat(QImage::Format_RGB32);
+  for(size_t row = 0; row < entropy.rows; ++row) for(size_t col = 0; col < entropy.cols; ++col)
+    QCOMPARE(image.pixel(int(col), int(row)), HdfColorMap::map_value(*palette, mapping, entropy.values[row * entropy.cols + col]));
+  auto *bar = view->findChild<ColorBar*>(); QVERIFY(bar); QVERIFY(bar->toolTip().contains("bits"));
+  QVERIFY(view->findChild<QLabel*>("textureEntropySummary")->text().contains("12 x 16 pixels"));
+  const auto computations = view->property("textureComputeCount"), reads = view->property("planeReadCount");
+  const auto before = canvas->transform(); view->findChild<QAction*>("textureZoomInAction")->trigger();
+  QVERIFY(std::abs(canvas->transform().m11() / before.m11() - 1.25) < 1e-12);
+  QCOMPARE(view->property("textureComputeCount"), computations); QCOMPARE(view->property("planeReadCount"), reads);
+  QCOMPARE(view->image_for_export().convertToFormat(QImage::Format_RGB32), image);
+  const auto png = directory.filePath("texture.png"), csv = directory.filePath("texture.csv");
+  QVERIFY(view->export_png(png).isEmpty()); QVERIFY(view->export_csv(csv).isEmpty());
+  QCOMPARE(QImage(png).convertToFormat(QImage::Format_RGB32), image);
+  QFile exported(csv); QVERIFY(exported.open(QIODevice::ReadOnly)); const auto csv_text = exported.readAll(); exported.close();
+  QVERIFY(csv_text.startsWith("row,col,entropy_bits,block_row,block_col,block_entropy_bits\n"));
+  QCOMPARE(csv_text.count('\n'), 193);
+  QProcess cli; const auto cli_csv = directory.filePath("cli.csv");
+  cli.start(QDir(QCoreApplication::applicationDirPath()).filePath("hdf_cli.exe"), {"texture-entropy", file, "field", cli_csv, "0"});
+  QVERIFY(cli.waitForFinished(30000)); QCOMPARE(cli.exitCode(), 0);
+  QFile cli_output(cli_csv); QVERIFY(cli_output.open(QIODevice::ReadOnly)); QCOMPARE(cli_output.readAll(), csv_text);
+  auto *next = window.findChild<QAction*>("actionLayerNext"); QVERIFY(next); next->trigger();
+  QCOMPARE(view->layer_index(0), 1); for(double value : view->entropy_plane().values) QCOMPARE(value, 0.);
+  next->trigger(); QCOMPARE(view->layer_index(0), 2); QVERIFY(!view->entropy_plane().valid); QVERIFY(view->image_for_export().isNull());
+  QVERIFY(!view->findChild<QAction*>("textureExportPngAction")->isEnabled());
+  view->set_layer_index(0, 0); QVERIFY(view->entropy_plane().valid);
+  auto *start = view->findChild<QLineEdit*>("textureMaskStart"), *end = view->findChild<QLineEdit*>("textureMaskEnd");
+  start->setText("0"); end->setText("0"); view->findChild<QPushButton*>("textureApplyMask")->click();
+  QVERIFY(view->entropy_plane().valid); QVERIFY(std::isnan(view->entropy_plane().values[0]));
+  QCOMPARE(view->image_for_export().pixel(0,0), HdfColorMap::missing_color);
+  start->setText("invalid"); view->findChild<QPushButton*>("textureApplyMask")->click();
+  QVERIFY(view->image_for_export().isNull()); start->clear(); end->clear(); view->findChild<QPushButton*>("textureApplyMask")->click();
+  QVERIFY(view->entropy_plane().valid);
+  bool context_found = false;
+  QTimer::singleShot(20, &window, [&] {
+    for(auto *widget : QApplication::topLevelWidgets()) if(auto *menu = qobject_cast<QMenu*>(widget)) {
+      for(auto *entry : menu->actions()) if(entry->text() == "Texture Entropy Image") context_found = true;
+      if(menu->isVisible()) menu->close();
+    }
+  });
+  const auto rect = tree->visualItemRect(nodes.first());
+  QVERIFY(QMetaObject::invokeMethod(tree, "show_context_menu", Q_ARG(QPoint, rect.center())));
+  QVERIFY(context_found);
+  window.close_all_files(); QCOMPARE(mdi->subWindowList().size(), 0);
+}
+
+void DropTargetsTest::textureEntropySnapshotFollowsMaskAndSourceLifetime() {
+  QTemporaryDir directory; const auto filename = directory.filePath("source.nc"); QVERIFY(write_texture_fixture(filename));
+  MainWindow window; window.resize(1450, 1000); window.show(); QVERIFY(QTest::qWaitForWindowExposed(&window));
+  QCOMPARE(window.read_file(filename), 0);
+  auto *tree = window.findChild<FileTreeWidget*>(); auto *mdi = window.findChild<QMdiArea*>();
+  const auto nodes = tree->findItems("field", Qt::MatchExactly | Qt::MatchRecursive); QCOMPARE(nodes.size(), 1);
+  tree->setCurrentItem(nodes.first()); window.findChild<QAction*>("actionImageView")->trigger();
+  auto *source = qobject_cast<RasterView*>(mdi->subWindowList().first()->widget()); QVERIFY(source);
+  QTRY_VERIFY(source->plane_snapshot().values);
+  window.findChild<QAction*>("actionTextureEntropyImage")->trigger();
+  QCOMPARE(mdi->subWindowList().size(), 2);
+  auto *view = qobject_cast<TextureEntropyView*>(mdi->subWindowList().last()->widget()); QVERIFY(view);
+  QCOMPARE(view->source_view(), source); QVERIFY(view->entropy_plane().valid);
+  QVERIFY(!view->property("planeReadCount").isValid());
+  const auto computed = view->property("textureComputeCount");
+  source->findChild<QAction*>("zoomInAction")->trigger();
+  source->findChild<QCheckBox*>("reverseColorMap")->setChecked(true);
+  QCOMPARE(view->property("textureComputeCount"), computed);
+  auto *mask_start = source->findChild<QLineEdit*>("maskStart"), *mask_end = source->findChild<QLineEdit*>("maskEnd");
+  mask_start->setText("0"); mask_end->setText("0"); QMetaObject::invokeMethod(mask_end, "editingFinished");
+  QTRY_VERIFY(std::isnan(view->entropy_plane().values[0])); QCOMPARE(view->image_for_export().pixel(0,0), HdfColorMap::missing_color);
+  QCOMPARE(view->property("sourceRevision").toULongLong(), source->plane_snapshot().revision);
+  mask_start->clear(); mask_end->clear(); QMetaObject::invokeMethod(mask_end,"editingFinished");
+  window.step_layer(LayerStep::Next); QCOMPARE(source->layer_index(0), 1);
+  for(double value : view->entropy_plane().values) QCOMPARE(value, 0.);
+  source->set_sync_out_of_range(true, "Outside test sequence"); QVERIFY(!view->entropy_plane().valid);
+  QVERIFY(view->image_for_export().isNull()); source->set_sync_out_of_range(false, {}); QVERIFY(view->entropy_plane().valid);
+  source->set_layer_index(0, 0); QVERIFY(view->entropy_plane().valid);
+  mdi->subWindowList().first()->close(); QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+  QVERIFY(!view->source_view()); QVERIFY(view->image_for_export().isNull());
+  QVERIFY(view->findChild<QLabel*>("textureEntropySummary")->text().contains("closed"));
+  QVERIFY(!window.findChild<QAction*>("actionLayerNext")->isEnabled());
+  QVERIFY(!window.findChild<QAction*>("actionLayerPlay")->isEnabled());
+  window.close_all_files(); QCOMPARE(mdi->subWindowList().size(), 0);
+
+  // Save both real forecast entropy images and raw values for independent PNG/CSV reconciliation.
+  const QString output = qEnvironmentVariable("HDFSTUDIO_TEST_LOG_DIR");
+  for(const auto &key : {"HDFSTUDIO_FORECAST_ANCHOR", "HDFSTUDIO_FORECAST_TARGET"}) {
+    const auto path = qEnvironmentVariable(key); if(path.isEmpty() || output.isEmpty()) continue;
+    NcReader reader(path); NcPlane plane;
+    const QString variable = qEnvironmentVariable("HDFSTUDIO_FORECAST_VARIABLE", "TMP_2maboveground");
+    QVERIFY(reader.read_plane(variable.toUtf8().toStdString(), {0}, plane).isEmpty());
+    TextureEntropyView real(path.toLocal8Bit().toStdString(), variable.toUtf8().toStdString(), {1,hsize_t(plane.rows),hsize_t(plane.cols)});
+    QVERIFY(real.entropy_plane().valid);
+    const QString prefix = QDir(output).filePath(qEnvironmentVariable("HDFSTUDIO_TEST_CONFIG") + "-" + QString::fromLatin1(key));
+    QVERIFY(real.export_png(prefix + ".png").isEmpty()); QVERIFY(real.export_csv(prefix + ".csv").isEmpty());
+  }
+}
+
+void DropTargetsTest::textureEntropyBudgetAndInvalidRecovery() {
+  QTemporaryDir directory; const auto filename = directory.filePath("budget.nc"); QVERIFY(write_texture_fixture(filename, 100, 100));
+  const auto previous = qgetenv("HDFSTUDIO_RASTER_BUDGET_MIB"); qputenv("HDFSTUDIO_RASTER_BUDGET_MIB", "1");
+  const auto restore = qScopeGuard([previous] { if(previous.isNull()) qunsetenv("HDFSTUDIO_RASTER_BUDGET_MIB"); else qputenv("HDFSTUDIO_RASTER_BUDGET_MIB", previous); });
+  {
+    TextureEntropyView first(filename.toLocal8Bit().toStdString(), "field", {3,100,100}); QVERIFY(first.entropy_plane().valid);
+    TextureEntropyView blocked(filename.toLocal8Bit().toStdString(), "field", {3,100,100}); QVERIFY(blocked.image_for_export().isNull());
+    QVERIFY(blocked.findChild<QLabel*>("textureEntropySummary")->text().contains("memory budget"));
+    QVERIFY(!blocked.property("planeReadCount").isValid());
+  }
+  { TextureEntropyView recovered(filename.toLocal8Bit().toStdString(), "field", {3,100,100}); QVERIFY(recovered.entropy_plane().valid); }
+  {
+    TextureEntropyView empty(filename.toLocal8Bit().toStdString(), "field", {0,100,100}); QVERIFY(!empty.entropy_plane().valid);
+    QCOMPARE(empty.layer_count(0), 0); LayerPlayback playback; QVERIFY(!playback.start(&empty, 0));
+    TextureEntropyView one(filename.toLocal8Bit().toStdString(), "field", {1,100,100}); QVERIFY(one.entropy_plane().valid);
+    QVERIFY(!playback.start(&one, 0));
+  }
+  QVERIFY(reserve_raster(10000));
+  {
+    TextureEntropyView animated(filename.toLocal8Bit().toStdString(), "field", {2,100,100});
+    LayerPlayback playback; QVERIFY(playback.start(&animated,0));
+    QTRY_COMPARE(animated.layer_index(0),1); QVERIFY(!playback.is_playing());
+    for(double value : animated.entropy_plane().values) QCOMPARE(value,0.);
+  }
+  // The host is destroyed with both views open: source destruction emits derived layer_changed.
+  {
+    qunsetenv("HDFSTUDIO_RASTER_BUDGET_MIB");
+    MainWindow host; host.resize(1200,850); host.show();
+    QCOMPARE(host.read_file(filename),0);
+    auto *tree=host.findChild<FileTreeWidget*>();
+    const auto fields=tree->findItems("field",Qt::MatchExactly|Qt::MatchRecursive); QCOMPARE(fields.size(),1);
+    tree->setCurrentItem(fields.first());host.findChild<QAction*>("actionImageView")->trigger();
+    QTRY_VERIFY(!host.findChildren<RasterView*>().empty() && host.findChild<RasterView*>()->plane_snapshot().values);
+    host.findChild<QAction*>("actionTextureEntropyImage")->trigger();
+    QVERIFY(host.findChild<TextureEntropyView*>()->entropy_plane().valid);
+    // No close_all_files(): exercise actual main-window destruction and outgoing callback cleanup.
+  }
+}
+
+void DropTargetsTest::textureEntropyBlocksAndInterpolation() {
+  const auto constant = nc_texture_entropy(std::vector<double>(81, 42), 9, 9);
+  QVERIFY(constant.valid); QCOMPARE(constant.block_rows, size_t(3)); QCOMPARE(constant.block_cols, size_t(3));
+  for(double value : constant.values) QCOMPARE(value, 0.);
+  std::vector<double> values(32);
+  for(size_t row = 0; row < 4; ++row) for(size_t col = 0; col < 8; ++col)
+    values[row * 8 + col] = col < 4 ? 0 : double(row * 4 + col - 4);
+  const auto texture = nc_texture_entropy(values, 4, 8);
+  QVERIFY(texture.valid); QCOMPARE(texture.block_entropy, (std::vector<double>{0,4}));
+  const double expected[] = {0,0,.5,1.5,2.5,3.5,4,4};
+  for(size_t row = 0; row < 4; ++row) for(size_t col = 0; col < 8; ++col)
+    QCOMPARE(texture.values[row * 8 + col], expected[col]);
+  std::vector<double> binary(16); for(size_t index = 0; index < 16; ++index) binary[index] = double(index % 2);
+  QCOMPARE(nc_texture_entropy(binary, 4, 4).block_entropy[0], 1.);
+  auto rearranged = binary; std::sort(rearranged.begin(), rearranged.end());
+  QCOMPARE(nc_texture_entropy(binary,4,4).values, nc_texture_entropy(rearranged,4,4).values);
+  values[0] = NAN; values[1] = INFINITY;
+  const auto gaps = nc_texture_entropy(values, 4, 8);
+  QCOMPARE(gaps.excluded_count, size_t(2)); QVERIFY(std::isnan(gaps.values[0])); QVERIFY(std::isnan(gaps.values[1]));
+  for(size_t row = 0; row < 4; ++row) for(size_t col = 4; col < 8; ++col) values[row * 8 + col] = NAN;
+  const auto empty_block = nc_texture_entropy(values,4,8);
+  QVERIFY(std::isnan(empty_block.block_entropy[1])); QCOMPARE(empty_block.values[3], 0.);
+  std::vector<double> edge_values(25); std::iota(edge_values.begin(), edge_values.end(), 0.);
+  const auto edges = nc_texture_entropy(edge_values,5,5);
+  QCOMPARE(edges.block_entropy, (std::vector<double>{4,2,2,0})); QCOMPARE(edges.values.back(),0.);
+  QCOMPARE(edges.values[2 * 5 + 2],3.2); // Actual centers 1.5 and 4, rather than padded blocks.
+  for(double &value : binary) value = value ? 1e308 : -1e308;
+  QCOMPARE(nc_texture_entropy(binary,4,4).block_entropy[0],1.);
+  for(size_t index = 0; index < 16; ++index) binary[index] = 1e308 + double(index) * 2e292;
+  QCOMPARE(nc_texture_entropy(binary,4,4).block_entropy[0],4.);
+  QVERIFY(!nc_texture_entropy({},0,4).valid); QVERIFY(!nc_texture_entropy({1},4,4).valid);
+  QVERIFY(!nc_texture_entropy({1},std::numeric_limits<size_t>::max(),2).valid);
+  QVERIFY(!nc_texture_entropy(std::vector<double>(16,NAN),4,4).valid);
+  QCOMPARE(nc_texture_entropy({3},1,1).values[0],0.);
+  // An asymmetric 2D pattern catches transposed rows/columns and one-axis-only interpolation.
+  std::vector<double> pattern(64, 0);
+  for(size_t row = 0; row < 8; ++row) for(size_t col = 0; col < 8; ++col) {
+    if(row < 4 && col >= 4) pattern[row * 8 + col] = double((col - 4) % 2);
+    if(row >= 4 && col < 4) pattern[row * 8 + col] = double(row - 4);
+    if(row >= 4 && col >= 4) pattern[row * 8 + col] = double((row - 4) * 4 + col - 4);
+  }
+  const auto two_dimensional = nc_texture_entropy(pattern,8,8);
+  QCOMPARE(two_dimensional.block_entropy,(std::vector<double>{0,1,2,4}));
+  QCOMPARE(two_dimensional.values[2*8+2],.390625);
+  QCOMPARE(two_dimensional.values[6*8+6],4.);
+}
+
+void DropTargetsTest::imageMetricsEntropyAccuracy() {
+  const auto constant = nc_gray_entropy(std::vector<double>(100,42));
+  QVERIFY(constant.valid); QCOMPARE(constant.entropy_bits,0.0);
+  std::vector<double> uniform(256); std::iota(uniform.begin(),uniform.end(),0.0);
+  const auto entropy = nc_gray_entropy(uniform);
+  QVERIFY(entropy.valid); QVERIFY(std::abs(entropy.entropy_bits-8) < 1e-12);
+  QCOMPARE(entropy.normalized_entropy,1.0);
+  const auto missing = nc_gray_entropy({0,1,NAN,INFINITY,-INFINITY},2);
+  QCOMPARE(missing.valid_count,size_t(2)); QCOMPARE(missing.missing_count,size_t(3));
+  QCOMPARE(missing.entropy_bits,1.0);
+  QVERIFY(!nc_gray_entropy({NAN}).valid); QVERIFY(!nc_gray_entropy({}).valid);
+  QVERIFY(!nc_gray_entropy(uniform,1).valid); QVERIFY(!nc_gray_entropy(uniform,65537).valid);
+  QVERIFY(!nc_gray_entropy(uniform,256,true,1,1).valid);
+  QCOMPARE(nc_gray_entropy({-20,-10,10,20},2,true,-1,1).entropy_bits,1.0);
+  QCOMPARE(nc_gray_entropy({-1e308,1e308},2).entropy_bits,1.0);
+  const double step=std::nextafter(1e12,INFINITY)-1e12;
+  for(size_t i=0;i<uniform.size();++i)uniform[i]=1e12+double(i)*step;
+  QCOMPARE(nc_gray_entropy(uniform).entropy_bits,8.0);
+}
+
+void DropTargetsTest::imageMetricsEntropyAndPairAccuracy() {
+  std::vector<double> a={0,1,2,3}, b={3,5,7,9};
+  auto pair=nc_pair_metrics(a,2,2,b,2,2);
+  QVERIFY(pair.valid && pair.r_valid); QVERIFY(std::abs(pair.pearson_r-1)<1e-12);
+  b={9,7,5,3};pair=nc_pair_metrics(a,2,2,b,2,2);
+  QVERIFY(std::abs(pair.pearson_r+1)<1e-12);
+  b={-1,3,0,4};pair=nc_pair_metrics(a,2,2,b,2,2);
+  QCOMPARE(pair.bias,0.0);QVERIFY(std::abs(pair.mae-1.5)<1e-12);QVERIFY(std::abs(pair.rmse-std::sqrt(2.5))<1e-12);
+  pair=nc_pair_metrics({1,NAN,3,INFINITY},2,2,{2,8,NAN,4},2,2);
+  QVERIFY(pair.valid);QVERIFY(!pair.r_valid);QVERIFY(std::isnan(pair.pearson_r));
+  QCOMPARE(pair.valid_pairs,size_t(1));QCOMPARE(pair.excluded_pairs,size_t(3));QCOMPARE(pair.rmse,1.0);
+  pair=nc_pair_metrics({2,2},1,2,{3,4},1,2);QVERIFY(pair.valid);QVERIFY(!pair.r_valid);
+  QVERIFY(!nc_pair_metrics(a,2,2,a,1,4).valid);
+  QVERIFY(!nc_pair_metrics(a,2,3,a,2,3).valid);
+  QVERIFY(!nc_pair_metrics({NAN},1,1,{0},1,1).valid);
+  pair=nc_pair_metrics({1e12,1e12+1,1e12+2},1,3,{1e12+2,1e12+4,1e12+6},1,3);
+  QVERIFY(pair.r_valid);QVERIFY(std::abs(pair.pearson_r-1)<1e-12);
+  pair=nc_pair_metrics({-1e308,1e308},1,2,{-1e308,1e308},1,2);
+  QVERIFY(pair.r_valid);QVERIFY(std::abs(pair.pearson_r-1)<1e-12);QCOMPARE(pair.rmse,0.0);
+  pair=nc_pair_metrics({1e308,1e-100,2e-100,3e-100},1,4,{1e308,2e-100,3e-100,4e-100},1,4);
+  QVERIFY(pair.valid);QVERIFY(std::abs(pair.rmse/(std::sqrt(.75)*1e-100)-1)<1e-12);
+  QVERIFY(std::abs(pair.mae/7.5e-101-1)<1e-12);QVERIFY(std::abs(pair.bias/7.5e-101-1)<1e-12);
+}
+
+void DropTargetsTest::histogramOrRasterShowsGrayEntropy() {
+  QTemporaryDir dir;const auto filename=dir.filePath("entropy.nc");
+  int file=-1,t=-1,y=-1,x=-1,var=-1;
+  QCOMPARE(nc_create(nc_path_bytes(filename).constData(),NC_CLOBBER,&file),NC_NOERR);
+  nc_def_dim(file,"t",3,&t);nc_def_dim(file,"y",16,&y);nc_def_dim(file,"x",16,&x);
+  int dimensions[]={t,y,x};nc_def_var(file,"field",NC_DOUBLE,3,dimensions,&var);nc_enddef(file);
+  std::vector<double> data(768,NAN);
+  std::iota(data.begin(),data.begin()+256,0.0);std::fill(data.begin()+256,data.begin()+512,42.0);
+  QCOMPARE(nc_put_var_double(file,var,data.data()),NC_NOERR);nc_close(file);
+  HistogramView histogram(filename.toLocal8Bit().toStdString(),"/field",{3,16,16});
+  auto *summary=histogram.findChild<QLabel*>("histogramSummary");QVERIFY(summary);
+  QVERIFY(summary->text().contains("8.0000 bits"));QCOMPARE(histogram.property("planeReadCount").toULongLong(),qulonglong(1));
+  for(auto *spin:histogram.findChildren<QSpinBox*>()) {
+    if(spin->accessibleName()=="Bins") spin->setValue(80);
+    if(spin->accessibleName()=="Sample 1 in N") spin->setValue(1);
+  }
+  QVERIFY(summary->text().contains("8.0000 bits"));QCOMPARE(histogram.property("planeReadCount").toULongLong(),qulonglong(1));
+  histogram.set_layer_index(0,1);QVERIFY(summary->text().contains("0.0000 bits"));
+  histogram.set_layer_index(0,2);QVERIFY(summary->text().contains("Whole-plane histogram entropy (256 bins): N/A"));
+  QCOMPARE(histogram.property("planeReadCount").toULongLong(),qulonglong(3));
+  RasterView raster(filename.toLocal8Bit().toStdString(),"/field",{3,16,16});raster.resize(900,600);raster.show();
+  QTRY_VERIFY(raster.plane_snapshot().values);
+  const auto original=raster.plane_snapshot();QCOMPARE(original.values->size(),size_t(256));QCOMPARE(original.rows,size_t(16));
+  QCOMPARE(raster.property("entropyBits").toDouble(),8.0);
+  auto *palette=raster.findChild<QComboBox*>("paletteSelector");
+  if(!palette) for(auto *combo:raster.findChildren<QComboBox*>()) if(combo->count()>=18) palette=combo;
+  QVERIFY(palette);palette->setCurrentIndex((palette->currentIndex()+1)%palette->count());
+  QCOMPARE(raster.plane_snapshot().values,original.values);QCOMPARE(raster.plane_snapshot().revision,original.revision);
+  QCOMPARE(raster.property("planeReadCount").toULongLong(),qulonglong(1));
+  raster.set_layer_index(0,1);QCOMPARE(raster.property("entropyBits").toDouble(),0.0);
+  QVERIFY(raster.plane_snapshot().revision>original.revision);QCOMPARE((*original.values)[255],255.0);
+  raster.set_layer_index(0,2);QVERIFY(!raster.property("entropyBits").isValid());
+  QVERIFY(raster.findChild<QLabel*>("rasterEntropySummary")->text().contains("N/A"));
+  QCOMPARE(raster.property("planeReadCount").toULongLong(),qulonglong(3));
+}
+
+void DropTargetsTest::workspaceSyncAnchorLagAndOutOfRange() {
+  QTemporaryDir dir;const auto filename=dir.filePath("sync.nc");
+  int file=-1,t=-1,y=-1,x=-1,var=-1;
+  QCOMPARE(nc_create(nc_path_bytes(filename).constData(),NC_CLOBBER,&file),NC_NOERR);
+  nc_def_dim(file,"t",10,&t);nc_def_dim(file,"y",16,&y);nc_def_dim(file,"x",16,&x);
+  int dimensions[]={t,y,x};nc_def_var(file,"field",NC_DOUBLE,3,dimensions,&var);nc_enddef(file);
+  std::vector<double> data(2560);std::iota(data.begin(),data.end(),0.0);
+  QCOMPARE(nc_put_var_double(file,var,data.data()),NC_NOERR);nc_close(file);
+  auto *a=new RasterView(filename.toLocal8Bit().toStdString(),"/field",{10,16,16});
+  auto *b=new RasterView(filename.toLocal8Bit().toStdString(),"/field",{10,16,16});
+  auto *c=new RasterView(filename.toLocal8Bit().toStdString(),"/field",{10,16,16});
+  auto cleanup=qScopeGuard([&]{delete a;delete b;delete c;});
+  for(auto *view:{a,b,c}) {view->resize(800,500);view->show();}
+  QTRY_VERIFY(a->plane_snapshot().values && b->plane_snapshot().values && c->plane_snapshot().values);
+  WorkspaceSyncController sync;
+  QSignalSpy metrics(&sync,&WorkspaceSyncController::metrics_updated);
+  sync.set_anchor(a);SyncBinding binding;binding.view=b;binding.lag_offset=2;sync.add_or_update_follower(binding);
+  binding.view=c;binding.lag_offset=-1;sync.add_or_update_follower(binding);
+  a->set_layer_index(0,3);QCOMPARE(b->layer_index(0),5);QCOMPARE(c->layer_index(0),2);
+  QCOMPARE((*b->plane_snapshot().values)[0],1280.0);
+  const auto previous=b->plane_snapshot();
+  a->set_layer_index(0,8);QVERIFY(b->plane_snapshot().out_of_range);QVERIFY(!b->plane_snapshot().values);
+  QCOMPARE(b->layer_index(0),5);QVERIFY(b->image_for_export().isNull());
+  QVERIFY(b->findChild<QGraphicsView*>()->scene()->items().size()>0);
+  a->set_layer_index(0,5);QCOMPARE(b->layer_index(0),7);QVERIFY(!b->plane_snapshot().out_of_range);
+  QVERIFY(b->plane_snapshot().values);QCOMPARE((*b->plane_snapshot().values)[0],1792.0);
+  QCOMPARE((*previous.values)[0],1280.0);
+  a->set_layer_index(0,0);QVERIFY(c->plane_snapshot().out_of_range);QCOMPARE(b->layer_index(0),2);
+  binding.view=b;binding.lag_offset=0;sync.add_or_update_follower(binding);QCOMPARE(b->layer_index(0),0);
+  a->findChild<QAction*>("zoomInAction")->trigger();
+  a->findChild<QAction*>("flipHorizontalAction")->setChecked(true);
+  QCOMPARE(b->viewport_state().transform,a->viewport_state().transform);QVERIFY(b->viewport_state().flip_h);
+  auto state=a->viewport_state();state.transform=QTransform::fromScale(-100,100);state.h_ratio=.7;state.v_ratio=.2;
+  a->apply_viewport_state(state);
+  QTRY_COMPARE(b->viewport_state().transform,a->viewport_state().transform);
+  QVERIFY(std::abs(b->viewport_state().h_ratio-a->viewport_state().h_ratio)<.001);
+  QVERIFY(std::abs(b->viewport_state().v_ratio-a->viewport_state().v_ratio)<.001);
+  // Target actions never broadcast back into the anchor or other followers.
+  const auto anchor_transform=a->viewport_state().transform;b->findChild<QAction*>("zoomInAction")->trigger();
+  QCOMPARE(a->viewport_state().transform,anchor_transform);
+  auto *selector=a->findChild<QComboBox*>("colorMapSelector");
+  const auto target_palette=b->color_state().palette.id;selector->setCurrentIndex((selector->currentIndex()+1)%selector->count());
+  QCOMPARE(b->color_state().palette.id,target_palette);
+  binding.sync_colormap=true;sync.add_or_update_follower(binding);
+  QCOMPARE(b->color_state().palette.id,a->color_state().palette.id);
+  QCOMPARE(b->color_state().mapping.minimum,a->color_state().mapping.minimum);
+  QCOMPARE(b->color_state().mapping.maximum,a->color_state().mapping.maximum);
+  auto tiny_colors=a->color_state();tiny_colors.mapping.minimum=1e-12;tiny_colors.mapping.maximum=2e-12;
+  a->apply_color_state(tiny_colors);
+  QCOMPARE(b->color_state().mapping.minimum,1e-12);QCOMPARE(b->color_state().mapping.maximum,2e-12);
+  binding.lag_offset=2;sync.add_or_update_follower(binding);
+  for(int i=0;i<30;++i) a->set_layer_index(0,i%10);
+  QVERIFY(metrics.count()<600);
+  delete c;c=nullptr;QCOMPARE(sync.followers().size(),size_t(1));
+  delete a;a=nullptr;QVERIFY(!sync.anchor());QVERIFY(sync.followers().empty());
+  QVERIFY(!b->plane_snapshot().out_of_range);QVERIFY(b->plane_snapshot().values);
+}
+
+void DropTargetsTest::imageMetricsResidualAccuracy() {
+  const auto residual=nc_pair_residual({1,2,NAN,4},2,2,{3,1,8,4},2,2);
+  QVERIFY(residual.valid);QCOMPARE(residual.rows,size_t(2));QCOMPARE(residual.cols,size_t(2));
+  QCOMPARE(residual.valid_pairs,size_t(3));QCOMPARE(residual.excluded_pairs,size_t(1));
+  QCOMPARE(residual.values[0],2.0);QCOMPARE(residual.values[1],-1.0);QVERIFY(std::isnan(residual.values[2]));
+  QCOMPARE(residual.values[3],0.0);QCOMPARE(residual.absolute_max,2.0);
+  const auto zero=nc_pair_residual({3,4},1,2,{3,4},1,2);
+  QVERIFY(zero.valid);QCOMPARE(zero.absolute_max,0.0);
+  QVERIFY(!nc_pair_residual({1,2},1,2,{1,2},2,1).valid);
+  QVERIFY(!nc_pair_residual({NAN},1,1,{0},1,1).valid);
+  QVERIFY(!nc_pair_residual({-1e308},1,1,{1e308},1,1).valid);
+}
+
+void DropTargetsTest::comparePanelComputesLivePairMetricsAndExportsCsv() {
+  QTemporaryDir dir;const auto filename=dir.filePath("compare.nc");
+  int file=-1,t=-1,y=-1,x=-1,a_var=-1,b_var=-1,small_var=-1;
+  QCOMPARE(nc_create(nc_path_bytes(filename).constData(),NC_CLOBBER,&file),NC_NOERR);
+  nc_def_dim(file,"t",10,&t);nc_def_dim(file,"y",2,&y);nc_def_dim(file,"x",3,&x);
+  int dimensions[]={t,y,x};nc_def_var(file,"a",NC_DOUBLE,3,dimensions,&a_var);nc_def_var(file,"b",NC_DOUBLE,3,dimensions,&b_var);
+  int small_dimensions[]={t,x};nc_def_var(file,"small",NC_DOUBLE,2,small_dimensions,&small_var);nc_enddef(file);
+  std::vector<double> av(60),bv(60);
+  for(int k=0;k<10;++k)for(int i=0;i<6;++i){av[size_t(k*6+i)]=k*10+i;bv[size_t(k*6+i)]=i==5?NAN:2*(k*10+i)+3;}
+  nc_put_var_double(file,a_var,av.data());nc_put_var_double(file,b_var,bv.data());nc_close(file);
+  MainWindow window;window.resize(1500,900);window.show();
+  auto *mdi=window.findChild<QMdiArea*>();QVERIFY(mdi);
+  auto *a=new RasterView(filename.toLocal8Bit().toStdString(),"/a",{10,2,3});
+  auto *b=new RasterView(filename.toLocal8Bit().toStdString(),"/b",{10,2,3});
+  auto *c=new RasterView(filename.toLocal8Bit().toStdString(),"/a",{10,2,3});
+  for(auto *view:{a,b,c}){auto *sub=mdi->addSubWindow(view);sub->setAttribute(Qt::WA_DeleteOnClose);sub->show();}
+  QTRY_VERIFY(a->plane_snapshot().values && b->plane_snapshot().values && c->plane_snapshot().values);
+  auto *action=window.findChild<QAction*>("actionCompareMetrics");QVERIFY(action);action->trigger();
+  auto *panel=window.findChild<ComparePanel*>();QVERIFY(panel);QVERIFY(panel->isVisible());
+  auto *text=panel->findChild<QPlainTextEdit*>("compareMetricsText");
+  QVERIFY(!text->toPlainText().contains("Entropy", Qt::CaseInsensitive));
+  QVERIFY(!panel->comparison_csv().contains("entropy"));
+  auto *lag=panel->findChild<QSpinBox*>("compareLagSpin");
+  auto *layer=panel->findChild<QSpinBox*>("compareAnchorLayerSpin");
+  auto *target=panel->findChild<QComboBox*>("compareTargetCombo");
+  auto *sync=window.findChild<WorkspaceSyncController*>();QVERIFY(sync);
+  QTRY_VERIFY(text->toPlainText().contains("Pearson r: 1"));
+  lag->setValue(2);layer->setValue(3);
+  QTRY_COMPARE(b->layer_index(0),5);QTRY_VERIFY(text->toPlainText().contains("Anchor[3] <-> Target[5] (lag +2"));
+  QVERIFY(text->toPlainText().contains("Valid pairs: 5"));QVERIFY(text->toPlainText().contains("Excluded pairs: 1"));
+  QVERIFY(text->toPlainText().contains("Bias (Target - Anchor): 75"));
+  const double expected_rmse=std::sqrt((73.*73+74.*74+75.*75+76.*76+77.*77)/5);
+  QVERIFY(text->toPlainText().contains("RMSE: "+QString::number(expected_rmse,'g',15)));
+  const auto a_reads=a->property("planeReadCount"),b_reads=b->property("planeReadCount");
+  panel->findChild<QPushButton*>("compareResidualButton")->click();
+  auto *residual=panel->findChild<ResidualView*>();QVERIFY(residual);
+  QTRY_VERIFY(residual->residual().valid);QCOMPARE(residual->residual().values[0],73.0);QVERIFY(std::isnan(residual->residual().values[5]));
+  QVERIFY(!residual->image_for_export().isNull());QCOMPARE(residual->image_for_export().size(),QSize(3,2));
+  panel->findChild<QPushButton*>("compareCopyButton")->click();QCOMPARE(QApplication::clipboard()->text(),text->toPlainText());
+  const auto output=dir.filePath("comparison.csv");QVERIFY(panel->export_csv(output).isEmpty());
+  QFile csv(output);QVERIFY(csv.open(QIODevice::ReadOnly));QCOMPARE(QString::fromUtf8(csv.readAll()),panel->comparison_csv());
+  QVERIFY(panel->comparison_csv().contains("anchor_revision"));QVERIFY(panel->comparison_csv().contains("\"75\""));
+  QCOMPARE(a->property("planeReadCount"),a_reads);QCOMPARE(b->property("planeReadCount"),b_reads);
+  const auto computations=panel->property("metricsComputeCount");
+  a->findChild<QAction*>("zoomInAction")->trigger();QCoreApplication::processEvents();
+  QCOMPARE(panel->property("metricsComputeCount"),computations);
+  lag->setValue(10000);QTRY_VERIFY(text->toPlainText().contains("Status: Out of range"));
+  QVERIFY(text->toPlainText().contains("RMSE: N/A"));QVERIFY(!residual->residual().valid);QVERIFY(residual->image_for_export().isNull());
+  lag->setValue(2);QTRY_VERIFY(residual->residual().valid);QCOMPARE(residual->residual().values[0],73.0);
+  panel->findChild<QSlider*>("compareAnchorLayerSlider")->setValue(4);QTRY_COMPARE(b->layer_index(0),6);
+  QTRY_COMPARE(residual->residual().values[0],83.0);
+  // Switching selected target preserves the earlier follower and its independent lag.
+  target->setCurrentIndex(3);lag->setValue(-1);QTRY_COMPARE(c->layer_index(0),3);QCOMPARE(sync->followers().size(),size_t(2));
+  target->setCurrentIndex(2);QCOMPARE(lag->value(),2);
+  layer->setValue(5);QTRY_COMPARE(b->layer_index(0),7);QTRY_COMPARE(c->layer_index(0),4);
+  auto *mask_start=b->findChild<QLineEdit*>("maskStart");auto *mask_end=b->findChild<QLineEdit*>("maskEnd");
+  QVERIFY(mask_start && mask_end);mask_start->setText("143");mask_end->setText("143");QMetaObject::invokeMethod(mask_end,"editingFinished",Qt::DirectConnection);
+  QTRY_VERIFY(text->toPlainText().contains("Valid pairs: 4"));QTRY_VERIFY(std::isnan(residual->residual().values[0]));
+  // Remove one follower, then anchor destruction clears all bindings and stale output.
+  mdi->subWindowList()[2]->close();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+  QTRY_COMPARE(sync->followers().size(),size_t(1));
+  mdi->subWindowList()[0]->close();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+  QTRY_VERIFY(!sync->anchor());QTRY_VERIFY(text->toPlainText().contains("Select two different image views"));
+  QVERIFY(sync->followers().empty());QVERIFY(!residual->residual().valid);
+  // A 2-D target with a different shape must invalidate metrics and the derived map.
+  auto *small=new RasterView(filename.toLocal8Bit().toStdString(),"/small",{10,3});
+  auto *small_sub=mdi->addSubWindow(small);small_sub->setAttribute(Qt::WA_DeleteOnClose);small_sub->show();
+  QTRY_VERIFY(small->plane_snapshot().values);
+  panel->set_views({b,small});
+  panel->findChild<QComboBox*>("compareAnchorCombo")->setCurrentIndex(1);
+  target->setCurrentIndex(2);panel->findChild<QCheckBox*>("compareSyncLayer")->setChecked(false);
+  QTRY_VERIFY(text->toPlainText().contains("Plane shapes do not match"));
+  QVERIFY(text->toPlainText().contains("RMSE: N/A"));QVERIFY(residual->image_for_export().isNull());
+  QVERIFY(!panel->findChild<QPushButton*>("compareResidualButton")->isEnabled());
+}
+
+void DropTargetsTest::forecastPairResidualMatchesEveryDecodedPixel() {
+  const auto a_path=qEnvironmentVariable("HDFSTUDIO_FORECAST_ANCHOR"),b_path=qEnvironmentVariable("HDFSTUDIO_FORECAST_TARGET");
+  if(a_path.isEmpty()||b_path.isEmpty())QSKIP("HDFSTUDIO_FORECAST_ANCHOR/TARGET not configured");
+  const auto variable=qEnvironmentVariable("HDFSTUDIO_FORECAST_VARIABLE","TMP_2maboveground");
+  const auto log=qEnvironmentVariable("HDFSTUDIO_TEST_LOG_DIR");QVERIFY(!log.isEmpty());
+  const auto config=qEnvironmentVariable("HDFSTUDIO_TEST_CONFIG");QVERIFY(!config.isEmpty());
+  RasterView a(a_path.toLocal8Bit().toStdString(),variable.toStdString(),{480,190,384});
+  RasterView b(b_path.toLocal8Bit().toStdString(),variable.toStdString(),{180,190,384});
+  a.resize(800,550);b.resize(800,550);a.show();b.show();
+  QTRY_VERIFY(a.plane_snapshot().values && b.plane_snapshot().values);
+  WorkspaceSyncController sync;sync.set_anchor(&a);SyncBinding binding;binding.view=&b;binding.lag_offset=-1;sync.add_or_update_follower(binding);
+  ResidualView view;view.show();
+  for(int index:{1,91,180}) {
+    a.set_layer_index(0,index);QCOMPARE(b.layer_index(0),index-1);QVERIFY(!b.plane_snapshot().out_of_range);
+    const auto ap=a.plane_snapshot(),bp=b.plane_snapshot();
+    QCOMPARE(ap.units,QString("K"));QCOMPARE(bp.units,QString("K"));
+    view.update_planes(ap,bp,QString("Anchor[%1] Target[%2] lag -1").arg(index).arg(index-1));
+    QVERIFY(view.residual().valid);QCOMPARE(view.residual().values.size(),size_t(190*384));
+    for(size_t i=0;i<view.residual().values.size();++i) {
+      if(std::isfinite((*ap.values)[i])&&std::isfinite((*bp.values)[i]))QCOMPARE(view.residual().values[i],(*bp.values)[i]-(*ap.values)[i]);
+      else QVERIFY(std::isnan(view.residual().values[i]));
+    }
+    const QString stem=QDir(log).filePath(QString("forecast-%1-%2").arg(config).arg(index));
+    QFile csv(stem+".csv");QVERIFY(csv.open(QIODevice::WriteOnly));
+    QTextStream output(&csv);output.setRealNumberPrecision(17);
+    for(size_t row=0;row<190;++row) {
+      for(size_t col=0;col<384;++col){if(col)output<<',';output<<view.residual().values[row*384+col];}output<<'\n';
+    }
+    output.flush();csv.close();QVERIFY(view.image_for_export().save(stem+".png"));
+  }
+  a.set_layer_index(0,181);QVERIFY(b.plane_snapshot().out_of_range);
+  view.update_planes(a.plane_snapshot(),b.plane_snapshot(),"out of range");QVERIFY(view.image_for_export().isNull());
+}
+
+void DropTargetsTest::linkedLayerToolbarNavigatesAnchorFromEitherImage() {
+  QTemporaryDir dir;const auto filename=dir.filePath("navigation.nc");
+  int file=-1,t=-1,y=-1,x=-1,var=-1;
+  QCOMPARE(nc_create(nc_path_bytes(filename).constData(),NC_CLOBBER,&file),NC_NOERR);
+  nc_def_dim(file,"time",8,&t);nc_def_dim(file,"y",2,&y);nc_def_dim(file,"x",3,&x);
+  int dims[]={t,y,x};nc_def_var(file,"field",NC_DOUBLE,3,dims,&var);nc_enddef(file);
+  std::vector<double> values(48);for(size_t i=0;i<values.size();++i)values[i]=double(i);
+  nc_put_var_double(file,var,values.data());nc_close(file);
+  MainWindow window;window.resize(1400,850);window.show();
+  auto *mdi=window.findChild<QMdiArea*>();auto *bar=window.findChild<QToolBar*>("mainToolBar");
+  QVERIFY(mdi);QVERIFY(bar);QVERIFY(QTest::qWaitForWindowExposed(&window));
+  auto *a=new RasterView(filename.toLocal8Bit().toStdString(),"/field",{8,2,3});
+  auto *b=new RasterView(filename.toLocal8Bit().toStdString(),"/field",{8,2,3});
+  auto *c=new RasterView(filename.toLocal8Bit().toStdString(),"/field",{8,2,3});
+  auto *d=new RasterView(filename.toLocal8Bit().toStdString(),"/field",{8,2,3});
+  QList<QMdiSubWindow*> subs;
+  for(auto *view:{a,b,c,d}){auto *sub=mdi->addSubWindow(view);sub->setAttribute(Qt::WA_DeleteOnClose);sub->show();subs.append(sub);}
+  auto *sync=window.findChild<WorkspaceSyncController*>();QVERIFY(sync);sync->set_anchor(a);
+  SyncBinding binding;binding.view=b;binding.lag_offset=2;sync->add_or_update_follower(binding);
+  binding.view=c;binding.lag_offset=-1;sync->add_or_update_follower(binding);
+  mdi->setActiveSubWindow(subs[1]);
+  auto *index=window.findChild<QComboBox*>("layerIndexCombo");QVERIFY(index);
+  auto click=[&](const char *name){auto *action=window.findChild<QAction*>(name);QVERIFY(action);QVERIFY(action->isEnabled());QTest::mouseClick(bar->widgetForAction(action),Qt::LeftButton);};
+  QTRY_VERIFY(window.current_layer_view()==a);
+  click("actionLayerNext");QCOMPARE(a->layer_index(0),1);QCOMPARE(b->layer_index(0),3);QCOMPARE(c->layer_index(0),0);QCOMPARE(d->layer_index(0),0);
+  QCOMPARE(index->currentIndex(),1);
+  click("actionLayerPrevious");QCOMPARE(a->layer_index(0),0);QCOMPARE(b->layer_index(0),2);QVERIFY(c->plane_snapshot().out_of_range);
+  click("actionLayerLast");QCOMPARE(a->layer_index(0),7);QVERIFY(b->plane_snapshot().out_of_range);QCOMPARE(c->layer_index(0),6);
+  QCOMPARE(index->currentIndex(),7);QVERIFY(window.findChild<QAction*>("actionLayerPrevious")->isEnabled());
+  index->setCurrentIndex(4);emit index->activated(4);QCOMPARE(a->layer_index(0),4);QCOMPARE(b->layer_index(0),6);QVERIFY(!b->plane_snapshot().out_of_range);
+  QTimer::singleShot(100,[]{if(auto *dialog=qobject_cast<QInputDialog*>(QApplication::activeModalWidget())){dialog->setIntValue(3);dialog->accept();}});
+  window.findChild<QAction*>("actionLayerGoTo")->trigger();QCOMPARE(a->layer_index(0),2);QCOMPARE(b->layer_index(0),4);QCOMPARE(c->layer_index(0),1);
+  mdi->setActiveSubWindow(subs[0]);click("actionLayerNext");QCOMPARE(a->layer_index(0),3);QCOMPARE(b->layer_index(0),5);
+  mdi->setActiveSubWindow(subs[1]);binding.view=b;binding.lag_offset=2;binding.sync_layer=false;sync->add_or_update_follower(binding);
+  QTRY_VERIFY(window.current_layer_view()==b);click("actionLayerNext");QCOMPARE(b->layer_index(0),6);QCOMPARE(a->layer_index(0),3);QCOMPARE(c->layer_index(0),2);
+  mdi->setActiveSubWindow(subs[3]);QTRY_VERIFY(window.current_layer_view()==d);click("actionLayerNext");QCOMPARE(d->layer_index(0),1);QCOMPARE(a->layer_index(0),3);
+  mdi->setActiveSubWindow(subs[2]);QTRY_VERIFY(window.current_layer_view()==a);
+  subs[0]->close();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+  QTRY_VERIFY(!sync->anchor());QTRY_VERIFY(window.current_layer_view()!=a);
+}
+
+void DropTargetsTest::layerPlaybackSingleAndLinkedPlanes() {
+  QTemporaryDir dir;const auto filename=dir.filePath("playback.nc");write_classic_fixture(filename,NC_CLOBBER);
+  MainWindow window;window.resize(1500,900);window.show();QVERIFY(QTest::qWaitForWindowExposed(&window));
+  auto *mdi=window.findChild<QMdiArea*>();auto *bar=window.findChild<QToolBar*>("mainToolBar");
+  auto *play=window.findChild<QAction*>("actionLayerPlay");auto *player=window.findChild<LayerPlayback*>();
+  auto *interval=window.findChild<QSpinBox*>("playbackIntervalSpin");QVERIFY(play);QVERIFY(player);QVERIFY(interval);
+  QVERIFY(!play->isEnabled());QCOMPARE(interval->value(),500);
+  auto *a=new RasterView(filename.toLocal8Bit().toStdString(),"/ttr",{3,4,5,6});
+  auto *a_sub=mdi->addSubWindow(a);a_sub->setAttribute(Qt::WA_DeleteOnClose);a_sub->show();
+  QTRY_VERIFY(a->plane_snapshot().values);QTRY_VERIFY(play->isEnabled());interval->setValue(10000);
+  auto click=[&]{QTest::mouseClick(bar->widgetForAction(play),Qt::LeftButton);};
+  click();QVERIFY(player->is_playing());QCOMPARE(play->text(),QString("Pause"));
+  QCOMPARE(player->target(),a);player->advance_frame();QCOMPARE(a->layer_index(0),1);
+  click();QVERIFY(!player->is_playing());QCOMPARE(play->text(),QString("Play"));
+  player->advance_frame();QCOMPARE(a->layer_index(0),1);
+  click();player->advance_frame();QCOMPARE(a->layer_index(0),2);QVERIFY(!player->is_playing());
+  click();QCOMPARE(a->layer_index(0),0);QVERIFY(player->is_playing());click();
+  interval->setValue(100);click();QTRY_VERIFY(a->layer_index(0)>0);if(player->is_playing())click();
+  const int paused=a->layer_index(0);QTest::qWait(220);QCOMPARE(a->layer_index(0),paused);
+  // A not-ready render defers a frame instead of accumulating queued steps.
+  interval->setValue(10000);a->set_layer_index(0,0);player->set_ready_check([]{return false;});
+  click();player->advance_frame();QCOMPARE(a->layer_index(0),0);click();player->set_ready_check({});
+  auto *b=new RasterView(filename.toLocal8Bit().toStdString(),"/ttr",{3,4,5,6});
+  auto *b_sub=mdi->addSubWindow(b);b_sub->setAttribute(Qt::WA_DeleteOnClose);b_sub->show();
+  window.findChild<QAction*>("actionCompareMetrics")->trigger();auto *panel=window.findChild<ComparePanel*>();QVERIFY(panel);
+  auto *lag=panel->findChild<QSpinBox*>("compareLagSpin");lag->setValue(1);
+  auto *text=panel->findChild<QPlainTextEdit*>("compareMetricsText");
+  QTRY_COMPARE(b->layer_index(0),1);panel->findChild<QPushButton*>("compareResidualButton")->click();
+  auto *residual=panel->findChild<ResidualView*>();QVERIFY(residual);QTRY_VERIFY(residual->residual().valid);
+  QCOMPARE(residual->residual().values[0],10000.0);
+  mdi->setActiveSubWindow(b_sub);click();QCOMPARE(player->target(),a);
+  player->advance_frame();QCOMPARE(a->layer_index(0),1);QCOMPARE(b->layer_index(0),2);
+  QTRY_VERIFY(text->toPlainText().contains("Anchor[1,0] <-> Target[2,0]"));
+  QCOMPARE(residual->residual().values[0],10000.0);
+  mdi->setActiveSubWindow(a_sub);QCoreApplication::processEvents();QVERIFY(player->is_playing());
+  mdi->setActiveSubWindow(b_sub);QCoreApplication::processEvents();QVERIFY(player->is_playing());
+  player->advance_frame();QCOMPARE(a->layer_index(0),2);QVERIFY(b->plane_snapshot().out_of_range);QVERIFY(!player->is_playing());
+  QTRY_VERIFY(text->toPlainText().contains("RMSE: N/A"));QVERIFY(residual->image_for_export().isNull());
+  click();QCOMPARE(a->layer_index(0),0);QCOMPARE(b->layer_index(0),1);QTRY_VERIFY(residual->residual().valid);click();
+  // Interval bounds are enforced even when called without the spin box.
+  player->set_interval_ms(1);QCOMPARE(player->interval_ms(),100);
+  player->set_interval_ms(20000);QCOMPARE(player->interval_ms(),10000);
+}
+
+void DropTargetsTest::layerPlaybackStopsOnContextChanges() {
+  QTemporaryDir dir;const auto filename=dir.filePath("playback-context.nc");write_classic_fixture(filename,NC_CLOBBER);
+  MainWindow window;window.resize(1400,850);window.show();
+  auto *mdi=window.findChild<QMdiArea*>();auto *play=window.findChild<QAction*>("actionLayerPlay");
+  auto *player=window.findChild<LayerPlayback*>();auto *interval=window.findChild<QSpinBox*>("playbackIntervalSpin");interval->setValue(10000);
+  auto make_view=[&](const char *name,std::vector<hsize_t> shape){auto *view=new RasterView(filename.toLocal8Bit().toStdString(),name,shape);auto *sub=mdi->addSubWindow(view);sub->setAttribute(Qt::WA_DeleteOnClose);sub->show();return sub;};
+  auto *a_sub=make_view("/ttr",{3,4,5,6});auto *b_sub=make_view("/ttr",{3,4,5,6});auto *flat_sub=make_view("/count",{5,6});
+  auto *a=qobject_cast<RasterView*>(a_sub->widget());auto *b=qobject_cast<RasterView*>(b_sub->widget());
+  mdi->setActiveSubWindow(a_sub);QTRY_VERIFY(play->isEnabled());play->trigger();QVERIFY(player->is_playing());
+  mdi->setActiveSubWindow(b_sub);QTRY_VERIFY(!player->is_playing());
+  play->trigger();QVERIFY(player->is_playing());
+  auto *axis=window.findChild<QComboBox*>("layerAxisCombo");axis->setCurrentIndex(1);emit axis->activated(1);QVERIFY(!player->is_playing());
+  play->trigger();QVERIFY(player->is_playing());QCOMPARE(player->axis(),1);
+  window.findChild<QAction*>("actionLayerNext")->trigger();QVERIFY(!player->is_playing());QCOMPARE(b->layer_index(1),1);
+  play->trigger();QVERIFY(player->is_playing());mdi->setActiveSubWindow(flat_sub);QTRY_VERIFY(!player->is_playing());QVERIFY(!play->isEnabled());
+  auto *sync=window.findChild<WorkspaceSyncController*>();sync->set_anchor(a);SyncBinding binding;binding.view=b;sync->add_or_update_follower(binding);
+  mdi->setActiveSubWindow(b_sub);play->trigger();QVERIFY(player->is_playing());
+  binding.lag_offset=1;sync->add_or_update_follower(binding);QVERIFY(!player->is_playing());
+  play->trigger();QVERIFY(player->is_playing());a_sub->close();QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+  QTRY_VERIFY(!player->is_playing());QVERIFY(!sync->anchor());
+  // The playback controller also survives destruction without a MainWindow host.
+  auto *orphan=new RasterView(filename.toLocal8Bit().toStdString(),"/ttr",{3,4,5,6});
+  LayerPlayback isolated;isolated.set_interval_ms(10000);QVERIFY(isolated.start(orphan,0));
+  delete orphan;QVERIFY(!isolated.is_playing());QVERIFY(!isolated.target());isolated.advance_frame();
+  QVERIFY(!isolated.start(nullptr,0));QVERIFY(!isolated.start(flat_sub->widget(),0));
+  mdi->setActiveSubWindow(b_sub);QTRY_VERIFY(play->isEnabled());play->trigger();QVERIFY(player->is_playing());
+  window.close();QVERIFY(!player->is_playing());
+}
+
+void DropTargetsTest::layerPlaybackFrameCountBoundaries() {
+  QTemporaryDir dir;const auto filename=dir.filePath("frame-count.nc");
+  int file=-1,time=-1,y=-1,x=-1;
+  QCOMPARE(nc_create(nc_path_bytes(filename).constData(),NC_CLOBBER,&file),NC_NOERR);
+  QCOMPARE(nc_def_dim(file,"time",NC_UNLIMITED,&time),NC_NOERR);
+  QCOMPARE(nc_def_dim(file,"y",2,&y),NC_NOERR);QCOMPARE(nc_def_dim(file,"x",3,&x),NC_NOERR);
+  int dims[]={time,y,x},variable=-1;QCOMPARE(nc_def_var(file,"field",NC_DOUBLE,3,dims,&variable),NC_NOERR);
+  QCOMPARE(nc_enddef(file),NC_NOERR);QCOMPARE(nc_close(file),NC_NOERR);
+  MainWindow window;window.resize(1400,850);window.show();QVERIFY(QTest::qWaitForWindowExposed(&window));
+  auto *mdi=window.findChild<QMdiArea*>();auto *player=window.findChild<LayerPlayback*>();
+  auto *play=window.findChild<QAction*>("actionLayerPlay");auto *bar=window.findChild<QToolBar*>("mainToolBar");
+  QVERIFY(mdi);QVERIFY(player);QVERIFY(play);QVERIFY(bar);QVERIFY(!play->isEnabled());
+  QVERIFY(!QImage(":/images/play_green.png").isNull());QVERIFY(!QImage(":/images/pause_green.png").isNull());
+  const QImage icon=QImage(":/images/play_green.png");QCOMPARE(icon.size(),QSize(32,32));
+  QCOMPARE(icon.pixelColor(12,16),QColor(26,158,64,255));QCOMPARE(icon.pixelColor(0,0).alpha(),0);
+  auto make_view=[&](const QString &path,int count){
+    auto *view=new RasterView(path.toLocal8Bit().toStdString(),"/field",{hsize_t(count),2,3});
+    auto *sub=mdi->addSubWindow(view);sub->setAttribute(Qt::WA_DeleteOnClose);sub->show();return sub;
+  };
+  auto *empty=make_view(filename,0);auto *empty_view=qobject_cast<RasterView*>(empty->widget());
+  QCOMPARE(empty_view->layer_count(0),0);QTRY_VERIFY(!play->isEnabled());
+  QCOMPARE(window.findChild<QLabel*>("layerLabel")->text(),QString("No frames on this axis"));
+  QVERIFY(!window.findChild<QComboBox*>("layerIndexCombo")->isEnabled());
+  auto *compare_action=window.findChild<QAction*>("actionCompareMetrics");QVERIFY(compare_action);
+  auto *compare_button=bar->widgetForAction(compare_action);QVERIFY(compare_button);QVERIFY(compare_button->isVisible());
+  QVERIFY(!player->start(empty_view,0));
+  QTest::mouseClick(bar->widgetForAction(play),Qt::LeftButton);QVERIFY(!player->is_playing());QVERIFY(!play->isChecked());
+  // Separate immutable files make the 0/1/2-frame cases independent of file caching.
+  auto create_file=[&](const QString &path,int count){
+    int handle=-1,td=-1,yd=-1,xd=-1,id=-1;
+    QCOMPARE(nc_create(nc_path_bytes(path).constData(),NC_CLOBBER,&handle),NC_NOERR);
+    nc_def_dim(handle,"time",count,&td);nc_def_dim(handle,"y",2,&yd);nc_def_dim(handle,"x",3,&xd);
+    int shape[]={td,yd,xd};nc_def_var(handle,"field",NC_DOUBLE,3,shape,&id);nc_enddef(handle);
+    std::vector<double> values(size_t(count)*6);for(size_t i=0;i<values.size();++i)values[i]=double(i);
+    nc_put_var_double(handle,id,values.data());nc_close(handle);
+  };
+  const QString single_path=dir.filePath("one.nc"),two_path=dir.filePath("two.nc");
+  create_file(single_path,1);create_file(two_path,2);
+  auto *single=make_view(single_path,1);auto *single_view=qobject_cast<RasterView*>(single->widget());
+  QCOMPARE(single_view->layer_count(0),1);QTRY_VERIFY(!play->isEnabled());QVERIFY(!player->start(single_view,0));
+  auto *two=make_view(two_path,2);auto *two_view=qobject_cast<RasterView*>(two->widget());
+  QCOMPARE(two_view->layer_count(0),2);QTRY_VERIFY(play->isEnabled());player->set_interval_ms(10000);
+  play->trigger();QVERIFY(player->is_playing());player->advance_frame();QCOMPARE(two_view->layer_index(0),1);QVERIFY(!player->is_playing());
+  play->trigger();QVERIFY(player->is_playing());QCOMPARE(two_view->layer_index(0),0);
+  mdi->setActiveSubWindow(single);QTRY_VERIFY(!player->is_playing());QVERIFY(!play->isEnabled());
+  // A linked Target uses the Anchor's frame count, even when the Target has more frames.
+  auto *sync=window.findChild<WorkspaceSyncController*>();sync->set_anchor(single_view);
+  SyncBinding binding;binding.view=two_view;sync->add_or_update_follower(binding);
+  mdi->setActiveSubWindow(two);QTRY_VERIFY(window.current_layer_view()==single_view);QVERIFY(!play->isEnabled());
+  sync->clear();sync->set_anchor(two_view);binding.view=single_view;sync->add_or_update_follower(binding);
+  mdi->setActiveSubWindow(single);QTRY_VERIFY(window.current_layer_view()==two_view);QVERIFY(play->isEnabled());
+  // Switching from a multi-frame axis to a singleton axis stops and disables playback.
+  sync->clear();const auto classic_path=dir.filePath("axes.nc");write_classic_fixture(classic_path,NC_CLOBBER);
+  auto *multi=new RasterView(classic_path.toLocal8Bit().toStdString(),"/ttr",{3,1,5,6});
+  auto *multi_sub=mdi->addSubWindow(multi);multi_sub->show();QTRY_VERIFY(play->isEnabled());
+  play->trigger();QVERIFY(player->is_playing());
+  auto *axis=window.findChild<QComboBox*>("layerAxisCombo");axis->setCurrentIndex(1);emit axis->activated(1);
+  QVERIFY(!player->is_playing());QVERIFY(!play->isEnabled());QVERIFY(!play->isChecked());
+  // The empty-axis panel must not create an invalid negative spin-box range.
+  mdi->setActiveSubWindow(empty);QCoreApplication::processEvents();QTest::mouseClick(compare_button,Qt::LeftButton);
+  auto *panel=window.findChild<ComparePanel*>();QVERIFY(panel);
+  QTRY_VERIFY(!panel->findChild<QSpinBox*>("compareAnchorLayerSpin")->isEnabled());
+  QCOMPARE(panel->findChild<QSpinBox*>("compareAnchorLayerSpin")->minimum(),0);
+  QCOMPARE(panel->findChild<QSpinBox*>("compareAnchorLayerSpin")->maximum(),0);
 }
 
 QTEST_MAIN(DropTargetsTest)

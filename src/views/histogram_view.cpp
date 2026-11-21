@@ -149,6 +149,9 @@ void HistogramView::read_plane() {
   setProperty("reader", result.reader);
   setProperty("readError", result.error);
   m_values = result.error.isEmpty() ? std::move(result.plane.values) : std::vector<double>();
+  setProperty("planeReadCount",property("planeReadCount").toULongLong()+1);
+  m_entropy=nc_gray_entropy(m_values);
+  setProperty("entropyBits",m_entropy.valid ? QVariant(m_entropy.entropy_bits) : QVariant());
   setProperty("planeValues", qulonglong(m_values.size()));
   // how many positions the whole plane has, so the window can say "of how many"
   quint64 plane = m_dims.size() >= 2 ? quint64(m_dims[m_dims.size() - 2]) * quint64(m_dims.back()) : 0;
@@ -156,8 +159,11 @@ void HistogramView::read_plane() {
 }
 
 void HistogramView::update_histogram() {
+  const QString entropy_text=m_entropy.valid
+    ? tr("Whole-plane histogram entropy (256 bins): %1 bits   Normalized: %2").arg(m_entropy.entropy_bits,0,'f',4).arg(m_entropy.normalized_entropy,0,'g',9)
+    : tr("Whole-plane histogram entropy (256 bins): N/A");
   if(m_values.empty()) {
-    m_summary->setText(tr("Cannot read this plane: %1").arg(property("readError").toString()));
+    m_summary->setText(tr("Cannot read this plane: %1\n%2").arg(property("readError").toString(),entropy_text));
     m_canvas->set_histogram(NcHistogram());
     return;
   }
@@ -176,7 +182,7 @@ void HistogramView::update_histogram() {
   setProperty("everyNth", m_every_nth->value());
   setProperty("keepFraction", histogram.keep_fraction);
   if(!histogram.valid) {
-    m_summary->setText(histogram.error);
+    m_summary->setText(histogram.error+"\n"+entropy_text);
     return;
   }
   m_summary->setText(tr("%1 of %2 values sampled at random (1 in %3)   bins %4   min %5   max %6   "
@@ -184,7 +190,7 @@ void HistogramView::update_histogram() {
       .arg(histogram.sampled).arg(histogram.total).arg(m_every_nth->value())
       .arg(histogram.bins)
       .arg(histogram.minimum, 0, 'g', 9).arg(histogram.maximum, 0, 'g', 9)
-      .arg(histogram.mean, 0, 'g', 9).arg(histogram.stddev, 0, 'g', 9).arg(histogram.missing));
+      .arg(histogram.mean, 0, 'g', 9).arg(histogram.stddev, 0, 'g', 9).arg(histogram.missing)+"\n"+entropy_text);
 }
 
 int HistogramView::layer_axis_count() const { return int(m_layers.size()); }

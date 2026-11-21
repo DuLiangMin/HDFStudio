@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(HDFStudio VERSION 0.12.06 LANGUAGES C CXX)
+project(HDFStudio VERSION 0.12.08 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -48,6 +48,10 @@ set(src
     src/app/hdf_explorer.hpp
     src/app/hdf_explorer.cpp
     src/app/layer_navigation.hpp
+    src/app/layer_playback.hpp
+    src/app/layer_playback.cpp
+    src/app/workspace_sync.hpp
+    src/app/workspace_sync.cpp
     src/app/visit.hpp
     src/app/visit.cpp
     src/app/iterate.hpp
@@ -58,6 +62,14 @@ set(src
     src/views/mesh_view.cpp
     src/views/raster_view.hpp
     src/views/raster_view.cpp
+    src/views/raster_budget.hpp
+    src/views/raster_budget.cpp
+    src/views/residual_view.hpp
+    src/views/residual_view.cpp
+    src/views/texture_entropy_view.hpp
+    src/views/texture_entropy_view.cpp
+    src/views/compare_panel.hpp
+    src/views/compare_panel.cpp
     src/views/histogram_view.hpp
     src/views/histogram_view.cpp
     src/views/profile_view.hpp
@@ -117,7 +129,7 @@ set_target_properties(hdf_explorer PROPERTIES
 #   hdf_core : Properties summary and text export (HDF5, plus nc_core for NetCDF-3)
 add_library(nc_core STATIC src/core/nc_reader.cpp src/core/nc_classic.cpp)
 target_link_libraries(nc_core PUBLIC Qt6::Core)
-add_library(hdf_core STATIC src/core/properties_inspector.cpp src/core/text_export.cpp src/core/plane_reader.cpp src/core/curve_profile.cpp src/core/color_map.cpp)
+add_library(hdf_core STATIC src/core/properties_inspector.cpp src/core/text_export.cpp src/core/plane_reader.cpp src/core/curve_profile.cpp src/core/color_map.cpp src/core/image_metrics.cpp src/core/image_metrics.hpp src/core/texture_entropy.cpp src/core/texture_entropy.hpp)
 target_link_libraries(hdf_core PUBLIC nc_core ${hdf5_dep})
 add_executable(hdf_cli src/cli/hdf_cli.cpp ${colormap_resources})
 target_link_libraries(hdf_cli PRIVATE hdf_core)

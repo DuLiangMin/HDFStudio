@@ -4,7 +4,7 @@
 
 [English](README.md) | **简体中文**
 
-🔢 **当前源码版本：0.12.06**，已包含科学色表、缓存重着色和可见的图像放大/缩小按钮。
+🔢 **版本：0.12.08**，增加独立的二维纹理熵图，并包含科学色表、图像缩放、超前/滞后比较、双图指标、残差图与逐层联合播放。
 
 ⬇️ **下载：** 在[最新发布页](https://github.com/DuLiangMin/HDFStudio/releases/latest)下载 `HDFStudio-<版本>-win64.zip`。**绿色安装**：解压到任意目录，直接双击 `HDFStudio.exe` 即可运行，无需安装，也不需要管理员权限。
 
@@ -16,9 +16,21 @@
 
 HDFStudio 是面向气象、气候与地球科学的 Windows 桌面 **NetCDF 查看器**与 **HDF5 浏览器**，免费开源。打开一个 `.nc`、`.nc4`、`.h5` 或 `.hdf5` 文件，即可浏览组、变量与属性，在表格中查看数值，把二维切片画成图像，按文件自带的日历把时间坐标解码成真实日期，并检查 CF 元信息，全程不需要写代码。
 
-![HDFStudio 打开两个 NetCDF 文件，层工具栏停在 time 第 10 层（共 180 层），两个图像视图分别为 Viridis 与 Inferno，底部为 By NetCDF4 报告](docs/screenshot-main.png)
+![HDFStudio 用 cmocean Thermal 播放2米气温，旁边的二维局部纹理熵图同步更新](docs/demo-analysis.gif)
 
-*同时打开两个 NetCDF 文件：2 米气温分别用 Viridis 与 Inferno 调色板绘制；打开按钮后的层工具栏正在翻 `time`（Layer 10 of 180）；左侧是变量树，底部是 By NetCDF4 报告。*
+*从 Windows 程序实际录制：2米气温（`TMP_2maboveground`，384 × 190，共480层）采用 cmocean Thermal 配色，旁边是 Viridis 配色的4×4局部纹理熵图。绿色 Play 按钮逐层播放，两图同步更新；熵图使用独立的0～4 bits固定色标。[查看静态截图](docs/screenshot-main.png)。*
+
+### 🆕 0.12.08 新增功能速览
+
+| 能力 | 使用方法 |
+|---|---|
+| 🖼️ 独立的**二维纹理熵图** | **View → Texture Entropy Image** 或变量右键打开，查看4×4局部复杂度，支持切层、Mask、原尺寸PNG和数值CSV导出。 |
+| 🔗 **超前/滞后与多图联动** | 在 **Compare & Metrics** 中选择Anchor/Targets，各自设置整数lag；联动层、缩放/平移/翻转，并可选择同步色表与范围。 |
+| 📐 **实时比较指标** | 同时查看Pearson r、RMSE、MAE、Bias；复制报告或导出含文件、变量、层索引和单位的CSV。 |
+| ➖ **二维残差图** | **Residual map** 用零中心发散色标显示`Target − Anchor`，跟随当前层和Mask更新。 |
+| ▶️ **绿色播放/暂停** | 可调帧间隔，单图放映或多图联合播放；指标、残差和跟随源图的纹理熵同步更新。 |
+
+**验证情况：** clean Debug/Release构建各通过 **83项QtTest**，零失败、零跳过，并通过CTest；局部熵数值及导出PNG颜色均与独立NumPy逐值对账，覆盖缺测与Mask。
 
 ## 🤔 为什么用 HDFStudio
 
@@ -29,6 +41,33 @@ HDFStudio 是面向气象、气候与地球科学的 Windows 桌面 **NetCDF 查
 - 这个文件符合 CF 规范吗，画出来的图会不会上下颠倒？
 
 HDFStudio 几秒内就能回答，不需要开 Python、不需要 notebook、也不需要装整套科学环境。它只是一个小巧的免安装程序（约 15 MB），打开文件就把事实摆出来。
+
+### 🔬 从查看切片到对比模式结果
+
+HDFStudio 在同一工作区中提供以下分析能力：
+
+- **二维纹理熵图**：**View → Texture Entropy Image** 或变量右键同名选项，单变量即可输出真正的二维局部熵图。每个不重叠4×4块计算Shannon熵，双线性插值熵值至原图尺寸后着色，固定0～4 bits色标；可缩放、平移、切层及导出原尺寸PNG/数值CSV。从当前Image View打开时跟随该图的层和Mask，不需要比较对象。
+- **同轴滑动与超前/滞后间隔比较**：选定一个 Anchor 和一个或多个 Target 图像，选择 `time` 等前置轴，拖动 Anchor 层滑块即可联动浏览。每个 Target 独立设置正、零、负整数偏移，满足 `target_index = anchor_index + lag`；可同步缩放、平移、翻转，色表与数值范围同步可选。越界目标清空，回到合法范围后自动恢复。
+- **相关系数与误差一起比较**：**Compare & Metrics** 非模态面板实时显示 Pearson r、RMSE、MAE、Bias（`Target − Anchor`）及有效/排除配对数。支持复制报告和原子 CSV 导出，记录源路径、变量、层索引、revision 与单位；CLI 与界面共用核心算法，便于独立数值对账。单图熵不再作为比较结果。
+- **残差图比较**：点击 **Residual map**，用零中心对称发散色标定位 `Target − Anchor` 的正负差异。残差跟随当前层与 Mask 更新，对比无效时清空；支持缩放、平移和完整分辨率 PNG 导出。
+
+**使用入口**：打开两个图像视图（可来自同一文件或不同文件）→ 点击主工具栏可见的 **Compare & Metrics**（或 **Window → Compare & Metrics**）→ 选择 Anchor、Target 和索引轴 → 设置 lag 并拖动 Anchor 滑块。本面板显示的层索引为 **零基索引**。
+
+对于不同起报时刻的两份预报，先查看解码后的时间坐标，再选取符合比较目的的索引偏移。切换面板中的 Target 会保留其他 Target 各自的偏移设置，便于多个预报序列同时跟随一个 Anchor。
+
+**科学边界**：按整数层索引对齐，即使轴名为 `time`，也不自动换算小时/天或匹配时间坐标。双图平面 shape 必须相同，只计算当前解码值与 Mask 后两图同时有限的像元交集；不隐式插值、裁剪、地理配准或换算单位。单位保留原标签，不同时标为未核实；常量场 Pearson r 不可定义，但误差指标仍可有效。
+
+### 🖼️ 纹理熵图怎样读
+
+有效平面的解码值按统一min/max量化为256级灰度，再统计每个4×4块的灰度概率分布，`H=-Σp·log2(p)`。常量块为0，16个不同灰度且各出现一次时为4 bits；边缘不足4×4按实际像元计算，不补零。全缺测块无效，源缺测/Mask像元保持灰色；插值跳过无效邻块并归一化权重，不填补缺测区域。输出横纵索引与源平面一致，PNG恰好与源图同尺寸；4倍插值用于显示，不增加真实空间细节。
+
+较高值表示局部灰度分布更丰富，常量/变化较小的区域通常较低；噪声也可高熵，平滑渐变也可非零，相同局部直方图的不同空间排列熵相同。因此它是局部复杂度表征，不能单独认定有效信号来源。量化范围随当前层有效值重算，与显示色表、反色和缩放无关。旧标量现明确标为 **Whole-plane histogram entropy**，仅作全图直方图诊断。
+
+### ▶️ 第5项：单数据放映与双图联合播放
+
+主工具栏新增绿色位图 **Play / Pause（播放/暂停）** 按钮和 **Frame interval（帧间隔）** 设置，默认500毫秒，可设100～10000毫秒；**Layer** 菜单也有同一动作。打开图像、选定一个前置轴后点击Play，逐层放映；到末层自动停止，在末层再次点击Play从首层重新播放。**当前播放轴少于2帧时按钮置灰、不可播放；比较模式按Anchor的帧数判断**。帧间隔是显示延迟，不代表数据的实际时间间隔。
+
+**双图联合放映**：打开两幅图 → **Window → Compare & Metrics** → 选定Anchor/Target并勾选 **Sync layer indices** → 设置各Target的lag → 点击主工具栏 **Play**。无论当前选中Anchor还是已同步的Target，都会推进Anchor，各图按各自lag联动，指标和已打开的残差图随之更新。**Next/Previous/First/Last、Go to Layer与主工具栏层选择框也遵循相同联动规则**；未绑定或关闭层同步的图像仍独立导航。暂停保持当前层，切换播放对象/轴或改变比较绑定时停止。本功能在窗口中放映切片序列，不生成视频文件。
 
 | | HDFStudio | Panoply | ncview | HDFView |
 |---|---|---|---|---|
@@ -70,6 +109,7 @@ HDFStudio 几秒内就能回答，不需要开 Python、不需要 notebook、也
 - 🌬️ **矢量视图**：U/V 风或洋流分量；并提供 **UGRID** 三角网格预览。
 - 📊 **单层直方图**（0.12.02）：在至少二维的变量上右键 → **Histogram...**。窗口只读取所选那一层，给出分布：柱状图加一行摘要（抽样值个数、分箱数、最小/最大、均值、标准差、NaN 个数）。**Sample 1 in N** 缺省为 20（即取 1/20），在整层里**均匀随机**抽 `round(有限值 / N)` 个值——不是按固定步长取每第 N 个点——所以 1201 × 1401 的一层约 70 ms 出图；填 `1` 则用全部数值。改抽样步长或分箱数只是对已在内存里的数值重新抽样、重新分箱，不再读文件；**Draw a new sample** 在同样大小下换一组随机样本。种子保证可复现：同样的设置总是同样的样本。三维、四维、五维变量可直接选层，并跟随主工具栏的层导航。`hdf_cli hist` 输出同样的文本。
 - 💾 **导出**：数值导出为文本，切片导出为 PNG；命令行可批量出图。
+  PNG 导出使用该数据集当前图像的图层、色表、Mask 和翻转，保持完整数据分辨率。批量 `--preview ... --png ...` 遇到已有 PNG 或 JSON 伴随文件时拒绝覆盖。
 
 ## 📥 下载与运行
 
@@ -97,6 +137,10 @@ hdf_cli info   data.nc              维度、变量与属性，排版接近 netC
 hdf_cli props  data.nc /ttr         Properties 对话框里的那几行
 hdf_cli export data.nc /lat         数值导出为文本（加文件名则写入文件）
 hdf_cli csv    data.nc /ttr plane.csv 7 42    图像视图所读的那一个二维平面
+hdf_cli entropy data.nc /precipitation 256 0   完整解码平面的熵（bits）及归一化熵
+hdf_cli texture-entropy data.nc /precipitation texture.csv 0   二维4×4局部纹理熵：原尺寸数值和块熵
+hdf_cli corr a.nc /field b.nc /field --anchor-idx 0 --target-idx 1
+                                              shape严格一致，有限交集，误差定义target-anchor
 hdf_cli mask   data.nc /precipitation 9999 - 0    按解码值做 Mask Range（"-" 表示开区间端点），
                                                  输出屏蔽个数和剩余数值的最小/最大值
 hdf_cli hist   data.nc /precipitation 0.05 32 0   第 0 层直方图：随机取 1/20、32 个箱

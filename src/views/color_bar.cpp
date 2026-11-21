@@ -15,7 +15,7 @@ ColorBar::ColorBar(QWidget *parent):QWidget(parent) {
   setObjectName("colorBar"); setAccessibleName(tr("Colorbar"));
   setMinimumHeight(94); setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);
 }
-void ColorBar::clear() {ready=false;update();}
+void ColorBar::clear() {ready=false;setToolTip({});update();}
 void ColorBar::set_mapping(const HdfColorMap::Palette &palette,const HdfColorMap::Mapping &settings,
                           const QString &unit_text,const QStringList &labels,bool range_available) {
   colors=palette; mapping=settings;units=unit_text;categories=labels;ready=true;valid_range=range_available;
@@ -89,9 +89,11 @@ void ColorBar::paintEvent(QPaintEvent *) {
   // Source missing and user mask are different states even if a palette contains white.
   const int baseline=height()-8;
   painter.fillRect(10,baseline-11,11,11,QColor::fromRgba(HdfColorMap::missing_color));
-  painter.drawRect(10,baseline-11,11,11); painter.drawText(27,baseline,tr("Missing"));
-  painter.fillRect(115,baseline-11,11,11,Qt::white); painter.drawRect(115,baseline-11,11,11);
-  painter.drawText(132,baseline,tr("Mask"));
+  painter.drawRect(10,baseline-11,11,11); painter.drawText(27,baseline,combined_missing_mask ? tr("Missing / Mask") : tr("Missing"));
+  if(!combined_missing_mask) {
+    painter.fillRect(115,baseline-11,11,11,Qt::white); painter.drawRect(115,baseline-11,11,11);
+    painter.drawText(132,baseline,tr("Mask"));
+  }
   QString note;
   if(!categories.empty()) note=tr("Category keys: %1").arg(categories.join("; "));
   else if(mapping.normalization==HdfColorMap::Normalization::Cyclic) note=tr("Cyclic: origin %1, period %2").arg(mapping.origin).arg(mapping.period);

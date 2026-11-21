@@ -1,7 +1,42 @@
 # Changelog
 
+## 🖼️ 0.12.08 2D texture entropy image - 2026-11-21
+
+- Add independent **View → Texture Entropy Image** and variable context-menu output, with a real 2D canvas, a fixed 0–4 bits colorbar, zoom/pan, layer navigation, Mask, full-size PNG and numeric CSV exports.
+- Compute Shannon entropy in non-overlapping 4×4 blocks using 256 gray levels shared across each decoded plane, then bilinearly interpolate entropy values at actual block centers to the original dimensions. Partial edge blocks use actual samples; source gaps and Mask remain invalid.
+- Follow an existing Image View's immutable current masked plane without rereading it; recompute on layer/Mask changes and clear when the source closes. Independent windows read through the shared decoder and reserve the shared raster budget.
+- Remove single-image entropy from comparison reports/CSV; explicitly label the earlier scalar as whole-plane histogram entropy. Document the limits of histogram entropy as a texture/possible-information descriptor.
+- T1 core acceptance: Debug/Release targeted tests each 5/0/0; 20 planes and 327014 full-resolution entropy values, plus block values, reconciled with NumPy. GUI and final checks are recorded under `logs/S4-TextureEntropy/`.
+- Clean Debug/Release QtTest each 83 passed, zero failed/skipped; CTest each 1/1. Full entropy CLI reconciliation covers 22 planes and 3692216 values, including packed data. Desktop tests cover independent images, source following, Mask, native exports, playback/pause and normal shutdown.
+- Add a recorded temperature/texture playback GIF in both English and Chinese README files, using cmocean Thermal for temperature and the fixed Viridis entropy scale.
+- Fix derived-image shutdown callbacks so closing the main window with source and texture views open exits normally in Debug and Release.
+
+## ▶️ 0.12.07 complete local build (unreleased) - 2026-11-21
+
+- Green bitmap Play/Pause button in the main toolbar and Layer menu, generated offline by `tools/26NOV21_v01_playback_icons.py`; frame interval 100–10,000 ms, default 500 ms. Single-view playback and joint Anchor/Target playback update existing metrics and residual views. Last frame stops; Play at the last frame restarts from the first.
+- Disabled for fewer than two frames on the selected playback axis, including empty and singleton axes. In comparison mode the Anchor determines availability. Pause holds position; changing source, axis or binding, closing the playback view or exiting stops the timer safely.
+- Fixed Next/Previous/First/Last, Go to Layer and main layer selection on an active synced Target: navigation now advances the Anchor while preserving each Target's lag. Unbound views and Targets with layer synchronization disabled retain independent navigation.
+- Visible **Compare & Metrics** entry in the main toolbar as well as the Window menu. Empty axes show **No frames on this axis** with disabled layer selection; comparison controls do not create a negative index range. Layer-signal connection handles preserve safe disconnection while a view is being destroyed.
+- Stage evidence and final acceptance are tracked under `logs/S4-Playback/` and `tests/26NOV21_v01_playback_acceptance.md`; 0.12.07 is local and has not been published.
+- Clean Debug/Release builds passed the full QtTest suite with 79 passed, zero failed/skipped per configuration, and CTest 1/1 each. Six business-sample hashes and all six final binaries were checked; no layer-signal destruction warnings remain. Real-mouse and portable-program checks are recorded in the local acceptance report.
+- Real-mouse playback acceptance passed 21/21 checks in each configuration, including the green bitmap, visible comparison entry, single and joint playback/pause, Next/Previous from an active Target, live entropy/residuals, out-of-range recovery, About version and normal exit. The actual paused forecast pair's metrics were independently reconciled with NumPy; source hashes remained unchanged.
+
+## 🔬 Local analysis additions (unreleased) - 2026-11-21
+
+- 📊 Full-plane 256-bin gray-level Shannon entropy and normalized entropy in image/histogram summaries; immutable decoded/Mask plane snapshots without extra reads on color or histogram display changes.
+- 🔗 Independent workspace controller with one Anchor, multiple Targets, checked positive/negative integer leading-axis offsets, layer slider, synchronized zoom/pan/flips and optional colors/resolved range. Out-of-range targets clear and recover; no coordinate-time matching or unit conversion is inferred.
+- 📏 Compare & Metrics dock displays Pearson r, RMSE, MAE, Bias (Target−Anchor), finite pair counts and both entropies; copies reports and atomically exports CSV identity/index/revision/unit records. New CLI entropy/corr commands share the core algorithms.
+- 🖼️ Live residual maps use Target−Anchor on the finite, currently masked intersection with matching shapes, a zero-centered symmetric diverging scale, zoom/pan and full-resolution PNG export. Derived rasters share the process raster budget.
+- 🧪 Implemented sequentially with Debug/Release stage builds, numerical unit tests, NumPy reconciliation and GUI assertions. Final clean builds passed: 75 QtTest checks with zero failures/skips per configuration, CTest 1/1 and three fresh-process timing repetitions per configuration. Two real temperature forecasts passed paired-metric/entropy checks and 437,760 residual values/RGB pixels matched independent calculations. Evidence is recorded under `logs/S4-Metrics-Sync/`; the downloadable release remains unchanged.
+- 🖱️ Real-mouse desktop acceptance passed 16/16 checks in both Debug and Release, including lead/lag, live residuals, out-of-range recovery, clipboard, native CSV saving, unchanged source hashes and normal exit. Saved CSV metrics were independently checked against NumPy.
+
 ## 0.12.06 - 2026-11-21
 
+- 🧪 Full local regression follow-up: added fixed-seed sampling of nonstandard NetCDF files, CLI error/overwrite tests, 5-D slices, mixed asynchronous layer/Mask/color switching, budget release/recovery and real-mouse desktop checks. Logs remain local under `logs/S4-FullRegression-20261121/`.
+- 🛠️ Corrected CLI histogram usage/read error exit codes and unreadable/unknown `probe` exit codes; batch PNG now reserves new PNG/JSON outputs and preserves pre-existing files.
+- 🖼️ GUI PNG export now saves the current dataset's full-resolution layer with its mapping, Mask and flips instead of a newly created first-layer widget screenshot. It completes the current cached raster revision before saving atomically.
+- 🔎 Cleared stale hover/colorbar tooltips when display input becomes invalid. Product version remains 0.12.06; no remote publication is part of this regression.
+- ✅ Local regression checks: clean Debug/Release builds; QtTest 68 passed, 0 failed, 0 skipped per configuration; CTest 1/1 per configuration; three fresh-process timing repetitions per configuration. Twelve real samples per configuration matched all 13,652,673 CSV values and PNG pixels, all histogram bins, and 348 metadata items; 17 additional CLI edge cases passed per configuration. Detailed local evidence and remaining scope limits are recorded under the regression log directory.
 - 🔢 Raised the product version from 0.12.03 to 0.12.06 in CMake, application metadata and the About dialog; synchronized both READMEs.
 - 🎨 Includes the scientific color maps, shared colorbar and cached recoloring implemented since 0.12.03, together with the visible image zoom controls and completed regression cycles documented below.
 - ✅ Rebuilt Debug/Release at 0.12.06: each full QtTest suite passed 47 tests with zero failures and two optional external-sample skips; CTest passed 1/1 in both configurations. Both executables report `HDFStudio 0.12.06` with `--version`.

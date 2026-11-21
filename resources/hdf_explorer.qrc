@@ -13,6 +13,8 @@
 	<file>images/image_true.png</file>
 	<file>images/flip_vertical.png</file>
 	<file>images/flip_horizontal.png</file>
-	<file>images/reset_home.png</file>
+    <file>images/reset_home.png</file>
+    <file>images/play_green.png</file>
+    <file>images/pause_green.png</file>
 </qresource>
 </RCC>

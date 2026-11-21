@@ -5,6 +5,7 @@
 #include "hdf5.h"
 #include "nc_reader.hpp"
 #include "plane_reader.hpp"
+#include "image_metrics.hpp"
 #include "layer_navigation.hpp"
 #include <vector>
 #include <string>
@@ -46,6 +47,7 @@ private:
   std::vector<QSpinBox *> m_layers;
   QStringList m_axis_names;
   std::vector<double> m_values;    // decoded plane values, NaN = missing; kept between settings
+  NcGrayEntropy m_entropy;
   HistogramCanvas *m_canvas;
   QLabel *m_summary;
   QSpinBox *m_every_nth;           // initial sampling: 1 in 20 (0.05)
