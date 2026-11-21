@@ -9,14 +9,15 @@
 param(
   [string]$SourceRef = 'HEAD',
   [string]$QtLicense = "$env:TEMP\opencode\lgpl-3.0.txt",
-  [string]$Git = 'C:\Program Files\Git\cmd\git.exe'
+  [string]$Git = 'C:\Program Files\Git\cmd\git.exe',
+  [string]$OutputDirectory = ''
 )
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $version = ([regex]'project\(HDFStudio VERSION ([0-9.]+)').Match((Get-Content "$root\CMakeLists.txt" -Raw)).Groups[1].Value
 if(-not $version) { throw 'Version not found in CMakeLists.txt' }
 $release = "$root\build\output\Release"
-$outDir = "$root\build\package"
+$outDir = if($OutputDirectory) { [IO.Path]::GetFullPath((Join-Path $root $OutputDirectory)) } else { "$root\build\package" }
 $name = "HDFStudio-$version-win64"
 $stage = "$outDir\$name"
 if(Test-Path $stage) { Remove-Item $stage -Recurse -Force }
@@ -41,6 +42,10 @@ Copy-Item $QtLicense "$stage\licenses\Qt-LGPL-3.0.txt"
 Copy-Item "$root\ext\netcdf-c-4.9.3\COPYRIGHT" "$stage\licenses\netCDF-C-COPYRIGHT.txt"
 Copy-Item "$root\ext\hdf5-1.8.20\COPYING" "$stage\licenses\HDF5-COPYING.txt"
 Copy-Item "$root\ext\zlib-1.3.1\LICENSE" "$stage\licenses\zlib-LICENSE.txt"
+Copy-Item "$root\licenses\colormaps" "$stage\licenses\colormaps" -Recurse
+# The binary already embeds these assets; ship provenance beside it for inspection.
+New-Item -ItemType Directory -Force "$stage\resources" | Out-Null
+Copy-Item "$root\resources\colormaps" "$stage\resources\colormaps" -Recurse
 
 $zip = "$outDir\$name.zip"
 if(Test-Path $zip) { Remove-Item $zip -Force }

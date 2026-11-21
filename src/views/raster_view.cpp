@@ -1,6 +1,7 @@
 // Read one scalar plane as doubles, mask missing values, render in index order.
 #include "raster_view.hpp"
 #include "profile_view.hpp"
+#include "color_map_picker.hpp"
 #include "nc_reader.hpp"
 #include "nc_classic.hpp"
 #include "plane_reader.hpp"
@@ -84,6 +85,26 @@ QColor RasterColorMap::discreteValueColor(Palette palette, double value,
 }
 
 namespace {
+// Conservative process-wide raster allowance: decoded/masked current and in-flight
+// planes, decoder scratch, QImage/pixmap replacement. The lease outlives closed views
+// while a cancelled worker still owns buffers. This is not the whole process RSS.
+std::atomic<quint64> raster_reserved_bytes{0};
+struct RasterReservation {
+  quint64 bytes;
+  explicit RasterReservation(quint64 count):bytes(count) {}
+  ~RasterReservation() {raster_reserved_bytes.fetch_sub(bytes);}
+};
+std::shared_ptr<void> reserve_raster(quint64 pixels) {
+  bool valid=false;
+  const quint64 configured=qEnvironmentVariable("HDFSTUDIO_RASTER_BUDGET_MIB").toULongLong(&valid);
+  const quint64 budget=(valid&&configured>=1&&configured<=16384?configured:1024)*1024*1024;
+  const quint64 bytes=pixels*64;
+  auto used=raster_reserved_bytes.load();
+  do {
+    if(bytes>budget||used>budget-bytes) return {};
+  } while(!raster_reserved_bytes.compare_exchange_weak(used,used+bytes));
+  return std::make_shared<RasterReservation>(bytes);
+}
 struct Handle {
   hid_t id;
   herr_t (*close)(hid_t);
@@ -118,6 +139,15 @@ QString text_array_attr(hid_t object, const char *name) {
   if(attr.id<0) return {};
   Handle type{H5Aget_type(attr.id),H5Tclose};
   if(type.id<0 || H5Tget_class(type.id)!=H5T_STRING) return {};
+  if(H5Tis_variable_str(type.id)>0) {
+    Handle space{H5Aget_space(attr.id),H5Sclose};
+    if(space.id<0||H5Sget_simple_extent_npoints(space.id)!=1) return {};
+    char *value=nullptr;
+    if(H5Aread(attr.id,type.id,&value)<0) return {};
+    const QString text=value?QString::fromUtf8(value).trimmed():QString();
+    if(value) H5free_memory(value);
+    return text;
+  }
   size_t size=H5Tget_size(type.id);
   if(size==0 || size>65536) return {};
   Handle space{H5Aget_space(attr.id),H5Sclose};
@@ -127,17 +157,51 @@ QString text_array_attr(hid_t object, const char *name) {
   return QString::fromUtf8(text.data()).trimmed();
 }
 
+QIcon zoom_icon(bool zoom_in) {
+  QPixmap image(24,24);
+  image.fill(Qt::transparent);
+  QPainter painter(&image);
+  painter.setRenderHint(QPainter::Antialiasing);
+  painter.setPen(QPen(QColor(43,90,160),2.0,Qt::SolidLine,Qt::RoundCap));
+  painter.setBrush(Qt::NoBrush);
+  painter.drawEllipse(QRectF(3,3,13,13));
+  painter.drawLine(QPointF(14.5,14.5),QPointF(21,21));
+  painter.drawLine(QPointF(6.5,9.5),QPointF(12.5,9.5));
+  if(zoom_in) painter.drawLine(QPointF(9.5,6.5),QPointF(9.5,12.5));
+  return QIcon(image);
+}
+
 class Canvas : public QGraphicsView {
 public:
   using QGraphicsView::QGraphicsView;
   void zoom(double factor) {
-    // Use |m11| because a horizontal flip makes m11 negative.
-    double size = std::abs(transform().m11()) * factor;
-    if(size >= 0.002 && size <= 2048) scale(factor, factor);
+    zoom_at(factor,QPointF(viewport()->rect().center()),true);
   }
   void wheelEvent(QWheelEvent *event) override {
-    zoom(event->angleDelta().y() > 0 ? 1.25 : 0.8);
+    double steps=double(event->angleDelta().y())/120.0;
+    if(steps==0) steps=double(event->pixelDelta().y())/120.0;
+    if(steps==0) {event->ignore();return;}
+    zoom_at(std::pow(1.25,std::clamp(steps,-128.0,128.0)),event->position(),false);
     event->accept();
+  }
+private:
+  void zoom_at(double factor,const QPointF &position,bool around_center) {
+    // The scale magnitude changes, but the signs still encode Flip H / Flip V.
+    const double current=std::abs(transform().m11());
+    if(!std::isfinite(current)||current<=0||!std::isfinite(factor)||factor<=0) return;
+    const double target=std::clamp(current*factor,0.002,2048.0);
+    if(target==current) return;
+    const QPointF scene_point=viewportTransform().inverted().map(position);
+    const auto previous_anchor=transformationAnchor();
+    setTransformationAnchor(QGraphicsView::NoAnchor);
+    scale(target/current,target/current);
+    // Explicit viewport coordinates avoid anchoring a button click at the mouse
+    // position outside the image. Scrollbars may appear after scaling.
+    const QPointF desired=around_center?QPointF(viewport()->rect().center()):position;
+    const QPointF offset=viewportTransform().map(scene_point)-desired;
+    horizontalScrollBar()->setValue(horizontalScrollBar()->value()+qRound(offset.x()));
+    verticalScrollBar()->setValue(verticalScrollBar()->value()+qRound(offset.y()));
+    setTransformationAnchor(previous_anchor);
   }
 };
 }
@@ -148,7 +212,8 @@ RasterView::RasterView(std::string filename, std::string varpath, std::vector<hs
   auto layout = new QVBoxLayout(this);
   auto tools = new QToolBar(this);
   layout->addWidget(tools);
-  auto geo_action=tools->addAction(tr("Geographic coordinates"));
+  auto geo_action=tools->addAction(tr("Projs"));
+  geo_action->setObjectName("projsAction");
   geo_action->setCheckable(true);
   classic=is_classic_netcdf_file(QString::fromLocal8Bit(file.c_str()));
   NcReader coordinate_reader(QString::fromLocal8Bit(file.c_str()));
@@ -162,28 +227,48 @@ RasterView::RasterView(std::string filename, std::string varpath, std::vector<hs
       : geo_grid.error);
   connect(geo_action,&QAction::toggled,this,[this](bool enabled){geographic=enabled;refresh();});
   palette_selector = new QComboBox(tools);
-  palette_selector->addItem(tr("Viridis"), int(RasterColorMap::Palette::Viridis));
-  palette_selector->addItem(tr("Plasma"), int(RasterColorMap::Palette::Plasma));
-  palette_selector->addItem(tr("Inferno"), int(RasterColorMap::Palette::Inferno));
-  palette_selector->addItem(tr("Turbo"), int(RasterColorMap::Palette::Turbo));
-  palette_selector->addItem(tr("Grayscale"), int(RasterColorMap::Palette::Grayscale));
+  palette_selector->setObjectName("colorMapSelector");
+  palette_selector->setAccessibleName(tr("CMaps"));
+  palette_selector->setIconSize(QSize(80,14));
+  palette_selector->setMinimumContentsLength(16);
+  palette_selector->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+  QString palette_error;
+  color_maps=HdfColorMap::load_registry(palette_error);
+  fill_palette_selector();
+  if(!palette_error.isEmpty()) QTimer::singleShot(0,this,[this,palette_error]{QMessageBox::warning(this,tr("Color map resources"),palette_error);});
   palette_selector->setToolTip(tr("Continuous raster color palette"));
+  auto *palette_label = new QLabel(tr("CMaps"), tools);
+  palette_label->setObjectName("colorMapsLabel");
+  palette_label->setToolTip(tr("Color map for the image and colorbar"));
+  palette_label->setBuddy(palette_selector);
+  tools->addWidget(palette_label);
   tools->addWidget(palette_selector);
   reverse_palette = new QCheckBox(tr("Reverse"), tools);
+  reverse_palette->setObjectName("reverseColorMap");
   reverse_palette->setToolTip(tr("Reverse the selected color palette"));
   tools->addWidget(reverse_palette);
-  connect(palette_selector, &QComboBox::currentIndexChanged, this, [this] { refresh(); });
+  connect(palette_selector, &QComboBox::currentIndexChanged, this, [this] {
+    const auto &selected=color_maps[size_t(palette_selector->currentIndex())];
+    color_mapping.mode=selected.stepped?HdfColorMap::Mode::Stepped:HdfColorMap::Mode::Continuous;
+    color_mapping.boundaries.clear();
+    // Choosing colors alone never guesses a center, units, period or business threshold.
+    color_mapping.normalization=HdfColorMap::Normalization::Linear;
+    refresh();
+  });
   connect(reverse_palette, &QCheckBox::toggled, this, [this] { refresh(); });
   range_mode = new QComboBox(tools);
+  range_mode->setObjectName("colorRangeMode");
   range_mode->addItem(tr("Automatic range"), true);
   range_mode->addItem(tr("Fixed range"), false);
   tools->addWidget(range_mode);
   fixed_minimum = new QDoubleSpinBox(tools);
+  fixed_minimum->setObjectName("colorMinimum");
   fixed_minimum->setRange(-1.0e300, 1.0e300);
   fixed_minimum->setDecimals(8);
   fixed_minimum->setPrefix(tr("Min "));
   tools->addWidget(fixed_minimum);
   fixed_maximum = new QDoubleSpinBox(tools);
+  fixed_maximum->setObjectName("colorMaximum");
   fixed_maximum->setRange(-1.0e300, 1.0e300);
   fixed_maximum->setDecimals(8);
   fixed_maximum->setPrefix(tr("Max "));
@@ -199,6 +284,7 @@ RasterView::RasterView(std::string filename, std::string varpath, std::vector<hs
   connect(fixed_minimum, &QDoubleSpinBox::valueChanged, this, [this] { refresh(); });
   connect(fixed_maximum, &QDoubleSpinBox::valueChanged, this, [this] { refresh(); });
   auto discrete_toggle=new QCheckBox(tr("Discrete"),tools);
+  discrete_toggle->setObjectName("discreteColors");
   discrete_toggle->setToolTip(tr("Render each distinct value as a category"));
   tools->addWidget(discrete_toggle);
   connect(discrete_toggle,&QCheckBox::toggled,this,[this](bool enabled){discrete_mode=enabled;refresh();});
@@ -219,6 +305,17 @@ RasterView::RasterView(std::string filename, std::string varpath, std::vector<hs
   auto mask_bar=new QToolBar(this);
   mask_bar->setObjectName("maskBar");
   layout->addWidget(mask_bar);
+  // Put zoom before the long palette/range controls can push it into overflow.
+  auto *zoom_in_action=mask_bar->addAction(zoom_icon(true),tr("Zoom in"));
+  zoom_in_action->setObjectName("zoomInAction");
+  zoom_in_action->setToolTip(tr("Zoom in 1.25x around the view center; mouse wheel zooms at the pointer"));
+  auto *zoom_out_action=mask_bar->addAction(zoom_icon(false),tr("Zoom out"));
+  zoom_out_action->setObjectName("zoomOutAction");
+  zoom_out_action->setToolTip(tr("Zoom out 0.8x around the view center; mouse wheel zooms at the pointer"));
+  auto *fit_action=mask_bar->addAction(tr("Fit"));
+  fit_action->setObjectName("fitImageAction");
+  fit_action->setToolTip(tr("Fit the complete image in the view, keeping flips"));
+  mask_bar->addSeparator();
   // Flip V / Flip H keep their pressed state; Reset always restores the original view.
   flip_v_action = mask_bar->addAction(QIcon(":/images/flip_vertical.png"), tr("Flip V"));
   flip_v_action->setObjectName("flipVerticalAction");
@@ -284,14 +381,36 @@ RasterView::RasterView(std::string filename, std::string varpath, std::vector<hs
     connect(spin, &QSpinBox::valueChanged, this, [this] { refresh(); emit layer_changed(); });
   }
   scene = new QGraphicsScene(this);
+  image_item=scene->addPixmap(QPixmap());
   auto view = new Canvas(scene, this);
   canvas = view;
+  canvas->setAccessibleName(tr("Raster image"));
   canvas->setAcceptDrops(false);
   canvas->viewport()->setAcceptDrops(false);
   canvas->setDragMode(QGraphicsView::ScrollHandDrag);
   canvas->setTransformationAnchor(QGraphicsView::AnchorUnderMouse);
   canvas->viewport()->setMouseTracking(true);
   canvas->viewport()->installEventFilter(this);
+  canvas->setContextMenuPolicy(Qt::CustomContextMenu);
+  connect(canvas,&QWidget::customContextMenuRequested,this,[this](const QPoint &position){
+    if(profile_mode_action->isChecked()) return;
+    QMenu menu(this);
+    menu.addAction(tr("CMaps…"),this,&RasterView::choose_color_mapping);
+    menu.addAction(tr("Import RGB color map…"),this,&RasterView::choose_rgb_file);
+    menu.exec(canvas->mapToGlobal(position));
+  });
+  // Compact button beside CMaps; detailed options are kept out of the toolbar row.
+  auto *options=new QToolButton(tools);options->setText(tr("…"));options->setObjectName("colorMapOptions");
+  options->setAccessibleName(tr("Color map options"));options->setToolTip(tr("Color cards, mapping and RGB import"));
+  auto *options_menu=new QMenu(options);
+  options_menu->addAction(tr("Color cards and mapping…"),this,&RasterView::choose_color_mapping);
+  options_menu->addAction(tr("Import RGB…"),this,&RasterView::choose_rgb_file);
+  options->setMenu(options_menu);options->setPopupMode(QToolButton::InstantPopup);
+  auto actions=tools->actions();
+  QAction *reverse_action=nullptr;
+  for(auto *action:actions) if(auto *widget_action=qobject_cast<QWidgetAction*>(action))
+    if(widget_action->defaultWidget()==reverse_palette) reverse_action=action;
+  tools->insertWidget(reverse_action,options);
   layout->addWidget(canvas, 1);
   auto apply_flip = [this] {
     QTransform matrix = canvas->transform();
@@ -323,16 +442,21 @@ RasterView::RasterView(std::string filename, std::string varpath, std::vector<hs
     profile_points.clear();
     show_profile_action->setEnabled(false);
     clear_profile_action->setEnabled(false);
-    refresh();
+    redraw_profile_overlay();
+    if(profile_window) if(auto *view=qobject_cast<ProfileView*>(profile_window.data()))
+      view->update_data(last_values,last_rows,last_cols,{},CurvePathMode::SmoothSpline);
   });
-  tools->addAction(tr("Fit"), this, [this, apply_flip] {
+  connect(fit_action,&QAction::triggered,this,[this,apply_flip] {
     canvas->fitInView(scene->sceneRect(), Qt::KeepAspectRatio);
     apply_flip();
   });
-  tools->addAction("+", this, [view]{ view->zoom(1.5); });
-  tools->addAction("-", this, [view]{ view->zoom(1/1.5); });
+  connect(zoom_in_action,&QAction::triggered,this,[view]{view->zoom(1.25);});
+  connect(zoom_out_action,&QAction::triggered,this,[view]{view->zoom(0.8);});
   legend = new QLabel(this);
   legend->setObjectName("rasterLegend");
+  legend->setWordWrap(true);
+  color_bar=new ColorBar(this);
+  layout->addWidget(color_bar);
   layout->addWidget(legend);
   QTimer::singleShot(0, this, [this]{ refresh(); canvas->fitInView(scene->sceneRect(), Qt::KeepAspectRatio); });
 }
@@ -406,116 +530,176 @@ bool RasterView::eventFilter(QObject *watched,QEvent *event) {
       }
     }
   }
-  if(watched==canvas->viewport() && event->type()==QEvent::MouseMove && geographic && geo_grid.valid) {
+  if(watched==canvas->viewport() && event->type()==QEvent::MouseMove && display_valid&&last_values&&decoded_values) {
     auto *mouse=static_cast<QMouseEvent*>(event);
     QPointF point=canvas->mapToScene(mouse->pos());
-    const auto row=static_cast<size_t>(std::max(0,int(std::floor(point.y()))));
-    const auto column=static_cast<size_t>(std::max(0,int(std::floor(point.x()))));
-    const auto coordinate=geographic_coordinate(geo_grid,row,column);
-    if(coordinate.valid)
-      legend->setToolTip(tr("Index [%1, %2]; latitude %3°, longitude %4°")
-        .arg(row).arg(column).arg(coordinate.latitude,0,'g',10).arg(coordinate.longitude,0,'g',10));
-    else legend->setToolTip(tr("Pointer is outside the verified coordinate grid."));
+    QString text=tr("Pointer is outside the image.");
+    if(point.x()>=0&&point.y()>=0&&point.x()<last_cols&&point.y()<last_rows) {
+      const size_t row=size_t(point.y()),column=size_t(point.x()),index=row*last_cols+column;
+      const double original=(*decoded_values)[index];
+      QString state;
+      if(!std::isfinite(original)) state=tr("Missing in source");
+      else if(!std::isfinite((*last_values)[index])) state=tr("Mask; original decoded value %1").arg(original,0,'g',15);
+      else state=tr("Decoded value %1 %2").arg(original,0,'g',15).arg(cached_units);
+      text=tr("Index [%1, %2]; %3").arg(row).arg(column).arg(state);
+      if(geographic&&geo_grid.valid) {
+        const auto coordinate=geographic_coordinate(geo_grid,row,column);
+        if(coordinate.valid) text+=tr("; latitude %1°, longitude %2°").arg(coordinate.latitude,0,'g',10).arg(coordinate.longitude,0,'g',10);
+      }
+    }
+    canvas->viewport()->setToolTip(text);legend->setToolTip(text);
   }
   return QWidget::eventFilter(watched,event);
 }
 
 void RasterView::refresh() {
-  scene->clear();
-  legend->setText(tr("Cannot read this plane. Check the dataset and its compression filter."));
-  if(dims.size()<2 || std::find(dims.begin(), dims.end(), 0) != dims.end()) return;
+  const quint64 request=++render_revision;
+  render_generation->store(request);
+  if(dims.size()<2 || std::find(dims.begin(),dims.end(),0)!=dims.end()) {
+    clear_plane(tr("Invalid plane dimensions."));return;
+  }
   const hsize_t rows = dims[dims.size()-2], cols = dims.back();
-  if(rows > INT_MAX || cols > INT_MAX || rows*cols > 16*1024*1024) {
-    legend->setText(tr("Plane exceeds the 16 megapixel preview limit.")); return;
+  if(rows>INT_MAX||cols>INT_MAX||rows>16*1024*1024/cols) {
+    clear_plane(tr("Plane exceeds the 16 megapixel preview limit."));return;
   }
   const QString filename=QString::fromLocal8Bit(file.c_str());
-  std::vector<hsize_t> start(dims.size(),0), count(dims.size(),1);
-  for(size_t i=0; i<layers.size(); ++i) start[i] = layers[i]->value();
-  count[count.size()-2] = rows; count.back() = cols;
-  // The HDF5 handles stay at -1 for a NetCDF-3 file; Handle ignores negative ids on destruction.
-  Handle fid{-1, H5Fclose}, ds{-1, H5Dclose};
-  if(!classic) {
-    fid.id = H5Fopen(file.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT);
-    if(fid.id < 0) return;
-    ds.id = H5Dopen2(fid.id, path.c_str(), H5P_DEFAULT);
-    if(ds.id < 0) return;
+  if(!raster_reservation) {
+    raster_reservation=reserve_raster(quint64(rows)*cols);
+    if(!raster_reservation) {clear_plane(tr("Raster memory budget reached. Close another image or select a smaller plane."));return;}
   }
-  // Values and decoding come from nc_read_plane_decoded, the same function the histogram window and
-  // hdf_cli use, so every view of one variable shows the same numbers.
-  const NcPlaneResult read = nc_read_plane_decoded(filename, path, dims,
-      std::vector<size_t>(start.begin(), start.end() - 2));
-  if(!read.error.isEmpty()) { legend->setText(read.error); return; }
-  std::vector<double> values = read.plane.values;
-  const bool use_nc = read.reader == "netCDF-C";
-  setProperty("reader", read.reader);
-  // values are decoded from here on; NaN so far = _FillValue / missing_value (grey)
+  std::vector<size_t> indices;for(auto *spin:layers) indices.push_back(size_t(spin->value()));
+  if(!reading_valid||indices!=cached_indices) {
+    reading_valid=false;mask_valid=false;decoded_values.reset();last_values.reset();
+    auto read=nc_read_plane_decoded(filename,path,dims,indices);
+    setProperty("planeReadCount",property("planeReadCount").toULongLong()+1);
+    if(!read.error.isEmpty()){clear_plane(read.error);return;}
+    decoded_values=std::make_shared<const std::vector<double>>(std::move(read.plane.values));
+    if(decoded_values->size()!=size_t(rows*cols)){clear_plane(tr("Incomplete plane."));return;}
+    setProperty("reader",read.reader);cached_indices=indices;last_rows=size_t(rows);last_cols=size_t(cols);
+    // Metadata follows the same cache lifetime; palette changes never reopen data files.
+    if(classic) {
+      declared_categories=nc_classic_numeric_attribute(filename,path,"flag_values");
+      cached_meanings=nc_classic_text_attribute(filename,path,"flag_meanings");
+      cached_units=nc_classic_text_attribute(filename,path,"units");
+    } else {
+      Handle fid{H5Fopen(file.c_str(),H5F_ACC_RDONLY,H5P_DEFAULT),H5Fclose};
+      Handle dataset{fid.id>=0?H5Dopen2(fid.id,path.c_str(),H5P_DEFAULT):-1,H5Dclose};
+      declared_categories.clear();cached_meanings.clear();cached_units.clear();
+      if(dataset.id>=0) {
+        declared_categories=numeric_array_attr(dataset.id,"flag_values");
+        cached_meanings=text_array_attr(dataset.id,"flag_meanings");cached_units=text_array_attr(dataset.id,"units");
+      }
+    }
+    reading_valid=true;
+  }
   double mask_from=-INFINITY, mask_to=INFINITY;
   const bool masking=!mask_start->text().trimmed().isEmpty() || !mask_end->text().trimmed().isEmpty();
   if(!nc_mask_bound(mask_start->text(),-INFINITY,mask_from) ||
      !nc_mask_bound(mask_end->text(),INFINITY,mask_to)) {
-    legend->setText(tr("Mask Range: start and end must be numbers (empty = -inf / +inf)."));
-    return;
+    clear_plane(tr("Mask Range: start and end must be numbers (empty = -inf / +inf)."));return;
   }
   if(masking && mask_from>mask_to) {
-    legend->setText(tr("Mask Range: start must not be greater than end."));
-    return;
+    clear_plane(tr("Mask Range: start must not be greater than end."));return;
   }
-  std::vector<bool> missing_in_file(values.size());
-  for(size_t i=0;i<values.size();++i) missing_in_file[i]=!std::isfinite(values[i]);
-  size_t masked=0;
-  if(masking) masked=nc_mask_range(values,mask_from,mask_to);
-  setProperty("masked",qulonglong(masked));
-  last_values = values;
-  last_rows = size_t(rows);
-  last_cols = size_t(cols);
-  double low=INFINITY, high=-INFINITY;
+  bool values_changed=false;
+  if(!mask_valid||cached_mask_start!=mask_start->text()||cached_mask_end!=mask_end->text()) {
+    last_values=decoded_values;masked_count=0;
+    if(masking) {
+      auto masked_values=std::make_shared<std::vector<double>>(*decoded_values);
+      masked_count=nc_mask_range(*masked_values,mask_from,mask_to);last_values=masked_values;
+    }
+    cached_mask_start=mask_start->text();cached_mask_end=mask_end->text();mask_valid=true;values_changed=true;
+    data_low=INFINITY;data_high=-INFINITY;
+    for(double value:*last_values) if(std::isfinite(value)){data_low=std::min(data_low,value);data_high=std::max(data_high,value);}
+  }
+  if(values_changed&&profile_window) if(auto *view=qobject_cast<ProfileView*>(profile_window.data()))
+    view->update_data(last_values,last_rows,last_cols,profile_points,CurvePathMode::SmoothSpline);
+  setProperty("masked",qulonglong(masked_count));
+  double low=data_low,high=data_high;
   category_values.clear();
-  for(double &v: values) {
-    if(std::isfinite(v)) {
-      low=std::min(low,v); high=std::max(high,v);
-      if(discrete_mode && std::find(category_values.begin(),category_values.end(),v)==category_values.end())
-        category_values.push_back(v);
+  if(discrete_mode) {
+    if(!declared_categories.empty()) category_values=declared_categories;
+    else for(double value:*last_values) {
+      if(std::isfinite(value)&&std::find(category_values.begin(),category_values.end(),value)==category_values.end()) {
+        category_values.push_back(value);if(category_values.size()>12) break;
+      }
     }
   }
-  std::sort(category_values.begin(),category_values.end());
-  auto declared_categories=classic ? nc_classic_numeric_attribute(filename,path,"flag_values")
-                                   : numeric_array_attr(ds.id,"flag_values");
-  if(!declared_categories.empty()) category_values=std::move(declared_categories);
-  const QString meaning_text=classic ? nc_classic_text_attribute(filename,path,"flag_meanings")
-                                     : text_array_attr(ds.id,"flag_meanings");
-  auto meanings=meaning_text.split(QRegularExpression("\\s+"),Qt::SkipEmptyParts);
+  // flag_meanings follows the file's flag_values order, including non-sorted values.
+  if(declared_categories.empty()) std::sort(category_values.begin(),category_values.end());
+  auto meanings=cached_meanings.split(QRegularExpression("\\s+"),Qt::SkipEmptyParts);
   category_labels=RasterColorMap::categoryLabels(category_values,meanings);
   bool automatic=range_mode->currentData().toBool();
+  const bool has_valid_values=std::isfinite(low);
   auto range=RasterColorMap::resolveRange(automatic,low,high,
       fixed_minimum->value(),fixed_maximum->value(),std::isfinite(low));
   if(discrete_mode) range={low,high,std::isfinite(low)};
+  // With no finite data, keep the missing/Mask image visible without inventing a range.
+  const bool no_auto_range=!has_valid_values&&(automatic||discrete_mode);
+  if(no_auto_range) range={0,1,true};
   if(discrete_mode && category_values.size()>12) {
-    legend->setText(tr("Discrete preview supports at most 12 categories; found %1.").arg(category_values.size()));
-    return;
+    clear_plane(tr("Discrete preview supports at most 12 categories; found more."));return;
   }
   if(!range.valid) {
-    legend->setText(automatic ? tr("No valid values") : tr("Invalid fixed range: minimum must be less than maximum."));
-    return;
+    clear_plane(automatic?tr("No valid values"):tr("Invalid fixed range: minimum must be less than maximum."));return;
   }
   low=range.minimum;
   high=range.maximum;
-  QImage image(int(cols),int(rows),QImage::Format_RGB32);
-  if(image.isNull()) return;
-  for(int y=0;y<image.height();++y) {
-    auto line = reinterpret_cast<QRgb*>(image.scanLine(y));
-    for(int x=0;x<image.width();++x) {
-      const size_t index=size_t(y)*cols+x;
-      double v=values[index];
-      if(masked && std::isnan(v) && !missing_in_file[index]) { line[x]=qRgb(255,255,255); continue; }
-      const auto palette=static_cast<RasterColorMap::Palette>(palette_selector->currentData().toInt());
-      line[x]=(discrete_mode
-        ? RasterColorMap::discreteValueColor(palette,v,category_values,reverse_palette->isChecked(),QColor(255,0,255))
-        : RasterColorMap::colorValue(palette,v,low,high,reverse_palette->isChecked())).rgb();
-    }
+  color_mapping.minimum=low;color_mapping.maximum=high;color_mapping.reversed=reverse_palette->isChecked();
+  if(!discrete_mode&&!color_mapping.boundaries.empty()) {
+    color_mapping.minimum=low=color_mapping.boundaries.front();color_mapping.maximum=high=color_mapping.boundaries.back();
   }
-  scene->addPixmap(QPixmap::fromImage(image));
-  setProperty("minimum",low); setProperty("maximum",high);
-  scene->setSceneRect(image.rect());
+  const auto selected=color_maps[size_t(palette_selector->currentIndex())];
+  auto settings=color_mapping;
+  if(discrete_mode) {settings.normalization=HdfColorMap::Normalization::Linear;settings.boundaries.clear();}
+  if(no_auto_range) {settings.normalization=HdfColorMap::Normalization::Linear;settings.boundaries.clear();}
+  const auto error=HdfColorMap::validate(selected,settings);
+  if(!error.isEmpty()){clear_plane(error);return;}
+  setProperty("paletteId",selected.id);
+  auto values=last_values;auto original=decoded_values;const auto categories=category_values;
+  const bool categorical=discrete_mode;
+  auto generation=render_generation;
+  const auto reservation=raster_reservation;
+  auto render=[values,original,selected,settings,categories,categorical,rows,cols,generation,request,reservation] {
+    QImage image(int(cols),int(rows),QImage::Format_RGB32);
+    if(image.isNull()) return image;
+    for(int row=0;row<image.height();++row) {
+      if(generation->load()!=request) return QImage();
+      auto line=reinterpret_cast<QRgb*>(image.scanLine(row));
+      for(int column=0;column<image.width();++column) {
+        const size_t index=size_t(row)*cols+column;const double value=(*values)[index];
+        const bool masked=!std::isfinite(value)&&std::isfinite((*original)[index]);
+        if(categorical&&std::isfinite(value)) {
+          auto found=std::find(categories.begin(),categories.end(),value);
+          line[column]=found==categories.end()?qRgb(255,0,255):HdfColorMap::sample(selected,(double(found-categories.begin())+.5)/categories.size(),settings.reversed);
+        } else line[column]=HdfColorMap::map_value(selected,settings,value,masked);
+      }
+    }
+    return image;
+  };
+  const QStringList bar_labels=discrete_mode?category_labels:QStringList();
+  const QString unit_text=cached_units;
+  auto apply_image=[this,request,selected,settings,unit_text,bar_labels,no_auto_range,reservation](const QImage &image) {
+    if(request!=render_revision) return;
+    if(image.isNull()){clear_plane(tr("Cannot allocate image."));return;}
+    image_item->setPixmap(QPixmap::fromImage(image));setProperty("renderedRevision",request);
+    color_bar->set_mapping(selected,settings,unit_text,bar_labels,!no_auto_range);
+  };
+  // Small deterministic fixtures stay synchronous; larger recoloring runs off the GUI thread.
+  pending_render={};pending_apply={};
+  if(rows*cols<=65536||qApp->property("synchronousRasterPreview").toBool()) {
+    const QImage image=render();
+    if(image.isNull()) {clear_plane(tr("Cannot allocate image."));return;}
+    apply_image(image);
+  }
+  else {
+    pending_render=render;pending_apply=apply_image;pending_revision=request;start_pending_render();
+  }
+  display_valid=true;
+  show_profile_action->setEnabled(profile_points.size()>=2);
+  setProperty("minimum",no_auto_range?QVariant():QVariant(low));
+  setProperty("maximum",no_auto_range?QVariant():QVariant(high));
+  scene->setSceneRect(0,0,double(cols),double(rows));
   QString coordinate_note=geographic && geo_grid.valid
     ? tr("   Geographic lookup: %1 / %2").arg(QString::fromUtf8(geo_grid.latitudePath.c_str()),QString::fromUtf8(geo_grid.longitudePath.c_str()))
     : QString();
@@ -523,14 +707,77 @@ void RasterView::refresh() {
     ? tr("%1 x %2   Categories: %3   Unknown: magenta   Missing: grey").arg(cols).arg(rows).arg(category_labels.join("; "))
     : tr("%1 x %2   Min %3   Max %4   Missing: grey%5")
     .arg(cols).arg(rows).arg(low,0,'g',9).arg(high,0,'g',9)
-    .arg(automatic ? tr(" (automatic)") : tr(" (fixed)")));
+    .arg(!color_mapping.boundaries.empty()?tr(" (custom boundaries)"):
+      automatic ? tr(" (automatic)") : tr(" (fixed)")));
+  if(no_auto_range) legend->setText(tr("%1 x %2   No valid values; missing: grey; Mask: white").arg(cols).arg(rows));
   if(masking) {
     auto bound=[](double value) { return std::isinf(value) ? (value<0 ? QString("-inf") : QString("+inf")) : QString::number(value,'g',9); };
     legend->setText(legend->text()+tr("   Masked [%1, %2] (decoded): %3, white")
-        .arg(bound(mask_from),bound(mask_to)).arg(masked));
+        .arg(bound(mask_from),bound(mask_to)).arg(masked_count));
   }
   if(!coordinate_note.isEmpty()) legend->setText(legend->text()+coordinate_note);
-  redraw_profile_overlay();
+}
+
+void RasterView::clear_plane(const QString &error) {
+  ++render_revision;render_generation->store(render_revision);pending_render={};pending_apply={};
+  display_valid=false;mask_valid=false;show_profile_action->setEnabled(false);
+  image_item->setPixmap(QPixmap());color_bar->clear();legend->setText(error);
+  setProperty("minimum",QVariant());setProperty("maximum",QVariant());
+  if(profile_window) if(auto *view=qobject_cast<ProfileView*>(profile_window.data()))
+    view->update_data({},0,0,{},CurvePathMode::SmoothSpline);
+}
+RasterView::~RasterView() {render_generation->fetch_add(1);pending_render={};}
+void RasterView::start_pending_render() {
+  if(render_running||!pending_render) return;
+  static QThreadPool render_pool;
+  render_pool.setMaxThreadCount(2);
+  auto render=std::move(pending_render);pending_render={};const auto request=pending_revision;
+  auto apply=std::move(pending_apply);pending_apply={};
+  render_running=true;const QPointer<RasterView> guard(this);
+  render_pool.start([guard,request,render,apply] {
+    const QImage image=render();
+    QMetaObject::invokeMethod(QCoreApplication::instance(),[guard,request,image,apply] {
+      if(!guard) return;
+      guard->render_running=false;
+      if(guard->render_revision==request) {
+        apply(image);
+      }
+      guard->start_pending_render();
+    },Qt::QueuedConnection);
+  });
+}
+void RasterView::fill_palette_selector() {
+  QSignalBlocker blocker(palette_selector);palette_selector->clear();
+  for(size_t index=0;index<color_maps.size();++index) {
+    const auto &palette=color_maps[index];
+    palette_selector->addItem(color_map_icon(palette),palette.name,palette.id);
+    palette_selector->setItemData(int(index),palette.group+" | "+palette.kind+" | "+palette.license+"\n"+palette.source,Qt::ToolTipRole);
+  }
+}
+void RasterView::choose_color_mapping() {
+  ColorMapPicker dialog(color_maps,palette_selector->currentIndex(),color_mapping,this);
+  if(dialog.exec()!=QDialog::Accepted) return;
+  QSignalBlocker block_palette(palette_selector),block_reverse(reverse_palette);
+  palette_selector->setCurrentIndex(dialog.selected_index());color_mapping=dialog.selected_mapping();
+  reverse_palette->setChecked(color_mapping.reversed);refresh();
+}
+QString RasterView::import_color_map(const QString &filename,HdfColorMap::RgbScale scale) {
+  HdfColorMap::Palette palette;const auto error=HdfColorMap::import_rgb(filename,scale,palette);
+  if(!error.isEmpty()) return error;
+  int index=-1;
+  for(size_t item=0;item<color_maps.size();++item) if(color_maps[item].id==palette.id) index=int(item);
+  if(index<0){color_maps.push_back(palette);index=int(color_maps.size()-1);}
+  fill_palette_selector();palette_selector->setCurrentIndex(index);return {};
+}
+void RasterView::choose_rgb_file() {
+  const QString filename=QFileDialog::getOpenFileName(this,tr("Import RGB color map"),{},tr("NCL RGB (*.rgb);;All files (*)"));
+  if(filename.isEmpty()) return;
+  bool accepted=false;
+  const QStringList choices={tr("0..255"),tr("0..1")};
+  const QString choice=QInputDialog::getItem(this,tr("RGB range"),tr("Select the encoding used in this file"),choices,0,false,&accepted);
+  if(!accepted) return;
+  const auto error=import_color_map(filename,choice==choices[1]?HdfColorMap::RgbScale::Unit:HdfColorMap::RgbScale::Byte);
+  if(!error.isEmpty()) QMessageBox::warning(this,tr("Cannot import color map"),error);
 }
 
 void RasterView::redraw_profile_overlay() {
@@ -568,7 +815,7 @@ void RasterView::redraw_profile_overlay() {
 }
 
 void RasterView::show_profile_window() {
-  if(profile_points.size() < 2 || last_values.empty()) return;
+  if(!display_valid || profile_points.size() < 2 || !last_values || last_values->empty()) return;
   if(!profile_window) {
     profile_window = new ProfileView(QString::fromUtf8(path.c_str()),
                                      last_values, last_rows, last_cols,

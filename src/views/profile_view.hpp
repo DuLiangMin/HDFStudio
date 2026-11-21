@@ -2,6 +2,7 @@
 #include <QtWidgets>
 #include "curve_profile.hpp"
 #include <vector>
+#include <memory>
 
 class ProfileCanvas : public QWidget {
   Q_OBJECT
@@ -19,13 +20,13 @@ class ProfileView : public QWidget {
   Q_OBJECT
 public:
   ProfileView(const QString &title,
-              std::vector<double> decoded_values,
+              std::shared_ptr<const std::vector<double>> decoded_values,
               size_t rows, size_t cols,
               std::vector<QPointF> control_points,
               CurvePathMode path_mode = CurvePathMode::SmoothSpline,
               QWidget *parent = nullptr);
 
-  void update_data(std::vector<double> decoded_values,
+  void update_data(std::shared_ptr<const std::vector<double>> decoded_values,
                    size_t rows, size_t cols,
                    std::vector<QPointF> control_points,
                    CurvePathMode path_mode = CurvePathMode::SmoothSpline);
@@ -33,7 +34,7 @@ private:
   void recompute();
   void export_csv();
 
-  std::vector<double> m_values;
+  std::shared_ptr<const std::vector<double>> m_values;
   size_t m_rows = 0;
   size_t m_cols = 0;
   std::vector<QPointF> m_controls;

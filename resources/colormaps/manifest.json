@@ -1,0 +1,115 @@
+{
+  "schema_version": 1,
+  "generator": "cmap==0.8.0",
+  "ncl_commit": "8f9e9476281cc6f6d9d12eaa78729c7003ca24b7",
+  "palettes": [
+    {
+      "id": "bids:viridis",
+      "file": "palettes/bids_viridis.json",
+      "sha256": "42c1a01822509456e36e13df0149c4cf44282bda355b8cd4d823ebba27cf43c8",
+      "count": 256
+    },
+    {
+      "id": "cmocean:rain",
+      "file": "palettes/cmocean_rain.json",
+      "sha256": "c348bd1f847cf6578c0880cbcab7656f798273753bde4e8c34809325949ac07f",
+      "count": 256
+    },
+    {
+      "id": "cmocean:thermal",
+      "file": "palettes/cmocean_thermal.json",
+      "sha256": "6461739b91f9df232b4fea8123f2b44fd5c21da61e3c0fdeb142a2f4b8106a34",
+      "count": 256
+    },
+    {
+      "id": "cmocean:balance",
+      "file": "palettes/cmocean_balance.json",
+      "sha256": "5712aa41dacaaaadbd2520c634fc3fa074b092cf50ae136c682444d189a30ab9",
+      "count": 512
+    },
+    {
+      "id": "cmocean:speed",
+      "file": "palettes/cmocean_speed.json",
+      "sha256": "9d6fbe767d09905e08ed033dacbdaf9a599da9c1978116496218b9c78e04003f",
+      "count": 256
+    },
+    {
+      "id": "cmocean:curl",
+      "file": "palettes/cmocean_curl.json",
+      "sha256": "07d4d31b0773a0e1ce76e435859208655dec42815f55f4a0ba25118e588933c7",
+      "count": 512
+    },
+    {
+      "id": "cmocean:phase",
+      "file": "palettes/cmocean_phase.json",
+      "sha256": "4f55e6709728cda0a2dafa9b01b1605368246f62ab26b0f1ad0533f1904e92de",
+      "count": 256
+    },
+    {
+      "id": "crameri:batlow",
+      "file": "palettes/crameri_batlow.json",
+      "sha256": "c05d35848d67efc969e10f6ee456d27e4b38a9e9f96adcbd83b61bf2d575ea35",
+      "count": 256
+    },
+    {
+      "id": "ncl:precip_11lev",
+      "file": "palettes/ncl_precip_11lev.json",
+      "sha256": "98513ec27a35b2be36458fb0ccb4615ff1b91b4a9c998b94e35607f3d592bc43",
+      "count": 12
+    },
+    {
+      "id": "ncl:precip_diff_12lev",
+      "file": "palettes/ncl_precip_diff_12lev.json",
+      "sha256": "d9ec209c5da5a66f700fcc54e25973d0fb0d16d5d8078610bce883e9fdc1a3bd",
+      "count": 13
+    },
+    {
+      "id": "ncl:temp_19lev",
+      "file": "palettes/ncl_temp_19lev.json",
+      "sha256": "44a1f9aae64317659355cef87f1dfd4691d0d8e8e2652c59e1b5885a7d41b9e6",
+      "count": 20
+    },
+    {
+      "id": "ncl:wind_17lev",
+      "file": "palettes/ncl_wind_17lev.json",
+      "sha256": "0f421a96766b2c94cf28d0ce0af52f9b19332f0b43ff15311fa87fc9855e7460",
+      "count": 18
+    },
+    {
+      "id": "ncl:BlueWhiteOrangeRed",
+      "file": "palettes/ncl_BlueWhiteOrangeRed.json",
+      "sha256": "7080deacca8d1f4c8a645340e4ce42ab4694fee638061eee93c9dc8d54e945c8",
+      "count": 254
+    }
+  ],
+  "licenses": [
+    {
+      "file": "Apache-2.0.txt",
+      "sha256": "074e6e32c86a4c0ef8b3ed25b721ca23aca83df277cd88106ef7177c354615ff"
+    },
+    {
+      "file": "ATTRIBUTION.txt",
+      "sha256": "6aef663b0b5f8533aa158f24227f88cd1297ec6eb42776e61eca3e8570b4f027"
+    },
+    {
+      "file": "BSD-3-Clause.txt",
+      "sha256": "3cf06aba3588c41c514f6946bb2d757b413ff6491647d474800f55edca75dcb4"
+    },
+    {
+      "file": "CC0-1.0.txt",
+      "sha256": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499"
+    },
+    {
+      "file": "cmap-REUSE.toml",
+      "sha256": "87932d77eab37ffe410f5611e5dc53ce6d380353dfff51580d3103572d0bce55"
+    },
+    {
+      "file": "MIT.txt",
+      "sha256": "b05785f9f18e6716bab63424b11454513b9943a222595b70411009202fc592b5"
+    },
+    {
+      "file": "NCL-COPYRIGHT.txt",
+      "sha256": "f60a43cd897b40977a363d44e22fbcbc2b46898a524d3ba8da9323e98c31df06"
+    }
+  ]
+}

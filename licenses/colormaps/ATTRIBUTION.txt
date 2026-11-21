@@ -1,0 +1,44 @@
+HDFStudio color-map data attribution and transformation record
+Snapshot date: 2026-11-21
+
+This directory accompanies the color maps in resources/colormaps.
+Exact source and generated-data SHA256 values are in that directory's manifest
+and per-palette JSON. The original RGB/source data are retained in source/.
+
+CMap 0.8.0 (development-time extraction tool)
+Copyright 2022 Talley Lambert. BSD-3-Clause.
+The original v0.8.0 REUSE.toml is preserved here. It assigns licenses to
+individual data namespaces; CMap's package license does not replace them.
+
+BIDS viridis: Nathaniel J. Smith and Stefan van der Walt. CC0-1.0.
+cmocean rain, thermal, balance, speed, curl, phase:
+Copyright 2015 Kristen M. Thyng. MIT.
+Crameri batlow: Copyright 2021 Fabio Crameri. MIT.
+These assignments are recorded in the upstream CMap REUSE.toml.
+Transformation: original color stops and sRGB component precision retained,
+serialized as JSON RGBA with alpha 1; continuous interpolation at runtime.
+Balance and curl each keep 512 nodes rather than being reduced to 256.
+
+NCL snapshot 8f9e9476281cc6f6d9d12eaa78729c7003ca24b7:
+Copyright 2019 University Corporation for Atmospheric Research.
+Apache License 2.0; original NCL LICENSE and complete Apache text are included.
+Selected files: precip_11lev.rgb, precip_diff_12lev.rgb, temp_19lev.rgb,
+wind_17lev.rgb, BlueWhiteOrangeRed.rgb.
+The first four original files state "Converted from MeteoSwiss NCL library";
+this contribution attribution is retained in the raw files and derived JSON.
+The selected files and colormap directory README contain no separate license
+override. The repository-wide LICENSE is the recorded distribution basis.
+No repository NOTICE file was present in the locked tree.
+Transformation by HDFStudio on 2026-11-21: all original RGB rows retained,
+normalized from 0..255 to 0..1, alpha 1, serialized as JSON; no meteorological
+levels or units are inferred from names. The 4 short tables default to steps.
+
+Legacy Viridis, Plasma and Inferno preserve HDFStudio 0.12.03 sparse-control
+approximations for compatibility; the BIDS source attribution is retained.
+Legacy Turbo retains the existing sparse approximation: original Turbo color
+map by Anton Mikhailov, Apache-2.0 (see upstream CMap REUSE Google namespace).
+The legacy algorithms are HDFStudio application code, under the project's GPL-3.0.
+
+No endorsement by the original authors or institutions is claimed.
+User-imported color maps are stored locally and are not included in official
+resources by this importer; their licensing is not asserted by HDFStudio.

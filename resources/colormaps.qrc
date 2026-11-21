@@ -1,0 +1,24 @@
+<RCC><qresource prefix="/colormaps">
+<file alias="palettes/bids_viridis.json">colormaps/palettes/bids_viridis.json</file>
+<file alias="palettes/cmocean_rain.json">colormaps/palettes/cmocean_rain.json</file>
+<file alias="palettes/cmocean_thermal.json">colormaps/palettes/cmocean_thermal.json</file>
+<file alias="palettes/cmocean_balance.json">colormaps/palettes/cmocean_balance.json</file>
+<file alias="palettes/cmocean_speed.json">colormaps/palettes/cmocean_speed.json</file>
+<file alias="palettes/cmocean_curl.json">colormaps/palettes/cmocean_curl.json</file>
+<file alias="palettes/cmocean_phase.json">colormaps/palettes/cmocean_phase.json</file>
+<file alias="palettes/crameri_batlow.json">colormaps/palettes/crameri_batlow.json</file>
+<file alias="palettes/ncl_precip_11lev.json">colormaps/palettes/ncl_precip_11lev.json</file>
+<file alias="palettes/ncl_precip_diff_12lev.json">colormaps/palettes/ncl_precip_diff_12lev.json</file>
+<file alias="palettes/ncl_temp_19lev.json">colormaps/palettes/ncl_temp_19lev.json</file>
+<file alias="palettes/ncl_wind_17lev.json">colormaps/palettes/ncl_wind_17lev.json</file>
+<file alias="palettes/ncl_BlueWhiteOrangeRed.json">colormaps/palettes/ncl_BlueWhiteOrangeRed.json</file>
+<file alias="licenses/Apache-2.0.txt">../licenses/colormaps/Apache-2.0.txt</file>
+<file alias="licenses/ATTRIBUTION.txt">../licenses/colormaps/ATTRIBUTION.txt</file>
+<file alias="licenses/BSD-3-Clause.txt">../licenses/colormaps/BSD-3-Clause.txt</file>
+<file alias="licenses/CC0-1.0.txt">../licenses/colormaps/CC0-1.0.txt</file>
+<file alias="licenses/cmap-REUSE.toml">../licenses/colormaps/cmap-REUSE.toml</file>
+<file alias="licenses/MIT.txt">../licenses/colormaps/MIT.txt</file>
+<file alias="licenses/NCL-COPYRIGHT.txt">../licenses/colormaps/NCL-COPYRIGHT.txt</file>
+<file alias="manifest.json">colormaps/manifest.json</file>
+<file alias="golden.json">colormaps/golden.json</file>
+</qresource></RCC>

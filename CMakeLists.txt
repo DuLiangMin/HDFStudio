@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(HDFStudio VERSION 0.12.03 LANGUAGES C CXX)
+project(HDFStudio VERSION 0.12.06 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -33,6 +33,8 @@ include_directories(${CMAKE_SOURCE_DIR}/src/views)
 #//////////////////////////
 
 qt_add_resources(qrc_sources resources/hdf_explorer.qrc)
+qt_add_resources(colormap_resources resources/colormaps.qrc)
+list(APPEND qrc_sources ${colormap_resources})
 if(WIN32)
   set(windows_resources resources/hdf_explorer.rc)
 endif()
@@ -60,6 +62,10 @@ set(src
     src/views/histogram_view.cpp
     src/views/profile_view.hpp
     src/views/profile_view.cpp
+    src/views/color_bar.hpp
+    src/views/color_bar.cpp
+    src/views/color_map_picker.hpp
+    src/views/color_map_picker.cpp
 )
 
 #//////////////////////////
@@ -111,9 +117,9 @@ set_target_properties(hdf_explorer PROPERTIES
 #   hdf_core : Properties summary and text export (HDF5, plus nc_core for NetCDF-3)
 add_library(nc_core STATIC src/core/nc_reader.cpp src/core/nc_classic.cpp)
 target_link_libraries(nc_core PUBLIC Qt6::Core)
-add_library(hdf_core STATIC src/core/properties_inspector.cpp src/core/text_export.cpp src/core/plane_reader.cpp src/core/curve_profile.cpp)
+add_library(hdf_core STATIC src/core/properties_inspector.cpp src/core/text_export.cpp src/core/plane_reader.cpp src/core/curve_profile.cpp src/core/color_map.cpp)
 target_link_libraries(hdf_core PUBLIC nc_core ${hdf5_dep})
-add_executable(hdf_cli src/cli/hdf_cli.cpp)
+add_executable(hdf_cli src/cli/hdf_cli.cpp ${colormap_resources})
 target_link_libraries(hdf_cli PRIVATE hdf_core)
 set_target_properties(hdf_cli PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_SOURCE_DIR}/build/output/Debug"

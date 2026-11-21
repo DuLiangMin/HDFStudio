@@ -28,6 +28,7 @@
 #include "plane_reader.hpp"
 #include "properties_inspector.hpp"
 #include "text_export.hpp"
+#include "color_map.hpp"
 #include <QCoreApplication>
 #include <QFile>
 #include <QTextStream>
@@ -46,6 +47,8 @@ void print_usage() {
          "  hdf_cli csv    <file> <path> <new.csv> [index ...]\n"
          "  hdf_cli mask   <file> <path> <start|-> <end|-> [index ...]   (decoded values)\n"
          "  hdf_cli hist   <file> <path> [keep_fraction] [bins] [index ...]   (default 0.05 = 1 in 20)\n";
+  err << "  hdf_cli cmap [palette-id [fraction]]   (list or sample bundled color maps)\n"
+         "  hdf_cli rgb <file.rgb> <unit|byte>     (validate local RGB without installing it)\n";
 }
 
 // UTF-8 bytes to stdout, so attribute text survives redirection to a file.
@@ -221,6 +224,29 @@ int main(int argc, char **argv) {
   QCoreApplication app(argc, argv);
   const QStringList args = app.arguments();
   const QString command = args.value(1);
+  if(command=="cmap" && args.size()<=4) {
+    QString error;const auto palettes=HdfColorMap::load_registry(error);
+    if(!error.isEmpty()){QTextStream(stderr)<<error;return 3;}
+    bool found=args.size()==2;
+    for(const auto &palette:palettes) {
+      if(args.size()>2&&palette.id!=args[2]) continue;
+      found=true;
+      if(args.size()==4) {
+        bool ok=false;const double position=args[3].toDouble(&ok);if(!ok||!std::isfinite(position)) return 2;
+        const uint32_t rgb=HdfColorMap::sample(palette,position);
+        print_text(QString("%1,%2,%3,%4\n").arg((rgb>>16)&255).arg((rgb>>8)&255).arg(rgb&255).arg(rgb>>24));
+      } else print_text(QString("%1\t%2\t%3\n").arg(palette.id).arg(palette.colors.size()).arg(palette.license));
+    }
+    return found?0:3;
+  }
+  if(command=="rgb"&&args.size()==4) {
+    if(args[3]!="unit"&&args[3]!="byte") return 2;
+    QFile file(args[2]);if(!file.open(QIODevice::ReadOnly)||file.size()>2*1024*1024) return 3;
+    HdfColorMap::Palette palette;
+    const auto error=HdfColorMap::parse_rgb(file.readAll(),args[3]=="unit"?HdfColorMap::RgbScale::Unit:HdfColorMap::RgbScale::Byte,palette);
+    if(!error.isEmpty()){QTextStream(stderr)<<error;return 3;}
+    print_text(QString("colors: %1\nsha256: %2\n").arg(palette.colors.size()).arg(palette.source_hash));return 0;
+  }
   if(command == "probe" && args.size() == 3) return command_probe(args[2]);
   if(command == "info" && args.size() == 3) return command_info(args[2]);
   if(command == "props" && args.size() == 4) return command_props(args[2], args[3]);

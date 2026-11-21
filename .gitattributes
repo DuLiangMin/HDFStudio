@@ -1,0 +1,6 @@
+# Palette/license checksums describe exact source bytes; never normalize line endings.
+/resources/colormaps/** -text
+# Upstream source bytes intentionally retain their original whitespace.
+/resources/colormaps/source/** -whitespace
+/resources/colormaps.qrc -text
+/licenses/colormaps/** -text

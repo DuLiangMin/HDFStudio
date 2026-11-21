@@ -5,7 +5,12 @@
 #include "nc_reader.hpp"
 #include "layer_navigation.hpp"
 #include "curve_profile.hpp"
+#include "color_map.hpp"
+#include "color_bar.hpp"
 #include <QPointer>
+#include <memory>
+#include <atomic>
+#include <functional>
 #include <vector>
 #include <string>
 #include <map>
@@ -31,12 +36,15 @@ class RasterView : public QWidget, public LayerNavigation {
   Q_OBJECT
 public:
   RasterView(std::string file, std::string path, std::vector<hsize_t> dims);
+  ~RasterView() override;
   // LayerNavigation: the leading-axis spin boxes are the selection; the main Layer toolbar drives them
   int layer_axis_count() const override;
   QString layer_axis_name(int axis) const override;
   int layer_count(int axis) const override;
   int layer_index(int axis) const override;
   void set_layer_index(int axis, int index) override;
+  // Used by the native dialog and deterministic GUI tests; imports are user-local.
+  QString import_color_map(const QString &filename,HdfColorMap::RgbScale scale);
 signals:
   void layer_changed();
 protected:
@@ -45,13 +53,38 @@ private:
   void refresh();
   void redraw_profile_overlay();
   void show_profile_window();
+  void fill_palette_selector();
+  void choose_color_mapping();
+  void choose_rgb_file();
+  void clear_plane(const QString &error);
+  void start_pending_render();
   std::string file, path;
   std::vector<hsize_t> dims;
   std::vector<QSpinBox*> layers;
   QStringList axis_names;   // names of the leading dimensions, e.g. time, lev
   QGraphicsView *canvas;
   QGraphicsScene *scene;
+  QGraphicsPixmapItem *image_item = nullptr;
   QLabel *legend;
+  ColorBar *color_bar;
+  std::vector<HdfColorMap::Palette> color_maps;
+  HdfColorMap::Mapping color_mapping;
+  quint64 render_revision = 0;
+  std::shared_ptr<std::atomic<quint64>> render_generation = std::make_shared<std::atomic<quint64>>(0);
+  std::function<QImage()> pending_render;
+  std::function<void(const QImage &)> pending_apply;
+  quint64 pending_revision = 0;
+  bool render_running = false;
+  bool display_valid = false;
+  bool reading_valid = false;
+  std::vector<size_t> cached_indices;
+  QString cached_mask_start, cached_mask_end, cached_units, cached_meanings;
+  std::vector<double> declared_categories;
+  std::shared_ptr<const std::vector<double>> decoded_values;
+  std::shared_ptr<void> raster_reservation;
+  bool mask_valid = false;
+  size_t masked_count = 0;
+  double data_low = 0, data_high = 0;
   QComboBox *palette_selector;
   QCheckBox *reverse_palette;
   QComboBox *range_mode;
@@ -68,7 +101,7 @@ private:
   QAction *clear_profile_action = nullptr;
   std::vector<QPointF> profile_points;
   int dragging_point_index = -1;
-  std::vector<double> last_values;
+  std::shared_ptr<const std::vector<double>> last_values;
   size_t last_rows = 0;
   size_t last_cols = 0;
   QPointer<QWidget> profile_window;

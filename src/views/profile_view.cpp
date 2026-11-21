@@ -74,7 +74,7 @@ void ProfileCanvas::paintEvent(QPaintEvent *) {
 }
 
 ProfileView::ProfileView(const QString &title,
-                         std::vector<double> decoded_values,
+                         std::shared_ptr<const std::vector<double>> decoded_values,
                          size_t rows, size_t cols,
                          std::vector<QPointF> control_points,
                          CurvePathMode path_mode,
@@ -116,7 +116,7 @@ ProfileView::ProfileView(const QString &title,
   recompute();
 }
 
-void ProfileView::update_data(std::vector<double> decoded_values,
+void ProfileView::update_data(std::shared_ptr<const std::vector<double>> decoded_values,
                               size_t rows, size_t cols,
                               std::vector<QPointF> control_points,
                               CurvePathMode path_mode) {
@@ -131,7 +131,8 @@ void ProfileView::update_data(std::vector<double> decoded_values,
 void ProfileView::recompute() {
   const auto interp = static_cast<ProfileInterpMode>(m_interp->currentData().toInt());
   const std::vector<QPointF> sampled = curve_sample_path(m_controls, m_path_mode, 0.5);
-  const CurveProfileResult result = curve_extract_profile(m_values, m_rows, m_cols, sampled, interp);
+  static const std::vector<double> empty;
+  const CurveProfileResult result = curve_extract_profile(m_values?*m_values:empty, m_rows, m_cols, sampled, interp);
   m_canvas->set_profile(result);
 
   setProperty("pointCount", qulonglong(result.points.size()));

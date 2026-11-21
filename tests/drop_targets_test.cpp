@@ -22,6 +22,9 @@
 #include "plane_reader.hpp"
 #include "histogram_view.hpp"
 #include "mesh_view.hpp"
+#include "color_map.hpp"
+#include "color_map_picker.hpp"
+#include <QScopeGuard>
 #include <QPlainTextEdit>
 
 class DropTargetsTest : public QObject {
@@ -32,6 +35,11 @@ private slots:
   void rejectsMissingLocalFile();
   void opensNetcdfFromEachTarget();
   void continuousPalettesMapEndpointsAndReverse();
+  void colorMapResourcesMatchGoldenValuesAndLicenses();
+  void colorMapRgbAndMappingHandleBoundaries();
+  void colorMapUiUsesCachedDecodedPlane();
+  void colorMapLatestAsyncRenderWins();
+  void colorMapMissingCategoriesColorbarAndBudget();
   void invalidFractionsAreClamped();
   void automaticAndFixedRangesAreValidated();
   void discreteCategoriesAreStableAndHandleUnknowns();
@@ -62,6 +70,7 @@ private slots:
   void bothGridsShowDecodedAndRawSideBySide();
   void histogramSamplesOneInTwentyAndBinsDecodedValues();
   void rasterFlipAndResetRestoreOriginalView();
+  void rasterZoomButtonsWheelAndCyclesPreserveData();
   void curveProfileSamplesPolylineAndSplineOnDecodedPlane();
   void externalPackedSampleMatchesPython();
   void fileDropOpensFromEveryAreaOfTheMainWindow();
@@ -131,6 +140,230 @@ void DropTargetsTest::continuousPalettesMapEndpointsAndReverse() {
   QCOMPARE(RasterColorMap::colorValue(Palette::Inferno,
              std::numeric_limits<double>::quiet_NaN(), 0.0, 1.0, false),
            QColor(110,110,110));
+}
+
+void DropTargetsTest::colorMapResourcesMatchGoldenValuesAndLicenses() {
+  using namespace HdfColorMap;
+  QStandardPaths::setTestModeEnabled(true);
+  QString error;const auto palettes=load_registry(error);QVERIFY2(error.isEmpty(),qPrintable(error));
+  QVERIFY(palettes.size()>=18);
+  QFile golden(":/colormaps/golden.json");QVERIFY(golden.open(QIODevice::ReadOnly));
+  const auto references=QJsonDocument::fromJson(golden.readAll()).array();QCOMPARE(references.size(),13);
+  for(const auto &reference:references) {
+    const auto object=reference.toObject();
+    auto found=std::find_if(palettes.begin(),palettes.end(),[&](const Palette &palette){return palette.id==object["id"].toString();});
+    QVERIFY(found!=palettes.end());QVERIFY(!found->source.isEmpty());QVERIFY(!found->authors.isEmpty());
+    QCOMPARE(found->source_hash.size(),64);QVERIFY(!found->license.isEmpty());
+    for(const auto &value:object["samples"].toArray()) {
+      const auto point=value.toObject();const auto rgba=point["rgba8"].toArray();
+      const uint32_t expected=qRgba(rgba[0].toInt(),rgba[1].toInt(),rgba[2].toInt(),rgba[3].toInt());
+      QCOMPARE(sample(*found,point["fraction"].toDouble()),expected);
+      QCOMPARE(sample(*found,1-point["fraction"].toDouble(),true),expected);
+    }
+  }
+  const std::vector<size_t> counts={256,256,256,512,256,512,256,256,12,13,20,18,254};
+  for(size_t index=0;index<counts.size();++index) QCOMPARE(palettes[index+5].colors.size(),counts[index]);
+  for(int index=0;index<5;++index) for(double position:{0.,.13,.37,.5,1.})
+    QCOMPARE(sample(palettes[size_t(index)],position),RasterColorMap::color(RasterColorMap::Palette(index),position,false).rgba());
+  QFile manifest(":/colormaps/manifest.json");QVERIFY(manifest.open(QIODevice::ReadOnly));
+  const auto object=QJsonDocument::fromJson(manifest.readAll()).object();
+  for(const auto &entry:object["licenses"].toArray()) {
+    const auto item=entry.toObject();QFile license(":/colormaps/licenses/"+item["file"].toString());QVERIFY(license.open(QIODevice::ReadOnly));
+    QCOMPARE(QString::fromLatin1(QCryptographicHash::hash(license.readAll(),QCryptographicHash::Sha256).toHex()),item["sha256"].toString());
+  }
+  QProcess cli;cli.start(QDir(QCoreApplication::applicationDirPath()).filePath("hdf_cli.exe"),{"cmap","bids:viridis","0"});
+  QVERIFY(cli.waitForFinished());QCOMPARE(cli.exitCode(),0);QCOMPARE(cli.readAllStandardOutput().trimmed(),QByteArray("68,1,84,255"));
+}
+
+void DropTargetsTest::colorMapRgbAndMappingHandleBoundaries() {
+  using namespace HdfColorMap;
+  Palette palette;
+  QVERIFY(parse_rgb("# sample\nncolors=3\n0 0 255\n255 255 255 # middle\n255 0 0\n",RgbScale::Byte,palette).isEmpty());
+  QCOMPARE(palette.colors.size(),size_t(3));QCOMPARE(sample(palette,0),uint32_t(qRgb(0,0,255)));
+  const auto before=palette.id;
+  QVERIFY(!parse_rgb("ncolors=4\n0 0 0\n255 255 255",RgbScale::Byte,palette).isEmpty());QCOMPARE(palette.id,before);
+  Palette unit;QVERIFY(parse_rgb("ncolor=2\n0 0.5 1\n1 0 0",RgbScale::Unit,unit).isEmpty());
+  QVERIFY(!parse_rgb("0 0 0\n1 1 1",RgbScale::Auto,unit).isEmpty());
+  QVERIFY(!parse_rgb("0 0 0\nnan 1 1",RgbScale::Unit,unit).isEmpty());
+  QVERIFY(!parse_rgb("0 0 0\n256 1 1",RgbScale::Byte,unit).isEmpty());
+  QVERIFY(!parse_rgb("0 0 0\n1 1 1\nncolor=3",RgbScale::Byte,unit).isEmpty());
+  Mapping mapping;mapping.minimum=-1;mapping.maximum=3;mapping.mode=Mode::Stepped;mapping.boundaries={-1,0,1,3};
+  QVERIFY(validate(palette,mapping).isEmpty());
+  QCOMPARE(map_value(palette,mapping,0),uint32_t(qRgb(255,255,255)));
+  QCOMPARE(map_value(palette,mapping,1),uint32_t(qRgb(255,0,0)));
+  QCOMPARE(map_value(palette,mapping,3),uint32_t(qRgb(255,0,0)));
+  mapping.reversed=true;QCOMPARE(map_value(palette,mapping,3),uint32_t(qRgb(0,0,255)));
+  mapping.custom_under=true;mapping.under=qRgb(1,2,3);QCOMPARE(map_value(palette,mapping,-2),mapping.under);
+  mapping.custom_over=true;mapping.over=qRgb(4,5,6);QCOMPARE(map_value(palette,mapping,4),mapping.over);
+  QCOMPARE(map_value(palette,mapping,NAN),missing_color);QCOMPARE(map_value(palette,mapping,0,true),masked_color);
+  mapping.boundaries={0,0,1,3};QVERIFY(!validate(palette,mapping).isEmpty());
+  mapping={};mapping.minimum=-2;mapping.maximum=6;mapping.normalization=Normalization::Centered;
+  QVERIFY(validate(palette,mapping).isEmpty());QCOMPARE(fraction(0,mapping),.5);QCOMPARE(value_at(.5,mapping),0.);
+  mapping.normalization=Normalization::Cyclic;mapping.origin=0;mapping.period=360;
+  QCOMPARE(map_value(palette,mapping,0),map_value(palette,mapping,360));
+  QCOMPARE(map_value(palette,mapping,-90),map_value(palette,mapping,270));
+  mapping.period=0;QVERIFY(!validate(palette,mapping).isEmpty());
+  mapping={};mapping.minimum=mapping.maximum=4;
+  QCOMPARE(map_value(palette,mapping,4),sample(palette,.5));
+  mapping.minimum=-std::numeric_limits<double>::max();mapping.maximum=std::numeric_limits<double>::max();
+  QCOMPARE(fraction(0,mapping),.5);QCOMPARE(fraction(mapping.minimum/2,mapping),.25);
+  Palette decoded;QVERIFY(parse_json(to_json(palette),decoded).isEmpty());QCOMPARE(decoded.colors,palette.colors);
+}
+
+void DropTargetsTest::colorMapUiUsesCachedDecodedPlane() {
+  using namespace HdfColorMap;
+  QStandardPaths::setTestModeEnabled(true);
+  QTemporaryDir directory;QVERIFY(directory.isValid());const QString filename=directory.filePath("color-maps.nc");
+  int file=-1, time=-1, row=-1, col=-1, variable=-1;
+  QCOMPARE(nc_create(nc_path_bytes(filename).constData(),NC_CLOBBER,&file),NC_NOERR);
+  QCOMPARE(nc_def_dim(file,"time",2,&time),NC_NOERR);QCOMPARE(nc_def_dim(file,"y",3,&row),NC_NOERR);QCOMPARE(nc_def_dim(file,"x",4,&col),NC_NOERR);
+  int dimensions[]={time,row,col};QCOMPARE(nc_def_var(file,"field",NC_SHORT,3,dimensions,&variable),NC_NOERR);
+  const double scale=.5,offset=-2;const short fill=-999;
+  nc_put_att_double(file,variable,"scale_factor",NC_DOUBLE,1,&scale);nc_put_att_double(file,variable,"add_offset",NC_DOUBLE,1,&offset);
+  nc_put_att_short(file,variable,"_FillValue",NC_SHORT,1,&fill);nc_put_att_text(file,variable,"units",1,"K");
+  QCOMPARE(nc_enddef(file),NC_NOERR);short raw[24];for(int index=0;index<24;++index) raw[index]=short(index*2);raw[3]=fill;
+  QCOMPARE(nc_put_var_short(file,variable,raw),NC_NOERR);QCOMPARE(nc_close(file),NC_NOERR);
+  RasterView view(filename.toLocal8Bit().toStdString(),"/field",{2,3,4});view.resize(1100,750);view.show();QVERIFY(QTest::qWaitForWindowExposed(&view));
+  QTRY_COMPARE(view.property("planeReadCount").toULongLong(),qulonglong(1));
+  auto *selector=view.findChild<QComboBox*>("colorMapSelector");QVERIFY(selector);QVERIFY(selector->count()>=18);
+  QCOMPARE(view.findChild<QAction*>("projsAction")->text(),QString("Projs"));
+  QCOMPARE(view.findChild<QLabel*>("colorMapsLabel")->text(),QString("CMaps"));
+  auto *canvas=view.findChild<QGraphicsView*>();QVERIFY(canvas);
+  QGraphicsPixmapItem *image=nullptr;for(auto *item:canvas->scene()->items()) if(item->type()==QGraphicsPixmapItem::Type) image=static_cast<QGraphicsPixmapItem*>(item);
+  QVERIFY(image);const QTransform transform=canvas->transform();
+  auto *flip=view.findChild<QAction*>("flipHorizontalAction");flip->setChecked(true);
+  const auto flipped=canvas->transform();
+  selector->setCurrentIndex(selector->findData("bids:viridis"));
+  QCOMPARE(view.property("minimum").toDouble(),-2.);QCOMPARE(view.property("maximum").toDouble(),9.);
+  QCOMPARE(image->pixmap().toImage().pixel(0,0),uint32_t(qRgb(68,1,84)));
+  QCOMPARE(image->pixmap().toImage().pixel(3,0),missing_color);
+  auto *reverse=view.findChild<QCheckBox*>("reverseColorMap");reverse->setChecked(true);
+  QCOMPARE(image->pixmap().toImage().pixel(0,0),uint32_t(qRgb(253,231,37)));
+  for(int index=0;index<18;++index) selector->setCurrentIndex(index);
+  QCOMPARE(view.property("planeReadCount").toULongLong(),qulonglong(1));QCOMPARE(canvas->transform(),flipped);
+  selector->setCurrentIndex(selector->findData("bids:viridis"));reverse->setChecked(false);
+  auto *profile=view.findChild<QAction*>("profileModeAction");profile->setChecked(true);
+  QTest::mouseClick(canvas->viewport(),Qt::LeftButton,Qt::NoModifier,canvas->mapFromScene(QPointF(.5,.5)));
+  QTest::mouseClick(canvas->viewport(),Qt::LeftButton,Qt::NoModifier,canvas->mapFromScene(QPointF(2.5,1.5)));
+  view.findChild<QAction*>("showProfileAction")->trigger();auto *profile_window=view.findChild<ProfileView*>();QVERIFY(profile_window);
+  const auto profile_mean=profile_window->property("mean").toDouble();
+  QList<QGraphicsItem*> overlay_items;
+  for(auto *item:canvas->scene()->items()) if(item->data(0).toString()=="profileOverlay") overlay_items<<item;
+  QVERIFY(overlay_items.size()>=3);
+  selector->setCurrentIndex(selector->findData("cmocean:thermal"));QCOMPARE(profile_window->property("mean").toDouble(),profile_mean);
+  for(auto *item:overlay_items) QVERIFY(canvas->scene()->items().contains(item));
+  auto *mask_start=view.findChild<QLineEdit*>("maskStart");auto *mask_end=view.findChild<QLineEdit*>("maskEnd");
+  mask_start->setText("-2");mask_end->setText("-2");QMetaObject::invokeMethod(mask_end,"editingFinished");
+  QCOMPARE(image->pixmap().toImage().pixel(0,0),masked_color);QCOMPARE(view.property("masked").toULongLong(),qulonglong(1));
+  QCOMPARE(view.property("planeReadCount").toULongLong(),qulonglong(1));
+  mask_start->clear();mask_end->clear();QMetaObject::invokeMethod(mask_end,"editingFinished");
+  QCOMPARE(view.property("minimum").toDouble(),-2.);QCOMPARE(view.property("masked").toULongLong(),qulonglong(0));
+  view.set_layer_index(0,1);QCOMPARE(view.property("planeReadCount").toULongLong(),qulonglong(2));
+  QVERIFY(profile_window->property("mean").toDouble()>profile_mean+10);
+  const auto count=view.property("planeReadCount").toULongLong();
+  auto *range=view.findChild<QComboBox*>("colorRangeMode");
+  view.findChild<QDoubleSpinBox*>("colorMinimum")->setValue(-10);view.findChild<QDoubleSpinBox*>("colorMaximum")->setValue(50);range->setCurrentIndex(1);
+  QCOMPARE(view.property("planeReadCount").toULongLong(),count);
+  QTemporaryFile rgb;QVERIFY(rgb.open());rgb.write("ncolor=2\n0 0 0\n255 255 255\n");rgb.flush();
+  QVERIFY(view.import_color_map(rgb.fileName(),RgbScale::Byte).isEmpty());
+  const QString imported=selector->currentData().toString();QVERIFY(imported.startsWith("import:"));
+  QVERIFY(QFile::remove(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)+"/colormaps/"+imported.mid(7)+".json"));
+  QCOMPARE(view.property("planeReadCount").toULongLong(),count);
+  // Exercise real widgets for centered/cyclic and custom boundaries, with no modal interaction shortcuts.
+  QString error;const auto palettes=load_registry(error);Mapping settings;settings.minimum=-10;settings.maximum=50;
+  ColorMapPicker picker(palettes,5,settings);picker.show();QVERIFY(QTest::qWaitForWindowExposed(&picker));
+  picker.findChild<QComboBox*>("colorNormalization")->setCurrentIndex(1);
+  picker.findChild<QLineEdit*>("colorCenter")->setText("0");
+  auto *buttons=picker.findChild<QDialogButtonBox*>();QTest::mouseClick(buttons->button(QDialogButtonBox::Ok),Qt::LeftButton);
+  QCOMPARE(picker.result(),int(QDialog::Accepted));QCOMPARE(picker.selected_mapping().normalization,Normalization::Centered);
+  const QString log=qEnvironmentVariable("HDFSTUDIO_TEST_LOG_DIR");
+  if(!log.isEmpty()) {profile_window->hide();view.raise();QTest::qWait(100);QVERIFY(view.grab().save(QDir(log).filePath("color-map-"+qEnvironmentVariable("HDFSTUDIO_TEST_CONFIG")+".png")));}
+  Q_UNUSED(transform);
+}
+
+void DropTargetsTest::colorMapLatestAsyncRenderWins() {
+  QTemporaryDir directory;const QString filename=directory.filePath("async.nc");
+  int file=-1,row=-1,col=-1,variable=-1;QCOMPARE(nc_create(nc_path_bytes(filename).constData(),NC_CLOBBER,&file),NC_NOERR);
+  nc_def_dim(file,"y",300,&row);nc_def_dim(file,"x",300,&col);int dimensions[]={row,col};nc_def_var(file,"field",NC_DOUBLE,2,dimensions,&variable);nc_enddef(file);
+  std::vector<double> values(90000);std::iota(values.begin(),values.end(),0.);nc_put_var_double(file,variable,values.data());nc_close(file);
+  RasterView view(filename.toLocal8Bit().toStdString(),"/field",{300,300});view.resize(900,650);view.show();QVERIFY(QTest::qWaitForWindowExposed(&view));
+  QTRY_VERIFY(view.property("planeReadCount").isValid());
+  auto *selector=view.findChild<QComboBox*>("colorMapSelector");for(int iteration=0;iteration<40;++iteration) selector->setCurrentIndex(iteration%18);
+  selector->setCurrentIndex(selector->findData("bids:viridis"));
+  auto *canvas=view.findChild<QGraphicsView*>();QGraphicsPixmapItem *item=nullptr;
+  for(auto *candidate:canvas->scene()->items()) if(candidate->type()==QGraphicsPixmapItem::Type) item=static_cast<QGraphicsPixmapItem*>(candidate);
+  QVERIFY(item);
+  QTRY_VERIFY(!item->pixmap().isNull());
+  QTRY_COMPARE(item->pixmap().toImage().pixel(0,0),uint32_t(qRgb(68,1,84)));
+  QCOMPARE(view.property("planeReadCount").toULongLong(),qulonglong(1));
+  // Close while recoloring; queued completion must not touch a destroyed view.
+  auto *closing=new RasterView(filename.toLocal8Bit().toStdString(),"/field",{300,300});closing->show();
+  QTRY_VERIFY(closing->property("planeReadCount").isValid());delete closing;QTest::qWait(100);
+  // Existing batch preview must save a complete large image before the process exits.
+  QProcess batch;
+  const QString output=directory.filePath("preview.png");
+  batch.start(QDir(QCoreApplication::applicationDirPath()).filePath("HDFStudio.exe"),
+              {"--preview","field","--png",output,filename});
+  QVERIFY(batch.waitForFinished(30000));QCOMPARE(batch.exitCode(),0);
+  const QImage exported(output);QCOMPARE(exported.size(),QSize(300,300));
+  QCOMPARE(exported.pixel(0,0),RasterColorMap::color(RasterColorMap::Palette::Viridis,0,false).rgba());
+  QCOMPARE(exported.pixel(299,299),RasterColorMap::color(RasterColorMap::Palette::Viridis,1,false).rgba());
+}
+
+void DropTargetsTest::colorMapMissingCategoriesColorbarAndBudget() {
+  using namespace HdfColorMap;
+  QTemporaryDir directory;const QString filename=directory.filePath("edge.nc");
+  int file=-1,time=-1,row=-1,col=-1,variable=-1;
+  QCOMPARE(nc_create(nc_path_bytes(filename).constData(),NC_NETCDF4|NC_CLOBBER,&file),NC_NOERR);
+  nc_def_dim(file,"time",3,&time);nc_def_dim(file,"y",2,&row);nc_def_dim(file,"x",3,&col);
+  int dimensions[]={time,row,col};nc_def_var(file,"field",NC_DOUBLE,3,dimensions,&variable);
+  const double fill=-999,flags[]={10,2};const char *unit="K";
+  nc_put_att_double(file,variable,"_FillValue",NC_DOUBLE,1,&fill);
+  nc_put_att_double(file,variable,"flag_values",NC_DOUBLE,2,flags);
+  nc_put_att_text(file,variable,"flag_meanings",8,"high low");
+  nc_put_att_string(file,variable,"units",1,&unit);nc_enddef(file);
+  double values[]={4,4,4,4,4,4,fill,fill,fill,fill,fill,fill,10,2,10,2,10,2};
+  QCOMPARE(nc_put_var_double(file,variable,values),NC_NOERR);QCOMPARE(nc_close(file),NC_NOERR);
+  RasterView view(filename.toLocal8Bit().toStdString(),"/field",{3,2,3});view.resize(1100,700);view.show();
+  QVERIFY(QTest::qWaitForWindowExposed(&view));QTRY_COMPARE(view.property("planeReadCount").toULongLong(),qulonglong(1));
+  auto *canvas=view.findChild<QGraphicsView*>();QGraphicsPixmapItem *image=nullptr;
+  for(auto *item:canvas->scene()->items()) if(item->type()==QGraphicsPixmapItem::Type) image=static_cast<QGraphicsPixmapItem*>(item);
+  QVERIFY(image);QCOMPARE(view.property("minimum").toDouble(),4.);QCOMPARE(view.property("maximum").toDouble(),4.);
+  QCOMPARE(image->pixmap().toImage().pixel(0,0),RasterColorMap::color(RasterColorMap::Palette::Viridis,.5,false).rgba());
+  QVERIFY(view.findChild<ColorBar*>()->toolTip().contains("K"));
+  view.set_layer_index(0,1);QVERIFY(!image->pixmap().isNull());QCOMPARE(image->pixmap().toImage().pixel(0,0),missing_color);
+  QVERIFY(!view.property("minimum").isValid());
+  view.set_layer_index(0,2);view.findChild<QCheckBox*>("discreteColors")->setChecked(true);
+  const QString labels=view.findChild<QLabel*>("rasterLegend")->text();
+  QVERIFY(labels.contains("10 = high"));QVERIFY(labels.contains("2 = low"));
+  QCOMPARE(image->pixmap().toImage().pixel(0,0),RasterColorMap::categoryColor(RasterColorMap::Palette::Viridis,0,2,false).rgba());
+  auto *mask_start=view.findChild<QLineEdit*>("maskStart"),*mask_end=view.findChild<QLineEdit*>("maskEnd");
+  mask_start->setText("-1000");mask_end->setText("1000");QMetaObject::invokeMethod(mask_end,"editingFinished");
+  QCOMPARE(image->pixmap().toImage().pixel(0,0),masked_color);QCOMPARE(view.property("planeReadCount").toULongLong(),qulonglong(3));
+  mask_start->clear();mask_end->clear();QMetaObject::invokeMethod(mask_end,"editingFinished");
+  QCOMPARE(image->pixmap().toImage().pixel(0,0),RasterColorMap::categoryColor(RasterColorMap::Palette::Viridis,0,2,false).rgba());
+
+  QString error;const auto palettes=load_registry(error);QVERIFY(error.isEmpty());
+  ColorBar bar;bar.resize(600,94);bar.show();QVERIFY(QTest::qWaitForWindowExposed(&bar));
+  Mapping settings;settings.minimum=-2;settings.maximum=6;
+  for(int mode=0;mode<4;++mode) {
+    settings.mode=mode==1?Mode::Stepped:Mode::Continuous;
+    settings.normalization=mode==2?Normalization::Centered:mode==3?Normalization::Cyclic:Normalization::Linear;
+    const auto &palette=palettes[5];bar.set_mapping(palette,settings,"K");
+    const auto bitmap=bar.grab().toImage();const double dpr=bitmap.devicePixelRatio();
+    for(int x:{44,100,237,400,556}) {
+      const double fraction=double(x-44)/(556-44);
+      // The outer 1-pixel frame is intentional; compare interior color pixels.
+      if(x==44||x==556) continue;
+      QCOMPARE(bitmap.pixel(qRound(x*dpr),qRound(32*dpr)),map_value(palette,settings,value_at(fraction,settings)));
+    }
+  }
+  const QByteArray previous=qgetenv("HDFSTUDIO_RASTER_BUDGET_MIB");
+  qputenv("HDFSTUDIO_RASTER_BUDGET_MIB","1");
+  const auto restore=qScopeGuard([previous]{if(previous.isNull()) qunsetenv("HDFSTUDIO_RASTER_BUDGET_MIB");else qputenv("HDFSTUDIO_RASTER_BUDGET_MIB",previous);});
+  RasterView blocked(filename.toLocal8Bit().toStdString(),"/field",{3,1000,1000});blocked.show();
+  QTRY_VERIFY(blocked.findChild<QLabel*>("rasterLegend")->text().contains("memory budget"));
+  QVERIFY(!blocked.property("planeReadCount").isValid());
 }
 
 void DropTargetsTest::invalidFractionsAreClamped() {
@@ -1928,13 +2161,11 @@ void DropTargetsTest::rasterFlipAndResetRestoreOriginalView() {
   QVERIFY(canvas->transform().m22() < 0.0);
 
   // Zoom must still work when m11 < 0.
-  QAction *zoomIn = nullptr;
-  for(QAction *action : view.findChildren<QAction*>())
-    if(action->text() == "+") { zoomIn = action; break; }
+  QAction *zoomIn = view.findChild<QAction*>("zoomInAction");
   QVERIFY(zoomIn);
   const double beforeZoom = std::abs(canvas->transform().m11());
   zoomIn->trigger();
-  QVERIFY(std::abs(canvas->transform().m11()) > beforeZoom * 1.4);
+  QVERIFY(qFuzzyCompare(std::abs(canvas->transform().m11()),beforeZoom*1.25));
 
   // Toggle Flip V back off by clicking again.
   flipV->trigger();
@@ -1950,6 +2181,99 @@ void DropTargetsTest::rasterFlipAndResetRestoreOriginalView() {
   QVERIFY(canvas->transform().m11() > 0.0 && canvas->transform().m22() > 0.0);
   QVERIFY(qFuzzyCompare(canvas->transform().m11(), baseScaleX));
   QVERIFY(qFuzzyCompare(canvas->transform().m22(), baseScaleY));
+}
+
+void DropTargetsTest::rasterZoomButtonsWheelAndCyclesPreserveData() {
+  QTemporaryDir directory;QVERIFY(directory.isValid());
+  const QString filename=directory.filePath("zoom.nc");
+  int file=-1,row=-1,col=-1,variable=-1;
+  QCOMPARE(nc_create(nc_path_bytes(filename).constData(),NC_CLOBBER,&file),NC_NOERR);
+  QCOMPARE(nc_def_dim(file,"y",80,&row),NC_NOERR);QCOMPARE(nc_def_dim(file,"x",120,&col),NC_NOERR);
+  int dimensions[]={row,col};QCOMPARE(nc_def_var(file,"field",NC_DOUBLE,2,dimensions,&variable),NC_NOERR);
+  QCOMPARE(nc_enddef(file),NC_NOERR);
+  std::vector<double> values(80*120);std::iota(values.begin(),values.end(),0.);
+  QCOMPARE(nc_put_var_double(file,variable,values.data()),NC_NOERR);QCOMPARE(nc_close(file),NC_NOERR);
+  RasterView view(filename.toLocal8Bit().toStdString(),"/field",{80,120});
+  view.resize(800,650);view.show();QVERIFY(QTest::qWaitForWindowExposed(&view));
+  QTRY_COMPARE(view.property("planeReadCount").toULongLong(),qulonglong(1));
+  auto *canvas=view.findChild<QGraphicsView*>();auto *bar=view.findChild<QToolBar*>("maskBar");
+  auto *zoom_in=view.findChild<QAction*>("zoomInAction"),*zoom_out=view.findChild<QAction*>("zoomOutAction");
+  auto *fit=view.findChild<QAction*>("fitImageAction"),*reset=view.findChild<QAction*>("resetViewAction");
+  auto *flip_h=view.findChild<QAction*>("flipHorizontalAction"),*flip_v=view.findChild<QAction*>("flipVerticalAction");
+  QVERIFY(canvas&&bar&&zoom_in&&zoom_out&&fit&&reset&&flip_h&&flip_v);
+  auto *in_button=qobject_cast<QToolButton*>(bar->widgetForAction(zoom_in));
+  auto *out_button=qobject_cast<QToolButton*>(bar->widgetForAction(zoom_out));
+  QVERIFY(in_button&&out_button);
+  for(int width:{640,800,1100}) {
+    view.resize(width,650);QCoreApplication::processEvents();
+    QVERIFY(in_button->isVisibleTo(&view));QVERIFY(out_button->isVisibleTo(&view));
+    QVERIFY(bar->rect().contains(in_button->geometry()));QVERIFY(bar->rect().contains(out_button->geometry()));
+    const double initial=std::abs(canvas->transform().m11());
+    QTest::mouseClick(in_button,Qt::LeftButton);
+    QVERIFY(qFuzzyCompare(std::abs(canvas->transform().m11()),initial*1.25));
+    QTest::mouseClick(out_button,Qt::LeftButton);
+    QVERIFY(qFuzzyCompare(std::abs(canvas->transform().m11()),initial));
+  }
+  const auto reads=view.property("planeReadCount");const auto rendered=view.property("renderedRevision");
+  QGraphicsPixmapItem *image=nullptr;
+  for(auto *item:canvas->scene()->items()) if(item->type()==QGraphicsPixmapItem::Type) image=static_cast<QGraphicsPixmapItem*>(item);
+  QVERIFY(image);const auto original_pixels=image->pixmap().cacheKey();
+  for(int orientation=0;orientation<4;++orientation) {
+    reset->trigger();flip_h->setChecked(bool(orientation&1));flip_v->setChecked(bool(orientation&2));
+    for(int step=0;step<8;++step) zoom_in->trigger();
+    const double initial=std::abs(canvas->transform().m11());
+    const QPointF center=canvas->viewport()->rect().center();
+    const QPointF before=canvas->viewportTransform().inverted().map(center);
+    QTest::mouseClick(in_button,Qt::LeftButton);
+    const QPointF after=canvas->viewportTransform().inverted().map(QPointF(canvas->viewport()->rect().center()));
+    QVERIFY2(QLineF(before,after).length()<=2./initial,"Button zoom moved the view center");
+    QTest::mouseClick(out_button,Qt::LeftButton);
+    for(int cycle=0;cycle<100;++cycle) {zoom_in->trigger();zoom_out->trigger();}
+    QVERIFY(qFuzzyCompare(std::abs(canvas->transform().m11()),initial));
+    QCOMPARE(canvas->transform().m11()<0,bool(orientation&1));QCOMPARE(canvas->transform().m22()<0,bool(orientation&2));
+    const QPointF pointer(canvas->viewport()->width()*.37,canvas->viewport()->height()*.43);
+    auto wheel=[canvas,pointer](QPoint angle,QPoint pixels=QPoint()) {
+      QWheelEvent event(pointer,canvas->viewport()->mapToGlobal(pointer.toPoint()),pixels,angle,
+                        Qt::NoButton,Qt::NoModifier,Qt::NoScrollPhase,false);
+      QApplication::sendEvent(canvas->viewport(),&event);
+    };
+    const QPointF at_pointer=canvas->viewportTransform().inverted().map(pointer);
+    wheel(QPoint(0,120));
+    QVERIFY(qFuzzyCompare(std::abs(canvas->transform().m11()),initial*1.25));
+    const QPointF after_pointer=canvas->viewportTransform().inverted().map(pointer);
+    QVERIFY2(QLineF(at_pointer,after_pointer).length()<=2./initial,"Wheel zoom moved the point under the pointer");
+    wheel(QPoint(0,-120));QVERIFY(qFuzzyCompare(std::abs(canvas->transform().m11()),initial));
+    wheel(QPoint(120,0));wheel(QPoint());QVERIFY(qFuzzyCompare(std::abs(canvas->transform().m11()),initial));
+    wheel(QPoint(),QPoint(0,60));
+    QVERIFY(qFuzzyCompare(std::abs(canvas->transform().m11()),initial*std::sqrt(1.25)));
+    wheel(QPoint(),QPoint(0,-60));QVERIFY(qFuzzyCompare(std::abs(canvas->transform().m11()),initial));
+    for(int step=0;step<100;++step) zoom_in->trigger();
+    QVERIFY(qFuzzyCompare(std::abs(canvas->transform().m11()),2048.));
+    zoom_in->trigger();QVERIFY(qFuzzyCompare(std::abs(canvas->transform().m11()),2048.));
+    for(int step=0;step<100;++step) zoom_out->trigger();
+    QVERIFY(qFuzzyCompare(std::abs(canvas->transform().m11()),.002));
+    zoom_out->trigger();QVERIFY(qFuzzyCompare(std::abs(canvas->transform().m11()),.002));
+    fit->trigger();QVERIFY(std::abs(canvas->transform().m11())>.002);
+    QCOMPARE(canvas->transform().m11()<0,bool(orientation&1));QCOMPARE(canvas->transform().m22()<0,bool(orientation&2));
+  }
+  reset->trigger();
+  auto *profile=view.findChild<QAction*>("profileModeAction");profile->setChecked(true);
+  for(const QPointF &point:{QPointF(30,25),QPointF(80,50)})
+    QTest::mouseClick(canvas->viewport(),Qt::LeftButton,Qt::NoModifier,canvas->mapFromScene(point));
+  view.findChild<QAction*>("showProfileAction")->trigger();
+  auto *profile_window=view.findChild<ProfileView*>();QVERIFY(profile_window);
+  const auto profile_mean=profile_window->property("mean");profile_window->hide();view.activateWindow();
+  QList<QGraphicsItem*> overlay;
+  for(auto *item:canvas->scene()->items()) if(item->data(0).toString()=="profileOverlay") overlay<<item;
+  QVERIFY(overlay.size()>=3);
+  QTest::mouseClick(in_button,Qt::LeftButton);QTest::mouseClick(out_button,Qt::LeftButton);
+  for(auto *item:overlay) QVERIFY(canvas->scene()->items().contains(item));
+  QCOMPARE(profile_window->property("mean"),profile_mean);QVERIFY(profile->isChecked());
+  QCOMPARE(view.property("planeReadCount"),reads);QCOMPARE(view.property("renderedRevision"),rendered);
+  QCOMPARE(image->pixmap().cacheKey(),original_pixels);
+  reset->trigger();QVERIFY(!flip_h->isChecked()&&!flip_v->isChecked());
+  const QString log=qEnvironmentVariable("HDFSTUDIO_TEST_LOG_DIR");
+  if(!log.isEmpty()) QVERIFY(view.grab().save(QDir(log).filePath("zoom-"+qEnvironmentVariable("HDFSTUDIO_TEST_CONFIG")+".png")));
 }
 
 void DropTargetsTest::curveProfileSamplesPolylineAndSplineOnDecodedPlane() {

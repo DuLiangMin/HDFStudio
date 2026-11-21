@@ -96,7 +96,7 @@ int main(int argc, char *argv[])
 {
   Q_INIT_RESOURCE(hdf_explorer);
   QApplication app(argc, argv);
-  QCoreApplication::setApplicationVersion("0.12.03");
+  QCoreApplication::setApplicationVersion("0.12.06");
   QCoreApplication::setApplicationName(app_name);
 #if QT_VERSION >= 0x050000
   QCommandLineParser parser;
@@ -132,6 +132,9 @@ int main(int argc, char *argv[])
     QString file_name = args.at(0);
     if(window.read_file(file_name)!=0) return 2;
     if(parser.isSet("preview")) {
+      // Batch export must finish raster rendering before saving/exiting. Interactive
+      // views keep bounded asynchronous recoloring for larger planes.
+      app.setProperty("synchronousRasterPreview",true);
       auto tree=window.findChild<FileTreeWidget*>();
       const auto entries=tree->findItems(parser.value("preview"),Qt::MatchExactly|Qt::MatchRecursive);
       if(entries.size()!=1 || !parser.isSet("png")) return 3;
@@ -868,7 +871,7 @@ void MainWindow::about()
 {
   QMessageBox::about(this,
     tr("About HDFStudio"),
-    tr("HDFStudio 0.12.03\nAuthor: DuLiangMin\n\n"
+    tr("HDFStudio 0.12.06\nAuthor: DuLiangMin\n\n"
        "Metadata convention target: CF-1.8\n"
        "Product libraries: netCDF-C 4.9.3, HDF5 1.8.20\n\n"
        "Reference environment: Python 3.12.10, netCDF4-python 1.7.5.1.post1\n"

@@ -4,6 +4,8 @@
 
 [English](README.md) | **简体中文**
 
+🔢 **当前源码版本：0.12.06**，已包含科学色表、缓存重着色和可见的图像放大/缩小按钮。
+
 ⬇️ **下载：** 在[最新发布页](https://github.com/DuLiangMin/HDFStudio/releases/latest)下载 `HDFStudio-<版本>-win64.zip`。**绿色安装**：解压到任意目录，直接双击 `HDFStudio.exe` 即可运行，无需安装，也不需要管理员权限。
 
 [![Release](https://img.shields.io/github/v/release/DuLiangMin/HDFStudio?label=release&color=3d99a4)](https://github.com/DuLiangMin/HDFStudio/releases/latest)
@@ -59,6 +61,8 @@ HDFStudio 几秒内就能回答，不需要开 Python、不需要 notebook、也
 - 📋 **可拷贝的 Properties，为提取元数据而优化**（0.10.29）：在文件、组或变量上右键 → **Properties...**，弹出的是纯文本报告，可以用鼠标选择后按 `Ctrl+C` 拷贝，也可以点 **Copy All** 一次拷走全部内容。报告开头是文件路径和对象路径，后面依次是形状、类型、大小、维度、存储布局和全部属性。直接粘贴到搜索框、Issue 或 LLM 对话里，就能询问该文件的 NetCDF 元数据和数据信息，不必打开 Python。弹窗不是模态的，可以同时打开几个对照查看；`hdf_cli props` 输出相同的内容。
 - 🪟 **Window 菜单**：**Cascade** 把视图按顺序层叠排列，**Tile** 平铺；菜单下方是编号的已打开视图列表（当前视图打勾），点击即可切到该视图。
 - 🗺️ **图像视图**：二维切片支持连续与离散调色板（Viridis、Inferno、Turbo 等），CF 经纬网悬停可读出经纬度。
+- 🔍 **放大 / 缩小**：第二行工具栏最左侧的放大镜按钮，分别以视口中心放大 1.25 倍、缩小至 0.8 倍；滚轮围绕鼠标位置缩放。旁边 **Fit** 完整显示图像并保留翻转，**Reset** 恢复原方向与适应窗口。缩放保留曲线控制点，复用缓存，不重读文件。
+- 🎨 **CMaps 色卡**：新增 13 张科学配色（标准 Viridis；cmocean 的 Rain、Thermal、Balance、Speed、Curl、Phase；Crameri Batlow；5 张 NCL 气象色表），并保留原版 5 张兼容配色。在 `CMaps` 下拉框选预览色带，`…` 打开色卡/映射设置或导入本地 NCL `.rgb`。颜色条与图像共用映射，支持反色、连续/分级、自定义边界、中心值、循环起点/周期、低于/高于范围的颜色。配色名称不自动定义单位、降水阈值或累计时段。`Projs` 保留原经纬度回查功能，不表示已增加投影转换。换色和调整显示范围复用解码缓存；内置色卡运行无需 Python/NCL，许可与来源附在 `licenses/colormaps/`。
 - 🎭 **Mask Range（屏蔽区间）**（0.10.30）：图像工具栏下方单独一行，填开始值和结束值。落在 [开始, 结束]（含两端）内的值变成 NaN，显示为**白色**，不参与色标和最小/最大值。开始值留空表示负无穷，结束值留空表示正无穷。例如某降水产品用 `99990000` 存特殊值、`scale_factor = 0.0001`：开始填 `9999`、结束留空，即可把它白化，只给真实降水上色。Mask Range 按**解码后的数值**判断（`存储值 × scale_factor + add_offset`，即图例上的数），不按文件里存的整数。`valid_range`、`_FillValue` 等属性是按存储值写的，为免混淆，Properties 和 Mask Range 行会同时给出解码值，例如 `valid_range decoded: [0, 9999] (stored [0, 99990000])`。
 - ⏱️ **时间解码**：`seconds since 1970-01-01`、`days since 2024-10-01` 这类 `time` 变量会显示为 `yyyymmdd` 与 `yyyymmdd hh:mm:ss`，经 `netCDF4.num2date` 按文件自身日历解码。
 - 🧭 **坐标方向**：By NetCDF4 页报告纬度是南→北还是北→南、经度是东→西还是西→东，这正是地图上下颠倒的常见原因。

@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.12.06 - 2026-11-21
+
+- 🔢 Raised the product version from 0.12.03 to 0.12.06 in CMake, application metadata and the About dialog; synchronized both READMEs.
+- 🎨 Includes the scientific color maps, shared colorbar and cached recoloring implemented since 0.12.03, together with the visible image zoom controls and completed regression cycles documented below.
+- ✅ Rebuilt Debug/Release at 0.12.06: each full QtTest suite passed 47 tests with zero failures and two optional external-sample skips; CTest passed 1/1 in both configurations. Both executables report `HDFStudio 0.12.06` with `--version`.
+
+## 0.12.03 visible image zoom - 2026-11-21
+
+- 🔍 Added visible magnifying-glass **Zoom in / Zoom out** buttons at the start of the second image toolbar, beside the existing **Fit** action. Removed the duplicate `+`/`-` actions from the crowded first toolbar.
+- 🖱️ Buttons scale around the view center by 1.25× / 0.8×; the wheel scales around the pointer using its vertical delta. Zero/horizontal wheel events do not accidentally shrink the image. Scale is clamped to the existing 0.002..2048 limits, preserving flips, curve objects, profile values, cached data and raster pixels.
+- 🧪 Added zoom tests for real Qt button clicks at three window widths, four flip combinations, wheel/button anchoring, 100 inverse cycles, both scale limits, Fit/Reset and unchanged plane-read/render counts. `tests/run-zoom-regression.ps1` builds/runs full Debug/Release QtTest/CTest, then five full-suite cycles per configuration; `tests/desktop_zoom.ps1` measures colored-image bounds after real Windows mouse clicks. Reports: `logs/S4-UI-Zoom/`.
+- ✅ Debug/Release builds passed; each complete QtTest run passed 47 tests with zero failures and two optional external-sample skips, and CTest passed 1/1. Five additional full-suite cycles per configuration passed with the same totals in all ten runs.
+- 🖥️ Real desktop acceptance passed 9/9 in each configuration: image bounds grew from 207×162 to 259×202 and returned to 207×162; five zoom pairs after a horizontal flip also restored the size. The input sample SHA256 stayed unchanged. Captured screenshots were visually reviewed.
+
+## 0.12.03 CMaps implementation - 2026-11-21
+
+- 🎨 Added 13 offline scientific palettes: standard BIDS Viridis, six cmocean maps, Crameri Batlow and five NCL tables. The five original sparse palettes remain as legacy choices. `Projs` keeps geographic lookup; `CMaps` has strip previews and a compact options button.
+- 📐 Added searchable palette details, continuous/stepped/centered/cyclic mapping, explicit boundaries and period, reverse, custom under/over colors and local RGB import. Image and colorbar share the numerical mapping; palette names do not define units or meteorological thresholds.
+- ⚡ Cached immutable decoded planes; display changes do not reread data, masks derive from the unmasked cache, and profiles share the plane. Background recoloring is bounded and discards obsolete requests. Existing curve items, zoom and flips survive recoloring; image/colorbar apply together. Raster memory reservations are configurable and survive until cancelled work exits.
+- 🔎 All-missing/all-masked planes retain their state colors; source missing, user Mask and real values have separate hover text. Non-sorted flag values retain their matching meanings. Added `hdf_cli cmap` and `rgb` using the same core mapping/parser.
+- 🖼️ Existing `--preview` batch PNG export waits for a complete raster, including planes above the interactive asynchronous-render threshold; an integration test checks the exported size and endpoint pixels.
+- 📜 Preserved source data, pinned versions, SHA256, license texts and attribution; extended packaging to include them. Exact-byte Git attributes keep resource hashes stable across Windows checkouts. Runtime requires neither Python nor NCL.
+- ✅ Debug and Release: 46 passed, 0 failed, 2 optional external-sample tests skipped; CTest 1/1 each. Real-mouse desktop checks: 7/7 in each configuration. Resource export `--check` reproduces all 13 palettes byte for byte. Tests cover native nodes, boundary/center/cycle behavior, missing/Mask, cached IO counts, overlay preservation, latest-request wins, colorbar pixels and budget refusal.
+
+## 0.12.03 toolbar labels - 2026-11-21
+
+- 🎨 Image toolbar: shortened `Geographic coordinates` to `Projs` and added a `CMaps` label immediately before the existing palette selector, with a tooltip explaining its color-map purpose. Existing coordinate lookup and the five palettes retain their behavior.
+- 📝 New palette resources, including standard Viridis, remain planned; this change introduces the requested toolbar labels only.
+
 ## 0.12.03 - 2026-11-20
 
 - 🖼️ **Image View Flip V / Flip H / Reset**: added three buttons on the left of the second toolbar (`maskBar`) with custom 24×24 icons (`flip_vertical.png`, `flip_horizontal.png`, `reset_home.png`). **Flip V** and **Flip H** keep their pressed state (click to flip, click again to restore); **Reset** (home icon) unconditionally clears both flips and restores original zoom and position (`fitInView`). Zooming remains valid when horizontally flipped (`|m11|`), and `Fit` preserves the active flip state.
