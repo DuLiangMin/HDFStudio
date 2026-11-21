@@ -79,6 +79,12 @@ HDFStudio 在同一工作区中提供以下分析能力：
 | 压缩值与原值对照 | ✅ 解码 / 存储 / 并排三种表格 | ❌ | ❌ | ❌ |
 | 单层直方图 | ✅ 随机抽样、箱数可调 | ❌ | ❌ | ❌ |
 | 自定义曲线剖面 | ✅ 样条 / 折线、双线性插值、导出 CSV | ❌ | ❌ | ❌ |
+| 二维局部纹理熵图 | ✅ 4×4分块、0～4 bits、PNG / 数值CSV | — 未核验 | — 未核验 | — 未核验 |
+| 多图超前 / 滞后比较 | ✅ Anchor / Targets，各自设置整数偏移 | — 未核验 | — 未核验 | — 未核验 |
+| 实时 Pearson r / RMSE / MAE / Bias | ✅ 有效像元交集、报告 / CSV | — 未核验 | — 未核验 | — 未核验 |
+| 二维残差 / 差值图 | ✅ Target − Anchor、零中心色标、PNG | ✅ [数组差值图](https://www.giss.nasa.gov/tools/panoply/) | — 未核验 | — 未核验 |
+| 切片动画播放 | ✅ 可调间隔、播放 / 暂停 | ✅ [动画导出](https://www.giss.nasa.gov/tools/panoply/) | ✅ [数据动画](https://cirrus.ucsd.edu/ncview/) | ✅ [三维真彩色图像](https://portal.hdfgroup.org/documentation/hdfview/latest/ug06imageview.html#section6_3) |
+| 联合播放与实时分析 | ✅ 多图、指标、残差及跟随源图的熵图同步更新 | — 未核验 | — 未核验 | — 未核验 |
 | 地图投影与海岸线 | ❌ 暂未支持 | ✅ | ❌ | ❌ |
 
 *对比表反映作者的理解，具体能力请以各工具官方文档为准。“压缩值与原值对照”指同一张表里把 `存储值 × scale_factor + add_offset` 和文件里的整数并排列出；四种工具都能显示解码值，但只有 HDFStudio 把两个数摆在一起。*

@@ -84,6 +84,12 @@ For joint playback, open two images, select **Window → Compare & Metrics**, ch
 | Packed and raw values side by side | ✅ decoded / stored / both grids | ❌ | ❌ | ❌ |
 | Histogram of one layer | ✅ random sample, adjustable bins | ❌ | ❌ | ❌ |
 | Custom curve profile | ✅ spline / polyline, bilinear, CSV export | ❌ | ❌ | ❌ |
+| 2-D local texture entropy image | ✅ 4×4 blocks, 0–4 bits, PNG / numeric CSV | — not verified | — not verified | — not verified |
+| Lead/lag comparison across multiple views | ✅ Anchor / Targets, individual integer offsets | — not verified | — not verified | — not verified |
+| Live Pearson r / RMSE / MAE / Bias | ✅ finite-pixel intersection, report / CSV | — not verified | — not verified | — not verified |
+| Spatial residual / difference map | ✅ Target − Anchor, zero-centered scale, PNG | ✅ [array differencing](https://www.giss.nasa.gov/tools/panoply/) | — not verified | — not verified |
+| Slice animation | ✅ adjustable Play / Pause | ✅ [animation export](https://www.giss.nasa.gov/tools/panoply/) | ✅ [data movies](https://cirrus.ucsd.edu/ncview/) | ✅ [3-D true-color images](https://portal.hdfgroup.org/documentation/hdfview/latest/ug06imageview.html#section6_3) |
+| Linked playback with live analysis | ✅ synchronized views, metrics, residuals and source-following entropy | — not verified | — not verified | — not verified |
 | Map projections and coastlines | ❌ not yet | ✅ | ❌ | ❌ |
 
 *Comparison reflects the author's understanding; check each tool's documentation for details. "Packed and raw" means showing `stored × scale_factor + add_offset` next to the integer in the file, in the same table; all four tools display decoded values, but only HDFStudio shows the two numbers together.*
