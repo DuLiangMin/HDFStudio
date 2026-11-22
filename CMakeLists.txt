@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(HDFStudio VERSION 0.12.10 LANGUAGES C CXX)
+project(HDFStudio VERSION 0.12.12 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -61,6 +61,8 @@ set(src
     src/app/iterate.hpp
     src/app/iterate.cpp
     src/views/vector_view.hpp
+    src/views/analysis_table_view.hpp
+    src/views/analysis_table_view.cpp
     src/views/vector_view.cpp
     src/views/mesh_view.hpp
     src/views/mesh_view.cpp

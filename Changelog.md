@@ -1,5 +1,14 @@
 # Changelog
 
+## 📊 0.12.12 Compact analysis grids - 2026-11-22
+
+- Share a compact content-sized, read-only analysis table across Data Grid, Stored Grid, Both Grids, numeric attributes and time/date columns. Auto-fit is enabled by default, can be disabled for manual widths, and updates after layer changes, scrolling and asynchronous date insertion; paired value headers use two lines to avoid wasting horizontal space.
+- Add native single-cell, drag-rectangle, Ctrl/Shift and row/column-header selection, selected-cell counts and TSV clipboard copying via Ctrl+C or Copy selection. Preserve full displayed precision and blank gaps between disjoint selections; bound clipboard size before enumerating cells.
+- Keep large-model sizing limited to visible columns and sampled rows. Avoid Qt selection-range expansion; arrays above one million cells expose a bounded accessible widget instead of an eagerly enumerated per-cell accessibility tree, retaining mouse/keyboard selection and clipboard controls.
+- Estimate text widths through a shared font/device-aware function using actual displayed digits, signs, decimal points, exponents and date strings. Account for glyph bounds and native style margins; short-value columns can shrink to 24 pixels. Refit widths and row height after font changes, with 9/12/18-point screenshots and per-column measurements.
+- Correct flat table-model parent dimensions and Both Grids date-column insertion positions. Regression scripts cover selection correctness, width changes, large-grid memory limits and real desktop clipboard values.
+- Synchronize the application/About version, English and Chinese READMEs, changelog and portable/source packages at 0.12.12. Includes all space-time section, entropy, comparison and playback capabilities from 0.12.10.
+
 ## 📈 0.12.10 Independent space-time sections - 2026-11-22
 
 - Independent **View → Space-Time Section (Hovmöller)** and variable context-menu window; arbitrary ordered axis pairs, trusted Lat–Time/Lon–Time presets, fixed index/nearest coordinate selection, flip/zoom/pan, Mask and shared color maps/colorbar.

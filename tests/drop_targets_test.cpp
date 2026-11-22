@@ -32,6 +32,10 @@
 #include "mesh_view.hpp"
 #include "color_map.hpp"
 #include "color_map_picker.hpp"
+#include "analysis_table_view.hpp"
+#include <QAbstractItemModelTester>
+#include <QClipboard>
+#include <QStandardItemModel>
 #include <QScopeGuard>
 #include <QPlainTextEdit>
 
@@ -39,6 +43,11 @@ class DropTargetsTest : public QObject {
   Q_OBJECT
 
 private slots:
+  void analysisGridFitsContentsAndKeepsManualWidths();
+  void analysisGridMouseSelectionAndClipboardMatchCells();
+  void analysisGridSparseSelectionAndCopyLimits();
+  void analysisGridSizingIsBoundedOnLargeModels();
+  void analysisGridModesLayersAttributesAndDatesReuseControls();
   void textureEntropyBlocksAndInterpolation();
   void textureEntropyViewIsIndependent2DImage();
   void textureEntropySnapshotFollowsMaskAndSourceLifetime();
@@ -207,6 +216,218 @@ void DropTargetsTest::colorMapResourcesMatchGoldenValuesAndLicenses() {
   }
   QProcess cli;cli.start(QDir(QCoreApplication::applicationDirPath()).filePath("hdf_cli.exe"),{"cmap","bids:viridis","0"});
   QVERIFY(cli.waitForFinished());QCOMPARE(cli.exitCode(),0);QCOMPARE(cli.readAllStandardOutput().trimmed(),QByteArray("68,1,84,255"));
+}
+
+void DropTargetsTest::analysisGridFitsContentsAndKeepsManualWidths() {
+  QStandardItemModel model(10, 5);
+  for(int row = 0; row < 10; ++row)
+    for(int column = 0; column < 5; ++column)
+      model.setData(model.index(row, column), QString::number(row + column));
+  AnalysisTableView table;
+  table.setModel(&model);
+  table.resize(800, 360);
+  table.show();
+  QVERIFY(QTest::qWaitForWindowExposed(&table));
+  QTRY_VERIFY(table.columnWidth(0) < 80);
+  QVERIFY(table.autoFitAction()->isChecked());
+  QVERIFY(!table.horizontalHeader()->stretchLastSection());
+  QCOMPARE(table.editTriggers(), QAbstractItemView::EditTriggers(QAbstractItemView::NoEditTriggers));
+  const QString full = "-1.23456789012345e+100";
+  model.setData(model.index(4, 1), full);
+  QTRY_VERIFY(table.columnWidth(1) >= table.fontMetrics().horizontalAdvance(full) + 4);
+  QVERIFY(table.columnWidth(1) > table.columnWidth(0));
+  model.setHeaderData(2, Qt::Horizontal, "yyyymmdd hh:mm:ss");
+  model.setData(model.index(0, 2), "19990101 06:00:00");
+  QTRY_VERIFY(table.columnWidth(2) >= table.fontMetrics().horizontalAdvance("19990101 06:00:00") + 4);
+  QFont selected_header_font = table.horizontalHeader()->font(); selected_header_font.setBold(true);
+  QTRY_VERIFY(table.columnWidth(2) >= AnalysisTableView::estimateTextWidth("yyyymmdd hh:mm:ss", selected_header_font, table.horizontalHeader()) + 4);
+  table.autoFitAction()->setChecked(false);
+  table.setColumnWidth(1, 65);
+  model.setData(model.index(4, 1), "-9.87654321098765e-200");
+  QTest::qWait(80);
+  QCOMPARE(table.columnWidth(1), 65);
+  table.autoFitAction()->setChecked(true);
+  QTRY_VERIFY(table.columnWidth(1) > 65);
+  // A different model must not retain old model signal connections or stale selection state.
+  QStandardItemModel replacement(2, 2);
+  replacement.setData(replacement.index(0, 0), "8");
+  table.setModel(&replacement);
+  QTRY_VERIFY(table.columnWidth(0) < 80);
+  QVERIFY(!table.copyAction()->isEnabled());
+  QCOMPARE(table.selectionSummary(), QString("Selected: 0 cells"));
+
+  // 同一显示值随字号自动增宽；不按数值量级或固定字符宽度猜测。
+  QStandardItemModel font_model(3, 4);
+  const QStringList values = {"1", "-12345.6789", "-1.23456789e-100", "19990101 06:00:00"};
+  for(int column = 0; column < values.size(); ++column) {
+    font_model.setHeaderData(column, Qt::Horizontal, column == 2 ? "3\ndecoded" : QString::number(column + 1));
+    for(int row = 0; row < 3; ++row) font_model.setData(font_model.index(row, column), values[column]);
+  }
+  table.setModel(&font_model);
+  QJsonArray measurements;
+  int previous_width = 0;
+  for(int points : {9, 12, 18}) {
+    QFont value_font = table.font(); value_font.setPointSize(points);
+    table.setFont(value_font);
+    const int expected_text = AnalysisTableView::estimateTextWidth(values[1], value_font, table.viewport());
+    QTRY_VERIFY(table.columnWidth(1) >= expected_text + 4);
+    QTRY_VERIFY(table.columnWidth(1) > previous_width);
+    QTRY_VERIFY(table.columnWidth(0) < table.columnWidth(1));
+    // 给其他列与表头的重绘/调整事件一个完整事件循环。
+    QTest::qWait(50);
+    QVERIFY(table.rowHeight(0) >= table.fontMetrics().height() + 6);
+    QJsonArray columns;
+    for(int column = 0; column < values.size(); ++column) {
+      const int measured = AnalysisTableView::estimateTextWidth(values[column], value_font, table.viewport());
+      QVERIFY2(table.columnWidth(column) >= measured + 4, qPrintable(values[column]));
+      QVERIFY(table.columnWidth(column) <= qMax(24, measured + 18));
+      columns.append(QJsonObject{{"text", values[column]}, {"text_pixels", measured}, {"column_pixels", table.columnWidth(column)}});
+    }
+    previous_width = table.columnWidth(1);
+    measurements.append(QJsonObject{{"font", value_font.family()}, {"point_size", points}, {"columns", columns}});
+    const QString evidence = qEnvironmentVariable("HDFSTUDIO_GRID_EVIDENCE");
+    if(!evidence.isEmpty()) QVERIFY(table.grab().save(QDir(evidence).filePath(QString("font-width-%1pt.png").arg(points))));
+  }
+  const QFont value_font = table.font();
+  QCOMPARE(AnalysisTableView::estimateTextWidth("3\ndecoded", value_font, table.viewport()),
+           AnalysisTableView::estimateTextWidth("decoded", value_font, table.viewport()));
+  QFont bigger = value_font; bigger.setPointSize(22); bigger.setBold(true);
+  font_model.setData(font_model.index(0, 1), bigger, Qt::FontRole);
+  QTRY_VERIFY(table.columnWidth(1) >= AnalysisTableView::estimateTextWidth(values[1], bigger, table.viewport()) + 4);
+  font_model.setData(font_model.index(0, 1), QVariant(), Qt::FontRole);
+  font_model.setData(font_model.index(0, 1), "2");
+  font_model.setData(font_model.index(1, 1), "2");
+  font_model.setData(font_model.index(2, 1), "2");
+  QTRY_VERIFY(table.columnWidth(1) < previous_width);
+  font_model.setHeaderData(0, Qt::Horizontal, "Scientific header");
+  QTRY_VERIFY(table.columnWidth(0) >= AnalysisTableView::estimateTextWidth("Scientific header", table.horizontalHeader()->font(), table.horizontalHeader()) + 4);
+  QFont header_font = table.horizontalHeader()->font(); header_font.setPointSize(20); header_font.setBold(true);
+  font_model.setHeaderData(0, Qt::Horizontal, header_font, Qt::FontRole);
+  QTRY_VERIFY(table.columnWidth(0) >= AnalysisTableView::estimateTextWidth("Scientific header", header_font, table.horizontalHeader()) + 4);
+  const QString evidence = qEnvironmentVariable("HDFSTUDIO_GRID_EVIDENCE");
+  if(!evidence.isEmpty()) {
+    QFile file(QDir(evidence).filePath("font-width-estimates.json")); QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write(QJsonDocument(measurements).toJson());
+  }
+}
+
+void DropTargetsTest::analysisGridMouseSelectionAndClipboardMatchCells() {
+  QStandardItemModel model(8, 6);
+  for(int row = 0; row < model.rowCount(); ++row)
+    for(int column = 0; column < model.columnCount(); ++column)
+      model.setData(model.index(row, column), QString::number(row * 10 + column));
+  AnalysisTableView table;
+  table.setModel(&model);
+  table.resize(700, 360);
+  table.show();
+  QVERIFY(QTest::qWaitForWindowExposed(&table));
+  QTRY_VERIFY(table.columnWidth(0) < 80);
+  const QPoint first = table.visualRect(model.index(1, 1)).center();
+  const QPoint last = table.visualRect(model.index(3, 3)).center();
+  QTest::mouseClick(table.viewport(), Qt::LeftButton, Qt::NoModifier, first);
+  QCOMPARE(table.selectionModel()->selectedIndexes().size(), 1);
+  QCOMPARE(table.selectionText(), QString("11"));
+  QTest::mousePress(table.viewport(), Qt::LeftButton, Qt::NoModifier, first);
+  QMouseEvent drag(QEvent::MouseMove, last, table.viewport()->mapToGlobal(last), Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+  QApplication::sendEvent(table.viewport(), &drag);
+  QTest::mouseRelease(table.viewport(), Qt::LeftButton, Qt::NoModifier, last);
+  QCOMPARE(table.selectionModel()->selectedIndexes().size(), 9);
+  QCOMPARE(table.selectionText(), QString("11\t12\t13\n21\t22\t23\n31\t32\t33"));
+  QCOMPARE(table.selectionSummary(), QString("Selected: 9 cells"));
+  table.copyAction()->trigger();
+  QCOMPARE(QApplication::clipboard()->text(), table.selectionText());
+  QTest::mouseClick(table.viewport(), Qt::LeftButton, Qt::ControlModifier,
+                    table.visualRect(model.index(5, 5)).center());
+  QCOMPARE(table.selectionModel()->selectedIndexes().size(), 10);
+  QVERIFY(table.selectionModel()->isSelected(model.index(5, 5)));
+  QTest::mouseClick(table.viewport(), Qt::LeftButton, Qt::NoModifier, first);
+  QTest::mouseClick(table.viewport(), Qt::LeftButton, Qt::ShiftModifier, last);
+  QCOMPARE(table.selectionModel()->selectedIndexes().size(), 9);
+  QApplication::clipboard()->clear();
+  table.setFocus();
+  QTest::keyClick(&table, Qt::Key_C, Qt::ControlModifier);
+  QTRY_COMPARE(QApplication::clipboard()->text(), table.selectionText());
+  const int x = table.horizontalHeader()->sectionViewportPosition(2) + table.columnWidth(2) / 2;
+  QTest::mouseClick(table.horizontalHeader()->viewport(), Qt::LeftButton, Qt::NoModifier, QPoint(x, 10));
+  QCOMPARE(table.selectionModel()->selectedIndexes().size(), 8);
+  const int y = table.verticalHeader()->sectionViewportPosition(4) + table.rowHeight(4) / 2;
+  QTest::mouseClick(table.verticalHeader()->viewport(), Qt::LeftButton, Qt::NoModifier, QPoint(10, y));
+  QCOMPARE(table.selectionModel()->selectedIndexes().size(), 6);
+  QCOMPARE(table.selectionText(), QString("40\t41\t42\t43\t44\t45"));
+  QCOMPARE(model.data(model.index(1, 1)).toString(), QString("11"));
+}
+
+void DropTargetsTest::analysisGridSparseSelectionAndCopyLimits() {
+  QStandardItemModel model(3, 3);
+  model.setData(model.index(0, 0), "a\tb");
+  model.setData(model.index(1, 1), "not selected");
+  model.setData(model.index(2, 2), "a\"b\nc");
+  AnalysisTableView table;
+  table.setModel(&model);
+  table.selectionModel()->select(model.index(0, 0), QItemSelectionModel::Select);
+  table.selectionModel()->select(model.index(2, 2), QItemSelectionModel::Select);
+  QCOMPARE(table.selectionText(), QString("\"a\tb\"\t\t\n\t\t\n\t\t\"a\"\"b\nc\""));
+  QVERIFY(!table.selectionText().contains("not selected"));
+  model.setData(model.index(0, 0), QString(16 * 1024 * 1024 + 1, 'x'));
+  table.selectionModel()->select(model.index(0, 0), QItemSelectionModel::ClearAndSelect);
+  QString error;
+  QVERIFY(table.selectionText(&error).isEmpty());
+  QVERIFY(error.contains("32 MiB"));
+  table.clearSelection();
+  QVERIFY(table.selectionText(&error).isEmpty());
+  QVERIFY(error.isEmpty());
+  QVERIFY(!table.copyAction()->isEnabled());
+}
+
+void DropTargetsTest::analysisGridSizingIsBoundedOnLargeModels() {
+  auto checkpoint = [](const char *phase) {
+    const QString folder = qEnvironmentVariable("HDFSTUDIO_GRID_EVIDENCE");
+    if(folder.isEmpty()) return;
+    QFile file(QDir(folder).filePath("large-grid-phases.txt"));
+    if(file.open(QIODevice::WriteOnly | QIODevice::Append)) {
+      file.write(phase); file.write("\n"); file.flush();
+    }
+  };
+  checkpoint("start");
+  class LargeGridModel : public QAbstractTableModel {
+  public:
+    mutable int reads = 0;
+    int rowCount(const QModelIndex &parent = {}) const override { return parent.isValid() ? 0 : 20000; }
+    int columnCount(const QModelIndex &parent = {}) const override { return parent.isValid() ? 0 : 20000; }
+    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override {
+      if(role != Qt::DisplayRole || !index.isValid()) return {};
+      ++reads;
+      return index.row() == 12345 ? QString("-123456789.123456") : QString("1");
+    }
+  } model;
+  AnalysisTableView table;
+  table.setModel(&model);
+  checkpoint("model attached");
+  table.resize(700, 350);
+  checkpoint("before show");
+  table.show();
+  checkpoint("show returned");
+  QVERIFY(QTest::qWaitForWindowExposed(&table));
+  checkpoint("window exposed");
+  QTRY_VERIFY(table.columnWidth(0) < 80);
+  QVERIFY2(model.reads < 30000, "Auto-fit scanned too much of the large model");
+  checkpoint("initial sizing bounded");
+  const int short_width = table.columnWidth(0);
+  table.scrollTo(model.index(12345, 0), QAbstractItemView::PositionAtTop);
+  QTRY_VERIFY(table.columnWidth(0) > short_width);
+  table.scrollTo(model.index(12345, 1500), QAbstractItemView::PositionAtTop);
+  QTRY_VERIFY(table.columnWidth(1500) >= table.fontMetrics().horizontalAdvance("-123456789.123456") + 4);
+  checkpoint("scroll sizing passed");
+  QElapsedTimer select_clock;
+  select_clock.start();
+  table.selectAll();
+  checkpoint("select all returned");
+  QVERIFY2(select_clock.elapsed() < 2000, "Large range selection expanded into individual cells");
+  QString error;
+  QVERIFY(table.selectionText(&error).isEmpty());
+  QVERIFY(error.contains("1,000,000"));
+  QCOMPARE(table.selectionSummary(), QString("Selected: 400000000 cells"));
+  checkpoint("copy rejected and count checked");
 }
 
 void DropTargetsTest::colorMapRgbAndMappingHandleBoundaries() {
@@ -1113,6 +1334,74 @@ static void write_classic_fixture(const QString &file, int mode) {
 // widget is closed by a watchdog and the missing tree then fails the assertions instead.
 // A QInputDialog is left alone: when no warning appears the watchdog is still pending later in the
 // test and used to close the Go to Layer dialog before the test answered it (intermittent failure).
+void DropTargetsTest::analysisGridModesLayersAttributesAndDatesReuseControls() {
+  QTemporaryDir dir;
+  QVERIFY(dir.isValid());
+  const QString file = dir.filePath("grid-analysis.nc");
+  write_classic_fixture(file, NC_CLOBBER);
+  MainWindow window;
+  window.resize(1200, 800);
+  window.show();
+  QVERIFY(QTest::qWaitForWindowExposed(&window));
+  QCOMPARE(window.read_file(file), 0);
+  auto *tree = window.findChild<FileTreeWidget*>();
+  auto *mdi = window.findChild<QMdiArea*>();
+  QVERIFY(tree); QVERIFY(mdi);
+  auto open = [&](const QString &name, const char *slot) -> AnalysisTableView* {
+    const auto items = tree->findItems(name, Qt::MatchExactly | Qt::MatchRecursive);
+    if(items.size() != 1) return nullptr;
+    tree->setCurrentItem(items.first());
+    if(!QMetaObject::invokeMethod(tree, slot)) return nullptr;
+    return mdi->subWindowList().last()->widget()->findChild<AnalysisTableView*>("gridTable");
+  };
+  for(const char *slot : {"add_grid", "add_stored_grid", "add_both_grids"}) {
+    auto *table = open("ttr", slot);
+    QVERIFY(table);
+    QTRY_VERIFY(table->columnWidth(0) != 80);
+    QCOMPARE(table->selectionMode(), QAbstractItemView::ExtendedSelection);
+    auto *sub = mdi->subWindowList().last()->widget();
+    QVERIFY(sub->findChild<QToolBar*>("gridAnalysisToolbar"));
+    QVERIFY(sub->findChild<QLabel*>("gridSelectionSummary"));
+    QVERIFY(table->autoFitAction()->isChecked());
+    table->selectionModel()->select(QItemSelection(table->model()->index(0, 0), table->model()->index(1, 1)),
+                                     QItemSelectionModel::ClearAndSelect);
+    QCOMPARE(table->selectionSummary(), QString("Selected: 4 cells"));
+    const auto layers = sub->findChildren<QComboBox*>();
+    QCOMPARE(layers.size(), 2);
+    layers.at(0)->setCurrentIndex(2);
+    layers.at(1)->setCurrentIndex(3);
+    QTRY_COMPARE(table->model()->data(table->model()->index(0, 0)).toString(), QString("23000"));
+    QTRY_VERIFY(table->columnWidth(0) >= table->fontMetrics().horizontalAdvance("23000") + 4);
+    QCOMPARE(table->model()->data(table->model()->index(0, 0), Qt::ToolTipRole).toString(), QString("23000"));
+    if(QByteArray(slot) == "add_both_grids") QCOMPARE(table->selectionText(), QString("23000\t23000\n23010\t23010"));
+    else QCOMPARE(table->selectionText(), QString("23000\t23001\n23010\t23011"));
+    mdi->closeAllSubWindows();
+  }
+  auto *attribute = open("valid_range", "add_grid");
+  QVERIFY(attribute);
+  QTRY_VERIFY(attribute->columnWidth(0) < 80);
+  attribute->selectAll();
+  QCOMPARE(attribute->selectionText(), QString("-5\n5"));
+  mdi->closeAllSubWindows();
+  auto *dates = open("time", "add_both_grids");
+  QVERIFY(dates);
+  QAbstractItemModelTester tester(dates->model(), QAbstractItemModelTester::FailureReportingMode::QtTest);
+  QTRY_COMPARE_WITH_TIMEOUT(dates->model()->columnCount(), 4, 20000);
+  QTRY_VERIFY(dates->columnWidth(3) >= dates->fontMetrics().horizontalAdvance("20261102 12:00:00") + 4);
+  QCOMPARE(dates->model()->headerData(2, Qt::Horizontal).toString(), QString("yyyymmdd"));
+  dates->selectAll();
+  QVERIFY(dates->selectionText().startsWith("0\t0\t20261102\t20261102 12:00:00"));
+  const auto *sub = mdi->subWindowList().last();
+  QVERIFY(sub->width() <= mdi->viewport()->width());
+  const QString evidence = qEnvironmentVariable("HDFSTUDIO_GRID_EVIDENCE");
+  if(!evidence.isEmpty()) {
+    QVERIFY(QDir().mkpath(evidence));
+    QTest::qWait(50);
+    QVERIFY(window.grab().save(QDir(evidence).filePath("dates-grid.png")));
+  }
+  window.close_all_files();
+}
+
 static void close_modal_dialogs_later() {
   QTimer::singleShot(1500,[]{
     QWidget *modal=QApplication::activeModalWidget();
@@ -1744,7 +2033,7 @@ void DropTargetsTest::decodedAndStoredGridsShowScaleFactorAndOffset() {
   QCOMPARE(cell(decodedModel,1,0),QString("0.025"));
   QCOMPARE(cell(decodedModel,1,1),QString("9999"));
   QCOMPARE(cell(decodedModel,1,2),QString("-0.5"));
-  QCOMPARE(decodedModel->headerData(0,Qt::Horizontal).toString(),QString("Value (decoded to real)"));
+  QCOMPARE(decodedModel->headerData(0,Qt::Horizontal).toString(),QString("Value\ndecoded"));
   QVERIFY(decodedModel->headerData(0,Qt::Horizontal,Qt::ToolTipRole).toString().contains("stored x 0.0001 + 0"));
   QVERIFY(decoded->windowTitle().contains("Data Grid (decoded to real)"));
 
@@ -1759,7 +2048,7 @@ void DropTargetsTest::decodedAndStoredGridsShowScaleFactorAndOffset() {
   QCOMPARE(cell(storedModel,1,0),QString("250"));
   QCOMPARE(cell(storedModel,1,1),QString("99990000"));
   QCOMPARE(cell(storedModel,1,2),QString("-5000"));
-  QCOMPARE(storedModel->headerData(0,Qt::Horizontal).toString(),QString("Value (raw)"));
+  QCOMPARE(storedModel->headerData(0,Qt::Horizontal).toString(),QString("Value\nraw"));
   QVERIFY(stored->windowTitle().contains("Stored Grid (raw value)"));
   // both windows stay open side by side, each showing its own numbers
   QCOMPARE(cell(decodedModel,1,1),QString("9999"));
@@ -1950,10 +2239,10 @@ void DropTargetsTest::bothGridsShowDecodedAndRawSideBySide() {
   QAbstractItemModel *model=sub->widget()->findChild<QTableView*>("gridTable")->model();
   // 3 lon columns become 6: decoded, raw, decoded, raw, decoded, raw
   QCOMPARE(model->columnCount(),6);
-  QCOMPARE(model->headerData(0,Qt::Horizontal).toString(),QString("Value 1 (decoded)"));
-  QCOMPARE(model->headerData(1,Qt::Horizontal).toString(),QString("Value 1 (raw)"));
-  QCOMPARE(model->headerData(4,Qt::Horizontal).toString(),QString("Value 3 (decoded)"));
-  QCOMPARE(model->headerData(5,Qt::Horizontal).toString(),QString("Value 3 (raw)"));
+  QCOMPARE(model->headerData(0,Qt::Horizontal).toString(),QString("1\ndecoded"));
+  QCOMPARE(model->headerData(1,Qt::Horizontal).toString(),QString("1\nraw"));
+  QCOMPARE(model->headerData(4,Qt::Horizontal).toString(),QString("3\ndecoded"));
+  QCOMPARE(model->headerData(5,Qt::Horizontal).toString(),QString("3\nraw"));
   QVERIFY(sub->windowTitle().contains("Both Grids (decoded and raw)"));
   // the same cell twice: 99990000 stored next to its decoded 9999, and -5000 next to -0.5
   QCOMPARE(model->data(model->index(1,2)).toString(),QString("9999"));

@@ -18,6 +18,7 @@
 #include <algorithm>
 #include "hdf_explorer.hpp"
 #include "raster_view.hpp"
+#include "analysis_table_view.hpp"
 #include "texture_entropy_view.hpp"
 #include "hovmoller_view.hpp"
 #include "compare_panel.hpp"
@@ -100,7 +101,7 @@ int main(int argc, char *argv[])
 {
   Q_INIT_RESOURCE(hdf_explorer);
   QApplication app(argc, argv);
-  QCoreApplication::setApplicationVersion("0.12.10");
+  QCoreApplication::setApplicationVersion("0.12.12");
   QCoreApplication::setApplicationName(app_name);
 #if QT_VERSION >= 0x050000
   QCommandLineParser parser;
@@ -951,7 +952,7 @@ void MainWindow::about()
 {
   QMessageBox::about(this,
     tr("About HDFStudio"),
-    tr("HDFStudio 0.12.10\nAuthor: DuLiangMin\n\n"
+    tr("HDFStudio 0.12.12\nAuthor: DuLiangMin\n\n"
        "Metadata convention target: CF-1.8\n"
        "Product libraries: netCDF-C 4.9.3, HDF5 1.8.20\n\n"
        "Reference environment: Python 3.12.10, netCDF4-python 1.7.5.1.post1\n"
@@ -2692,17 +2693,18 @@ m_item_data(item_data)
 //TableModel::rowCount
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 
-int TableModel::rowCount(const QModelIndex &) const
+int TableModel::rowCount(const QModelIndex &parent) const
 {
-  return m_nbr_rows;
+  return parent.isValid() ? 0 : m_nbr_rows;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 //TableModel::columnCount
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 
-int TableModel::columnCount(const QModelIndex &) const
+int TableModel::columnCount(const QModelIndex &parent) const
 {
+  if(parent.isValid()) return 0;
   // side-by-side mode doubles the value columns: decoded, stored, decoded, stored, …
   const int value_columns = m_mode == GridBoth ? m_nbr_cols * 2 : m_nbr_cols;
   return value_columns + (m_days.isEmpty() ? 0 : 2);
@@ -2711,7 +2713,8 @@ int TableModel::columnCount(const QModelIndex &) const
 void TableModel::set_time_columns(const QStringList &days, const QStringList &moments, const QString &source)
 {
   if(!m_days.isEmpty() || days.size() != m_nbr_rows || moments.size() != m_nbr_rows || m_nbr_cols != 1) return;
-  beginInsertColumns(QModelIndex(), m_nbr_cols, m_nbr_cols + 1);
+  const int value_columns = m_mode == GridBoth ? m_nbr_cols * 2 : m_nbr_cols;
+  beginInsertColumns(QModelIndex(), value_columns, value_columns + 1);
   m_days = days;
   m_moments = moments;
   m_time_source = source;
@@ -2734,9 +2737,9 @@ QVariant TableModel::headerData(int section, Qt::Orientation orientation, int ro
       if(m_mode == GridBoth) {
         const int column = section / 2;
         const QString kind = section % 2 ? tr("raw") : tr("decoded");
-        return tr("Value %1 (%2)").arg(column + 1).arg(kind);
+        return tr("%1\n%2").arg(column + 1).arg(kind);
       }
-      if(section == 0) return m_value_header;
+      if(section == 0) return m_packed ? tr("Value\n%1").arg(m_mode == GridStored ? tr("raw") : tr("decoded")) : m_value_header;
     }
     if(role == Qt::ToolTipRole) {
       if(section < value_columns && !m_value_tooltip.isEmpty()) return m_value_tooltip;
@@ -2787,6 +2790,11 @@ void TableModel::data_changed()
 
 QVariant TableModel::data(const QModelIndex &index, int role) const
 {
+  if(!index.isValid() || index.row() < 0 || index.row() >= rowCount() ||
+      index.column() < 0 || index.column() >= columnCount()) return {};
+  if(role == Qt::ToolTipRole) return data(index, Qt::DisplayRole);
+  if(role == Qt::TextAlignmentRole) return int(Qt::AlignRight | Qt::AlignVCenter);
+  if(role != Qt::DisplayRole) return {};
   ChildWindow* parent = m_widget;
   size_t idx_buf = 0;
   const int value_columns = m_mode == GridBoth ? m_nbr_cols * 2 : m_nbr_cols;
@@ -3171,19 +3179,23 @@ public:
     //each new table widget has its own model
     m_model = new TableModel(this, item_data, mode);
     m_model->m_widget = this;
-    m_table = new QTableView(this);
+    m_table = new AnalysisTableView(this);
     m_table->setModel(m_model);
-
-    //set default row height
-    QHeaderView *verticalHeader = m_table->verticalHeader();
-#if QT_VERSION >= 0x050000
-    verticalHeader->sectionResizeMode(QHeaderView::Fixed);
-#else
-    verticalHeader->setResizeMode(QHeaderView::Fixed);
-#endif
-    verticalHeader->setDefaultSectionSize(24);
     setCentralWidget(m_table);
     m_table->setObjectName("gridTable");
+    m_table->setAccessibleName(tr("Data grid cells"));
+    auto *tools = addToolBar(tr("Grid analysis"));
+    tools->setObjectName("gridAnalysisToolbar");
+    tools->setMovable(false);
+    tools->addAction(m_table->autoFitAction());
+    tools->addAction(m_table->copyAction());
+    auto *selection = new QLabel(m_table->selectionSummary(), tools);
+    selection->setObjectName("gridSelectionSummary");
+    tools->addWidget(selection);
+    connect(m_table, &AnalysisTableView::selectionSummaryChanged, selection, &QLabel::setText);
+    connect(m_table, &AnalysisTableView::copyFailed, this, [this](const QString &error) {
+      QMessageBox::warning(this, tr("Copy selection"), error);
+    });
     start_time_decoding(item_data);
   }
 private:
@@ -3212,12 +3224,9 @@ private:
         moments.append(cells.at(1));
       }
       m_model->set_time_columns(days, moments, head.size() == 3 ? head.at(1) + " | calendar=" + head.at(2) : QString());
-      m_table->resizeColumnsToContents();
-      if(QMdiSubWindow *sub = qobject_cast<QMdiSubWindow*>(parentWidget()))
-        sub->resize(qMax(sub->width(), m_table->horizontalHeader()->length() + 80), sub->height());
     });
   }
-  QTableView *m_table;
+  AnalysisTableView *m_table;
 };
 
 
@@ -3425,6 +3434,8 @@ void MainWindow::add_table(ItemData *item_data, int mode)
   QMdiSubWindow *sub = m_mdi_area->addSubWindow(window);
   sub->setAttribute(Qt::WA_DeleteOnClose);
   tag_view(sub, item_data);
+  const QSize available = m_mdi_area->viewport()->size();
+  sub->resize(qMin(900, available.width()), qMin(580, available.height()));
   window->show();
 }
 

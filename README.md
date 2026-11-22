@@ -4,7 +4,7 @@
 
 **English** | [简体中文](README_CN.md)
 
-🔢 **Version 0.12.10** — independent space-time sections (Hovmöller), 2D texture entropy images, scientific color maps, image zoom, lead/lag comparison, pair metrics, residual maps and joint slice playback.
+🔢 **Version 0.12.12** — compact font-aware analysis grids with mouse selection and clipboard copying, plus independent space-time sections (Hovmöller), texture entropy images, scientific color maps, lead/lag comparison, residual maps and joint slice playback.
 
 ⬇️ **Download:** get `HDFStudio-<version>-win64.zip` from the [latest release](https://github.com/DuLiangMin/HDFStudio/releases/latest). **Portable (green) app:** unzip it anywhere and double-click `HDFStudio.exe` to run. No installation and no administrator rights needed.
 
@@ -23,7 +23,15 @@ coordinates into real dates, and check CF metadata conventions, all without writ
 
 *Recorded from the running Windows application: 2-metre temperature (`TMP_2maboveground`, 384 × 190, 480 layers) in cmocean Thermal, alongside its synchronized 4×4 local texture entropy image in Viridis. The green Play button advances both views. Entropy has its own fixed 0–4 bits scale. [View the static screenshot](docs/screenshot-main.png).*
 
-### 🆕 New in 0.12.10
+### 🆕 New in 0.12.12
+
+| Capability | How to use it |
+|---|---|
+| 📊 **Font-aware automatic column widths** | Data, Stored and Both Grids, numeric attributes and time/date tables share **Auto-fit columns**. Widths follow the current font, size and displayed values; turn it off to keep manual widths. |
+| 🖱️ **Select and copy values** | Click or drag cells, use Ctrl/Shift to refine the selection, or click row/column headers. **Ctrl+C / Copy selection** produces tab-separated values with blank gaps for unselected cells. |
+| ⚡ **Responsive large grids** | Width estimation samples a bounded number of rows. Large selections remain ranges; clipboard limits are checked before expanding cells. Tables above one million cells use a bounded accessibility interface. |
+
+### 📈 Space-time sections introduced in 0.12.10
 
 | Capability | How to use it |
 |---|---|
@@ -41,7 +49,7 @@ coordinates into real dates, and check CF metadata conventions, all without writ
 | ➖ **Spatial residual map** | **Residual map** shows `Target − Anchor` with a zero-centered diverging scale and follows the selected layers and Mask. |
 | ▶️ **Green Play / Pause** | Animate one dataset or linked views with an adjustable interval; metrics, residuals and source-following entropy update with the layers. |
 
-**Validation:** Debug/Release each pass **20 section checks and 83 existing QtTest checks**, with no failures or skips, and **CTest 2/2**. Independent section reconciliation covers **1,878,490 values**, all ordered 4D axis pairs and exported PNG colors; local texture entropy is also checked against NumPy, including missing/Mask pixels.
+**Validation:** Debug/Release each pass **20 section checks and 88 main QtTest checks**, with no failures or skips, and **CTest 2/2**. Grid checks include 9/12/18-point fonts, mouse selection, clipboard values and a 400-million-cell virtual model under memory/time limits. Independent section validation also covers **1,878,490 values**, all ordered 4D axis pairs and exported PNG colors; local texture entropy is checked against NumPy, including missing/Mask pixels.
 
 ## 🤔 Why HDFStudio?
 
@@ -120,8 +128,10 @@ For joint playback, open two images, select **Window → Compare & Metrics**, ch
   - **Data Grid (decoded to real)...** — the real values, the numbers the image view and the legend show.
   - **Stored Grid (raw value)...** — the numbers exactly as written in the file, before `scale_factor`/`add_offset`.
   - **Both Grids (decoded and raw)...** — one table with the decoded column next to its raw column, so a cell and the number it came from are read in the same row.
+  - All grids share **Auto-fit columns** (on by default), including numeric attributes and time/date columns. Turn it off to keep manually dragged widths. Click or drag cells to select a rectangle; use Ctrl for separate cells and Shift to extend a range. Row/column headers select whole rows/columns. **Copy selection** or **Ctrl+C** copies the displayed values as tab-separated rows for spreadsheets; unselected gaps stay blank. Hover a cell to read its full value.
+    For tables above one million cells, individual cells are not enumerated through accessibility APIs; the grid remains available to mouse and keyboard selection. Copying is limited to a one-million-cell bounding rectangle and 32 MiB of text per operation.
 
-  Every header says which number it holds (`Value (decoded to real)`, `Value (raw)`, or `Value 1 (decoded)` / `Value 1 (raw)`), and the window title repeats it. Decoding starts from the stored number, not from its shortened text, so a `float32` value such as 123456789 is not rounded to 6 digits first. Checked against Python netCDF4 cell by cell on a 1201 × 1401 packed product: decoded, raw and both grids all match (1,682,601 cells each).
+  Compact two-line headers distinguish `Value` / `decoded`, `Value` / `raw`, or paired column numbers with `decoded` / `raw`; tooltips and window titles give the full meaning. Widths use the actual font, size and displayed numeric text, and refit after font changes. Decoding starts from the stored number, not from its shortened text, so a `float32` value such as 123456789 is not rounded to 6 digits first. Checked against Python netCDF4 cell by cell on a 1201 × 1401 packed product: decoded, raw and both grids all match (1,682,601 cells each).
 - ⬆️⬇️ **Layer toolbar**: next, previous, last and first layer buttons right after Open, with a dimension picker and a layer picker, and a `Layer n of N` readout. The **Layer** menu has the same commands (`Alt+←`/`Alt+→`/`Alt+Home`/`Alt+End`, `Ctrl+G` to type a layer number). Works on the grid and the image view of the active window, for any leading axis such as `time` or `lev`.
 - 🔍 **Properties** like `print(netCDF4.Dataset(...))`: dimension names, unlimited dimension, and attribute values with arrays expanded.
 - 📋 **Copyable Properties, built for extracting metadata** (0.10.29): right-click a file, group or variable → **Properties...**. The window shows a plain-text report you can select and copy (`Ctrl+C`), or copy in one go with **Copy All**. The report starts with the file path and object path, followed by shape, type, size, dimensions, storage layout and every attribute. Paste it into a search, an issue or an LLM prompt to ask about the file's NetCDF metadata and data without opening Python. The window is not modal, so you can keep several open side by side. `hdf_cli props` prints the same lines.
