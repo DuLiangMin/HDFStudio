@@ -1,5 +1,14 @@
 # Changelog
 
+## 🧩 0.12.12 HDF5 update - 2026-11-23 (version unchanged)
+
+- Add a built-in, read-only Bitshuffle (32008) decoder for plain HDF5: none, LZ4 and Zstd modes; share it across image, grid, text export and arbitrary-axis reads.
+- Validate compressed block lengths, allocation bounds and short tails, and report unavailable filter IDs/names without rejecting chunks where an optional filter was skipped.
+- Preserve stored values and packing semantics; unknown units and undeclared missing-value codes are not inferred. Include pinned upstream sources and portable-package license notices.
+- Verify Debug/Release with 89 main, 20 section and 6 filter tests each, CTest 3/3 each, and ten independent HDF5/NetCDF pairs totaling 16,826,010 values per configuration.
+- Recheck 97 NetCDF files for first-plane opening/rendering and single-process sequential open/Image View/close. Preserve source files and metadata semantics. Resource growth in repeated native-file-dialog automation remains unresolved and is not claimed fixed.
+- Publish matching `HDFStudio-0.12.12-hdf-20261123-win64.zip` and `HDFStudio-0.12.12-hdf-20261123-src.zip` attachments under the existing 0.12.12 release. Retain its original tag and archives; GitHub-generated source archives still represent the original release. Use the dated source attachment for this update.
+
 ## 📊 0.12.12 Compact analysis grids - 2026-11-22
 
 - Share a compact content-sized, read-only analysis table across Data Grid, Stored Grid, Both Grids, numeric attributes and time/date columns. Auto-fit is enabled by default, can be disabled for manual widths, and updates after layer changes, scrolling and asynchronous date insertion; paired value headers use two lines to avoid wasting horizontal space.

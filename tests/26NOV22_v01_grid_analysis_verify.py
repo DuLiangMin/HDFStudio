@@ -74,7 +74,7 @@ def main():
             p_config.mkdir()
             d_environment.update(HDFSTUDIO_GRID_EVIDENCE=str(p_config), HDFSTUDIO_TEST_CONFIG=s_config,
                                  HDFSTUDIO_TEST_LOG_DIR=str(p_config), HDFSTUDIO_HOVMOLLER_EXPORT=str(p_config))
-            run([s_cmake, '--build', 'build/vs2022', '--config', s_config, '--target', 'hdf_explorer', 'hdf_cli', 'hdf_explorer_drop_tests', 'hovmoller_tests', '--', '/verbosity:minimal'], s_config + '-build', 1200)
+            run([s_cmake, '--build', 'build/vs2022', '--config', s_config, '--target', 'hdf_explorer', 'hdf_cli', 'hdf_explorer_drop_tests', 'hovmoller_tests', 'hdf_filters_tests', '--', '/verbosity:minimal'], s_config + '-build', 1200)
             # Isolate the huge virtual-grid path with a watchdog before the full suite.
             p_memory = p_config / 'large-grid.txt'
             f_start = time.perf_counter()
@@ -100,7 +100,7 @@ def main():
                     (p_config / 'large-grid-memory.json').write_text(json.dumps({'peak_rss': i_peak, 'seconds': time.perf_counter() - f_start, 'limit_bytes': 768 * 1024 * 1024}, indent=2), encoding='utf-8')
             logging.info('PASS %s isolated 400-million-cell range selection; peak RSS %.1f MiB', s_config, i_peak / 1024 / 1024)
             d_counts = {}
-            for s_test, i_expected in [('hdf_explorer_drop_tests', 88), ('hovmoller_tests', 20)]:
+            for s_test, i_expected in [('hdf_explorer_drop_tests', 89), ('hovmoller_tests', 20), ('hdf_filters_tests', 6)]:
                 p_log = p_config / (s_test + '.txt')
                 run([p_root / 'build/output' / s_config / (s_test + '.exe'), '-o', str(p_log) + ',txt'], s_config + '-' + s_test)
                 s_text = p_log.read_text(encoding='utf-8')
@@ -125,7 +125,7 @@ def main():
                 a_expected = np.array([[row * 100 + (column // 2 if s_mode == 'both' else column) * 0.125 for column in range(1, 5)] for row in range(1, 4)])
                 np.testing.assert_array_equal(a_actual, a_expected)
             (p_desktop / 'clipboard-reconciliation.json').write_text(json.dumps({'status': 'PASS', 'modes': 3, 'values': 36}, indent=2), encoding='utf-8')
-            d_report['configurations'].append({'configuration': s_config, 'tests': d_counts, 'binaries': {s_name: digest(p_root / 'build/output' / s_config / (s_name + '.exe')) for s_name in ['HDFStudio', 'hdf_cli', 'hdf_explorer_drop_tests', 'hovmoller_tests']}})
+            d_report['configurations'].append({'configuration': s_config, 'tests': d_counts, 'binaries': {s_name: digest(p_root / 'build/output' / s_config / (s_name + '.exe')) for s_name in ['HDFStudio', 'hdf_cli', 'hdf_explorer_drop_tests', 'hovmoller_tests', 'hdf_filters_tests']}})
             save()
         run([sys.executable, p_root / 'tests/reconcile_time_grid.py'], 'time-grid-reconcile', 120)
         for s_name, s_hash in d_sources.items():

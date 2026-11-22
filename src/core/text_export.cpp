@@ -1,4 +1,5 @@
 #include "text_export.hpp"
+#include "hdf_filters.hpp"
 #include "nc_classic.hpp"
 #include "hdf5.h"
 #include <algorithm>
@@ -131,6 +132,7 @@ HdfTextExport::Result HdfTextExport::write(const QString &filePath,
   if(file.id<0) { result.error="Cannot open HDF5 file"; return result; }
   Handle dataset{H5Dopen2(file.id,objectName.constData(),H5P_DEFAULT),H5Dclose};
   if(dataset.id<0) { result.error="Object is not a readable numeric dataset"; return result; }
+  const QString filter_error=hdf_prepare_dataset(dataset.id);
   Handle type{H5Dget_type(dataset.id),H5Tclose};
   Handle memoryType{type.id>=0?H5Tget_native_type(type.id,H5T_DIR_DEFAULT):-1,H5Tclose};
   Handle space{H5Dget_space(dataset.id),H5Sclose};
@@ -171,7 +173,7 @@ HdfTextExport::Result HdfTextExport::write(const QString &filePath,
     hsize_t memoryCount=static_cast<hsize_t>(count);
     Handle memorySpace{rank>0?H5Screate_simple(1,&memoryCount,nullptr):H5Screate(H5S_SCALAR),H5Sclose};
     if(memorySpace.id<0 || H5Dread(dataset.id,memoryType.id,memorySpace.id,fileSpace.id,H5P_DEFAULT,buffer.data())<0) {
-      result.error="Dataset chunk read failed"; return result;
+      result.error=filter_error.isEmpty()?hdf_filter_read_error("Dataset chunk read failed"):filter_error; return result;
     }
     for(size_t i=0;i<count;++i) {
       if(offset+i && (offset+i)%columns==0) { if(output.write("\n",1)!=1) {result.error="Text output write failed";return result;} }

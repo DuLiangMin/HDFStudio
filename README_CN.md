@@ -6,7 +6,7 @@
 
 🔢 **版本：0.12.12**，新增按字体与数值测宽的紧凑分析表格、鼠标选区与剪贴板复制，并包含独立时空剖面（Hovmöller）、二维纹理熵图、科学色表、超前/滞后比较、残差图与逐层联合播放。
 
-⬇️ **下载：** 在[最新发布页](https://github.com/DuLiangMin/HDFStudio/releases/latest)下载 `HDFStudio-<版本>-win64.zip`。**绿色安装**：解压到任意目录，直接双击 `HDFStudio.exe` 即可运行，无需安装，也不需要管理员权限。
+⬇️ **下载：** 在[最新发布页](https://github.com/DuLiangMin/HDFStudio/releases/latest)下载 **`HDFStudio-0.12.12-hdf-20261123-win64.zip`**，其中包含HDF5解码修复。程序版本仍为0.12.12，原附件保留。**绿色安装**：解压到任意目录，直接双击 `HDFStudio.exe` 即可运行，无需安装，也不需要管理员权限。
 
 [![Release](https://img.shields.io/github/v/release/DuLiangMin/HDFStudio?label=release&color=3d99a4)](https://github.com/DuLiangMin/HDFStudio/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/DuLiangMin/HDFStudio/total?color=3d99a4)](https://github.com/DuLiangMin/HDFStudio/releases)
@@ -21,6 +21,12 @@ HDFStudio 是面向气象、气候与地球科学的 Windows 桌面 **NetCDF 查
 *从 Windows 程序实际录制：2米气温（`TMP_2maboveground`，384 × 190，共480层）采用 cmocean Thermal 配色，旁边是 Viridis 配色的4×4局部纹理熵图。绿色 Play 按钮逐层播放，两图同步更新；熵图使用独立的0～4 bits固定色标。[查看静态截图](docs/screenshot-main.png)。*
 
 ### 🆕 0.12.12 新增功能速览
+
+🧩 **HDF5更新——2026-11-23，程序版本号不变：** 普通HDF5的Bitshuffle过滤器32008现已内置无压缩、LZ4和Zstd三种块解码，Image View、表格、原生文本导出和任意轴切片共用，无需Python或外部插件目录。缺少必需解压器时报告过滤器ID及名称。未声明为缺测的数值仍保留原值，按需显式设置Mask Range；单块解压上限256 MiB。
+
+🧪 HDF5更新验证：Debug/Release各通过89项主测试、20项剖面及6项过滤器QtTest，CTest各3/3；两配置分别核对10对只读HDF5/NetCDF样本的16,826,010个值，目标预览PNG一致，独立Python解码器也已确认存储整数和解码值相同。另外97份NetCDF的首层打开/成像及同进程连续打开/Image View/关闭全部通过。这不代表全部层或长期内存稳定性保证：仅操作原生文件框、不读取数据的自动化对照也出现资源增长，根因仍待定位。
+
+📦 **配套源码：** 本次更新使用 `HDFStudio-0.12.12-hdf-20261123-src.zip`。既有 `v0.12.12` 标签及GitHub自动生成的源码包仍对应原始发布；需要HDF5修复源码时请选择带日期的源码附件。
 
 | 能力 | 使用方法 |
 |---|---|
@@ -146,7 +152,7 @@ CLI与GUI共用解码器：`hdf_cli slice FILE /VARIABLE ROW_AXIS COL_AXIS OUTPU
 
 ## 📥 下载与运行
 
-1. 在 [Releases](https://github.com/DuLiangMin/HDFStudio/releases/latest) 页面下载 `HDFStudio-<版本>-win64.zip`。
+1. 在 [Releases](https://github.com/DuLiangMin/HDFStudio/releases/latest) 页面下载 `HDFStudio-0.12.12-hdf-20261123-win64.zip`，获取更新后的HDF5解码器。
 2. 解压到任意目录，运行 `HDFStudio.exe`。无需安装、无需管理员权限，Qt 与 Visual C++ 运行库已随包提供。
 
 变量树、表格、图像视图与 File Info 页开箱即用。**By NetCDF4** 页、**CF Check** 页和时间解码需要 `PATH` 中的 Python 3（或设置 `HDFSTUDIO_PYTHON`）：

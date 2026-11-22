@@ -1,5 +1,6 @@
 // Plane decoding and histogram binning shared by the image view, the histogram window and hdf_cli.
 #include "plane_reader.hpp"
+#include "hdf_filters.hpp"
 #include "nc_classic.hpp"
 #include <QFileInfo>
 #include <QObject>
@@ -58,8 +59,7 @@ NcPlaneResult nc_read_plane_decoded(const QString &file, const std::string &path
     return result;
   }
 
-  const bool may_be_netcdf = is_classic_netcdf_file(file) ||
-      file.endsWith(".nc", Qt::CaseInsensitive) || file.endsWith(".nc4", Qt::CaseInsensitive);
+  const bool may_be_netcdf = is_classic_netcdf_file(file) || probe_data_format(file).netcdf;
   if(may_be_netcdf) {
     NcReader reader(file);
     int group = -1, variable = -1;
@@ -81,6 +81,7 @@ NcPlaneResult nc_read_plane_decoded(const QString &file, const std::string &path
   if(fid.id < 0) { result.error = QObject::tr("HDF5 cannot open the file"); return result; }
   Handle dataset{H5Dopen2(fid.id, path.c_str(), H5P_DEFAULT), H5Dclose};
   if(dataset.id < 0) { result.error = QObject::tr("Variable not found"); return result; }
+  const QString filter_error = hdf_prepare_dataset(dataset.id);
   Handle space{H5Dget_space(dataset.id), H5Sclose};
   if(space.id < 0 || H5Sget_simple_extent_ndims(space.id) != int(shape.size())) {
     result.error = QObject::tr("Cannot read the variable shape");
@@ -100,7 +101,7 @@ NcPlaneResult nc_read_plane_decoded(const QString &file, const std::string &path
 
   std::vector<double> values(size_t(rows * cols), NAN);
   if(H5Dread(dataset.id, H5T_NATIVE_DOUBLE, memory.id, space.id, H5P_DEFAULT, values.data()) < 0) {
-    result.error = QObject::tr("Cannot read the plane");
+    result.error = filter_error.isEmpty() ? hdf_filter_read_error(QObject::tr("Cannot read the plane")) : filter_error;
     return result;
   }
   double fill = NAN, missing = NAN, scale = 1, offset = 0;

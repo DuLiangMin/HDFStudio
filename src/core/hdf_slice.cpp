@@ -1,5 +1,6 @@
 // Plain HDF5 arbitrary-axis read; native numeric signedness is preserved until decoding.
 #include "plane_reader.hpp"
+#include "hdf_filters.hpp"
 #include "slice_decode.hpp"
 #include "nc_classic.hpp"
 #include <QFile>
@@ -27,7 +28,8 @@ template<class T> NcSliceResult typed(hid_t dataset,hid_t space,hid_t memory,hid
   }
   if(!std::isfinite(scale)||!std::isfinite(offset)){out.error_code="InvalidPacking";out.error="Non-finite scale/offset";return out;}
   std::vector<T> raw(rows*cols);
-  if(H5Dread(dataset,native,memory,space,H5P_DEFAULT,raw.data())<0){out.error_code="ReadError";out.error="HDF5 hyperslab read failed";return out;}
+  const auto filter_error=hdf_prepare_dataset(dataset);
+  if(H5Dread(dataset,native,memory,space,H5P_DEFAULT,raw.data())<0){out.error_code=filter_error.isEmpty()?"ReadError":"UnsupportedFilter";out.error=filter_error.isEmpty()?hdf_filter_read_error("HDF5 hyperslab read failed"):filter_error;return out;}
   slice_decode_values(raw,has_fill,fill,has_missing,missing,scale,offset,out.plane.values,out.precision_warning);
   slice_orient(out.plane.values,rows,cols,spec.row_axis>spec.col_axis);
   out.plane.rows=rows;out.plane.cols=cols;return out;
@@ -39,7 +41,7 @@ NcSliceResult nc_read_slice_decoded(const QString &file,const std::string &path,
   auto fail=[&](const QString &code,const QString &message){out.error_code=code;out.error=message;return out;};
   const std::vector<size_t> shape(expected.begin(),expected.end());
   const auto error=slice_validate(shape,spec);if(!error.isEmpty())return fail(error,"Invalid requested slice");
-  {
+  if(is_classic_netcdf_file(file) || probe_data_format(file).netcdf) {
     NcReader reader(file);int group=-1,variable=-1;
     if(reader.locate(path,group,variable)) {
       int rank=0;nc_inq_varndims(group,variable,&rank);std::vector<int> ids(rank);std::vector<size_t> actual(rank);

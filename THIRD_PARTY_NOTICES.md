@@ -12,6 +12,9 @@ The Windows binary package bundles or links the following components.
 | netCDF-C | 4.9.3 | `netcdf.dll`, unmodified | BSD-style (UCAR) | `licenses/netCDF-C-COPYRIGHT.txt` |
 | HDF5 | 1.8.20 | Statically linked into `HDFStudio.exe` | BSD-style (The HDF Group) | `licenses/HDF5-COPYING.txt` |
 | zlib | 1.3.1 | Compression support of the native libraries | zlib License | `licenses/zlib-LICENSE.txt` |
+| Bitshuffle core | 0.5.2 | Statically linked read-only HDF5 filter 32008 | MIT | `licenses/hdf-filters/Bitshuffle-MIT.txt` |
+| LZ4 | 1.10.0 | Statically linked Bitshuffle block decoding | BSD-2-Clause | `licenses/hdf-filters/LZ4-BSD-2-Clause.txt` |
+| Zstandard | 1.5.7 | Statically linked Bitshuffle block decoding | BSD-3-Clause | `licenses/hdf-filters/Zstandard-BSD-3-Clause.txt` |
 | Microsoft Visual C++ runtime | 14.x | `msvcp140.dll`, `vcruntime140*.dll` | Visual Studio redistributable terms | - |
 
 Qt is used under the LGPL-3.0. The Qt libraries are shipped as separate, unmodified DLLs, so

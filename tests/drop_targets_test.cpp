@@ -33,6 +33,7 @@
 #include "color_map.hpp"
 #include "color_map_picker.hpp"
 #include "analysis_table_view.hpp"
+#include "hdf_filters_fixture.hpp"
 #include <QAbstractItemModelTester>
 #include <QClipboard>
 #include <QStandardItemModel>
@@ -43,6 +44,7 @@ class DropTargetsTest : public QObject {
   Q_OBJECT
 
 private slots:
+  void bitshuffleImageGridAndDecodedValues();
   void analysisGridFitsContentsAndKeepsManualWidths();
   void analysisGridMouseSelectionAndClipboardMatchCells();
   void analysisGridSparseSelectionAndCopyLimits();
@@ -216,6 +218,55 @@ void DropTargetsTest::colorMapResourcesMatchGoldenValuesAndLicenses() {
   }
   QProcess cli;cli.start(QDir(QCoreApplication::applicationDirPath()).filePath("hdf_cli.exe"),{"cmap","bids:viridis","0"});
   QVERIFY(cli.waitForFinished());QCOMPARE(cli.exitCode(),0);QCOMPARE(cli.readAllStandardOutput().trimmed(),QByteArray("68,1,84,255"));
+}
+
+void DropTargetsTest::bitshuffleImageGridAndDecodedValues() {
+  QTemporaryDir dir; QVERIFY(dir.isValid());
+  const QString file = dir.filePath("compressed.h5");
+  QFile output(file); QVERIFY(output.open(QIODevice::WriteOnly));
+  const auto bytes = QByteArray::fromBase64(HdfFilterFixture::file_zstd);
+  QCOMPARE(output.write(bytes), bytes.size()); output.close();
+  MainWindow window; window.resize(1200,800); window.show();
+  QVERIFY(QTest::qWaitForWindowExposed(&window)); QCOMPARE(window.read_file(file),0);
+  auto *tree=window.findChild<FileTreeWidget*>();auto *mdi=window.findChild<QMdiArea*>();
+  const auto items=tree->findItems("signed",Qt::MatchExactly|Qt::MatchRecursive);QCOMPARE(items.size(),1);
+  tree->setCurrentItem(items.first());
+  auto *image_action=window.findChild<QAction*>("actionImageView");QVERIFY(image_action);image_action->trigger();
+  auto *image=window.findChild<RasterView*>();QVERIFY(image);
+  QTRY_VERIFY(image->plane_snapshot().values);QTRY_VERIFY(!image->render_pending());
+  QCOMPARE(image->image_for_export().size(),QSize(67,35));
+  const auto snapshot=image->plane_snapshot();
+  for(size_t index=0;index<snapshot.values->size();++index){
+    const int raw=int(index%200)-100;
+    if(raw==-100||raw==-99)QVERIFY(std::isnan((*snapshot.values)[index]));
+    else QCOMPARE((*snapshot.values)[index],raw*.0001+2.0);
+  }
+  for(const char *slot:{"add_grid","add_stored_grid","add_both_grids"}){
+    tree->setCurrentItem(items.first());QVERIFY(QMetaObject::invokeMethod(tree,slot));
+    auto *table=mdi->subWindowList().last()->findChild<AnalysisTableView*>();QVERIFY(table);
+    QCOMPARE(table->model()->rowCount(),35);
+    const bool both=QByteArray(slot)=="add_both_grids",raw=QByteArray(slot)=="add_stored_grid";
+    QCOMPARE(table->model()->data(table->model()->index(0,both?4:2)).toString(),raw?QString("-98"):QString("1.9902"));
+  }
+  window.close_all_files();
+  const QString sample=qEnvironmentVariable("HDFSTUDIO_BITSHUFFLE_SAMPLE");
+  if(!sample.isEmpty()){
+    const QString reference=qEnvironmentVariable("HDFSTUDIO_BITSHUFFLE_REFERENCE");
+    QVERIFY(QFileInfo(sample).isFile());QVERIFY(QFileInfo(reference).isFile());
+    RasterView actual(sample.toLocal8Bit().toStdString(),"/precipitation",{1,1201,1401});
+    RasterView expected(reference.toLocal8Bit().toStdString(),"/precipitation",{1,1201,1401});
+    actual.resize(1100,780);actual.show();
+    QTRY_VERIFY(actual.plane_snapshot().values);QTRY_VERIFY(expected.plane_snapshot().values);
+    QCOMPARE(*actual.plane_snapshot().values,*expected.plane_snapshot().values);
+    QCOMPARE(actual.image_for_export(),expected.image_for_export());
+    for(auto *view : {&actual,&expected}) {
+      auto *start=view->findChild<QLineEdit*>("maskStart");auto *end=view->findChild<QLineEdit*>("maskEnd");
+      start->setText("9999");end->setText("9999");QMetaObject::invokeMethod(end,"editingFinished");
+    }
+    QCOMPARE(actual.image_for_export(),expected.image_for_export());
+    const auto evidence=qEnvironmentVariable("HDFSTUDIO_GRID_EVIDENCE");
+    if(!evidence.isEmpty()){QVERIFY(actual.image_for_export().save(QDir(evidence).filePath("bitshuffle-image.png")));QVERIFY(actual.grab().save(QDir(evidence).filePath("bitshuffle-window.png")));}
+  }
 }
 
 void DropTargetsTest::analysisGridFitsContentsAndKeepsManualWidths() {

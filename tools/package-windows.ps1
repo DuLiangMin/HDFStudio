@@ -45,6 +45,10 @@ Copy-Item "$root\ext\netcdf-c-4.9.3\COPYRIGHT" "$stage\licenses\netCDF-C-COPYRIG
 Copy-Item "$root\ext\hdf5-1.8.20\COPYING" "$stage\licenses\HDF5-COPYING.txt"
 Copy-Item "$root\ext\zlib-1.3.1\LICENSE" "$stage\licenses\zlib-LICENSE.txt"
 Copy-Item "$root\licenses\colormaps" "$stage\licenses\colormaps" -Recurse
+New-Item -ItemType Directory -Force "$stage\licenses\hdf-filters" | Out-Null
+Copy-Item "$root\third_party\hdf_filters\bitshuffle\LICENSE" "$stage\licenses\hdf-filters\Bitshuffle-MIT.txt"
+Copy-Item "$root\third_party\hdf_filters\lz4\LICENSE" "$stage\licenses\hdf-filters\LZ4-BSD-2-Clause.txt"
+Copy-Item "$root\third_party\hdf_filters\zstd\LICENSE" "$stage\licenses\hdf-filters\Zstandard-BSD-3-Clause.txt"
 # The binary already embeds these assets; ship provenance beside it for inspection.
 New-Item -ItemType Directory -Force "$stage\resources" | Out-Null
 Copy-Item "$root\resources\colormaps" "$stage\resources\colormaps" -Recurse

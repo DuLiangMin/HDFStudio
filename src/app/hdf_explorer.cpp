@@ -19,6 +19,7 @@
 #include "hdf_explorer.hpp"
 #include "raster_view.hpp"
 #include "analysis_table_view.hpp"
+#include "hdf_filters.hpp"
 #include "texture_entropy_view.hpp"
 #include "hovmoller_view.hpp"
 #include "compare_panel.hpp"
@@ -1976,13 +1977,14 @@ void FileTreeWidget::load_item(QTreeWidgetItem  *item)
     nbr_elements *= dims[idx];
   }
 
+  const QString filter_error = hdf_prepare_dataset(did);
   item_data->m_dataset->m_buf = malloc(static_cast<size_t>(datatype_size * nbr_elements));
 
   if(H5Dread(did, mtid, H5S_ALL, H5S_ALL, H5P_DEFAULT, item_data->m_dataset->m_buf) < 0)
   {
     free(item_data->m_dataset->m_buf);
     item_data->m_dataset->m_buf = nullptr;
-    QMessageBox::warning(this, tr("Grid"), tr("Cannot read this dataset. Check its size and compression filter."));
+    QMessageBox::warning(this, tr("Grid"), filter_error.isEmpty() ? hdf_filter_read_error(tr("Cannot read this dataset. Check its size and compression filter.")) : filter_error);
     qDebug() << item_data->m_dataset->m_path.c_str();
   }
 

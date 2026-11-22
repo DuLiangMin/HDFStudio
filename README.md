@@ -6,7 +6,7 @@
 
 🔢 **Version 0.12.12** — compact font-aware analysis grids with mouse selection and clipboard copying, plus independent space-time sections (Hovmöller), texture entropy images, scientific color maps, lead/lag comparison, residual maps and joint slice playback.
 
-⬇️ **Download:** get `HDFStudio-<version>-win64.zip` from the [latest release](https://github.com/DuLiangMin/HDFStudio/releases/latest). **Portable (green) app:** unzip it anywhere and double-click `HDFStudio.exe` to run. No installation and no administrator rights needed.
+⬇️ **Download:** get **`HDFStudio-0.12.12-hdf-20261123-win64.zip`** from the [latest release](https://github.com/DuLiangMin/HDFStudio/releases/latest) for the HDF5 decoder update. The application version remains 0.12.12; the original archives are retained. **Portable (green) app:** unzip it anywhere and double-click `HDFStudio.exe` to run. No installation and no administrator rights needed.
 
 [![Release](https://img.shields.io/github/v/release/DuLiangMin/HDFStudio?label=release&color=3d99a4)](https://github.com/DuLiangMin/HDFStudio/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/DuLiangMin/HDFStudio/total?color=3d99a4)](https://github.com/DuLiangMin/HDFStudio/releases)
@@ -24,6 +24,12 @@ coordinates into real dates, and check CF metadata conventions, all without writ
 *Recorded from the running Windows application: 2-metre temperature (`TMP_2maboveground`, 384 × 190, 480 layers) in cmocean Thermal, alongside its synchronized 4×4 local texture entropy image in Viridis. The green Play button advances both views. Entropy has its own fixed 0–4 bits scale. [View the static screenshot](docs/screenshot-main.png).*
 
 ### 🆕 New in 0.12.12
+
+🧩 **HDF5 update — 2026-11-23, application version unchanged:** plain HDF5 datasets using Bitshuffle filter 32008 now have built-in decoding for uncompressed, LZ4 and Zstd blocks. Image View, grids, native text export and arbitrary-axis slices share the decoder; Python and an external plugin directory are not required. Unsupported required filters report their ID and name. Values without a declared missing-value attribute remain numeric; use Mask Range explicitly when appropriate. Decoded chunks are limited to 256 MiB.
+
+🧪 HDF5 update verification: Debug and Release each pass 89 main, 20 section and 6 filter QtTest cases, with CTest 3/3. Each configuration reconciles 16,826,010 values across ten read-only HDF5/NetCDF pairs; target preview PNGs match. Independent Python decoders also confirm stored integers and decoded values. A further 97 NetCDF files pass first-plane opening/rendering and a continuous single-process open/Image View/close session. This is not an all-layer or long-duration memory guarantee: resource growth also occurs in a native-file-dialog automation control without reading data and remains under investigation.
+
+📦 **Matching source:** `HDFStudio-0.12.12-hdf-20261123-src.zip` accompanies this update. The existing `v0.12.12` tag and GitHub-generated source archives retain the original release source; use the dated source attachment for the HDF5 fix.
 
 | Capability | How to use it |
 |---|---|
@@ -150,7 +156,7 @@ For joint playback, open two images, select **Window → Compare & Metrics**, ch
 
 ## 📥 Download and run
 
-1. Download `HDFStudio-<version>-win64.zip` from the [Releases](https://github.com/DuLiangMin/HDFStudio/releases/latest) page.
+1. Download `HDFStudio-0.12.12-hdf-20261123-win64.zip` from the [Releases](https://github.com/DuLiangMin/HDFStudio/releases/latest) page for the updated HDF5 decoder.
 2. Unzip it anywhere and run `HDFStudio.exe`. No installer or admin rights needed. The Qt and Visual C++ runtimes are included.
 
 The tree, grid, image view and File Info tab work out of the box. The **By NetCDF4** tab, the **CF Check**

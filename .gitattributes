@@ -4,3 +4,7 @@
 /resources/colormaps/source/** -whitespace
 /resources/colormaps.qrc -text
 /licenses/colormaps/** -text
+# Decode dependency provenance hashes cover exact upstream bytes.
+/third_party/hdf_filters/bitshuffle/** -text -whitespace
+/third_party/hdf_filters/lz4/** -text -whitespace
+/third_party/hdf_filters/zstd/** -text -whitespace
