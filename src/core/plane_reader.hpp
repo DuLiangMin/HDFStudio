@@ -20,7 +20,9 @@ struct NcPlaneResult {
 };
 NcPlaneResult nc_read_plane_decoded(const QString &file, const std::string &path,
                                     const std::vector<hsize_t> &shape,
-                                    const std::vector<size_t> &start);
+                                     const std::vector<size_t> &start);
+NcSliceResult nc_read_slice_decoded(const QString &file,const std::string &path,
+    const std::vector<hsize_t> &expected_shape,const NcSliceSpec &spec);
 
 // Histogram of one decoded plane. The kept values are drawn at random from the whole plane: exactly
 // round(finite * keep_fraction) of them, so "1 in 20" always means a twentieth of the values.

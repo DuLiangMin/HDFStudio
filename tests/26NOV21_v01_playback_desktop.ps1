@@ -35,7 +35,18 @@ function FindName($container,$name){,@($container.FindAll([System.Windows.Automa
 function AllControls($container){$container.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition)}
 function Check($name,$value){$script:checks+=[pscustomobject]@{check=$name;pass=[bool]$value};"$(Get-Date -Format s) $name : $value";if(-not $value){throw $name}}
 function Click($element,$right=$false){if(-not $element){throw 'UI element missing'};$r=$element.Current.BoundingRectangle;if($r.IsEmpty -or $element.Current.IsOffscreen){throw ('Hidden UI: '+$element.Current.Name)};[PlaybackMouse]::Click([int]($r.X+$r.Width/2),[int]($r.Y+$r.Height/2),$right);Start-Sleep -Milliseconds 180}
-function SetText($element,$text){Click $element;[Windows.Forms.SendKeys]::SendWait('^a{BACKSPACE}');[Windows.Forms.SendKeys]::SendWait($text);[Windows.Forms.SendKeys]::SendWait('{TAB}');Start-Sleep -Milliseconds 250}
+function SetText($element,$text){
+ if(-not $element){throw 'Text input missing'}
+ $element.SetFocus();$numeric=$null;$value=$null
+ if($element.TryGetCurrentPattern([Windows.Automation.RangeValuePattern]::Pattern,[ref]$numeric)){
+  $numeric.SetValue([double]$text)
+  if($numeric.Current.Value -ne [double]$text){throw ('Numeric input read-back mismatch: '+$element.Current.Name)}
+ }elseif($element.TryGetCurrentPattern([Windows.Automation.ValuePattern]::Pattern,[ref]$value)){
+  $value.SetValue($text)
+  if($value.Current.Value -ne $text){throw ('Text input read-back mismatch: '+$element.Current.Name)}
+ }else{throw ('Writable value pattern missing: '+$element.Current.Name)}
+ [Windows.Forms.SendKeys]::SendWait('{TAB}');Start-Sleep -Milliseconds 250
+}
 function Shot($name){$b=[PlaybackMouse]::Capture([Windows.Forms.SystemInformation]::VirtualScreen);try{$b.Save((Join-Path $log ($name+'.png')))}finally{$b.Dispose()}}
 function MainLayer { $label=AllControls $window|Where-Object {$_.Current.AutomationId.EndsWith('.layerLabel')}|Select-Object -First 1;if(-not $label){throw 'Layer label missing'};if($label.Current.Name -match '^Layer (\d+) of (\d+)$'){return [int]$Matches[1]-1};throw $label.Current.Name }
 function Metrics { $control=(FindName $window 'Comparison metrics')[0];try{return $control.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value}catch{return $control.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern).DocumentRange.GetText(-1)} }
@@ -89,8 +100,10 @@ try {
  Shot 'joint-paused';$text|Set-Content (Join-Path $log 'final-metrics.txt') -Encoding UTF8
  SetText (FindName $window 'Lag offset')[0] '10000'
  $text=Metrics;Check 'Out-of-range clears live metrics' ($text.Contains('Out of range') -and $text.Contains('RMSE: N/A'))
- SetText (FindName $window 'Lag offset')[0] '-1'
- $text=Metrics;Check 'Returning to valid lag restores metrics' ($text.Contains('Status: Ready') -and -not $text.Contains('RMSE: N/A'))
+  SetText (FindName $window 'Lag offset')[0] '-1'
+  $clock=[Diagnostics.Stopwatch]::StartNew()
+  do{$text=Metrics;if($text.Contains('Status: Ready') -and -not $text.Contains('RMSE: N/A')){break};Start-Sleep -Milliseconds 100}while($clock.ElapsedMilliseconds -lt 5000)
+  Check 'Returning to valid lag restores metrics' ($text.Contains('Status: Ready') -and -not $text.Contains('RMSE: N/A'))
  Click (FindName $window 'Help')[0];Click (FindName $uia::RootElement 'About')[0]
  $about=AllControls $window|Where-Object {$_.Current.Name.Contains('HDFStudio '+$version)}|Select-Object -First 1
  Check ('About identifies complete version '+$version) ($null -ne $about)

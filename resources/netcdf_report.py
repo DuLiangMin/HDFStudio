@@ -1,5 +1,6 @@
 """Read-only report worker. Usage: python netcdf_report.py summary|time|dates|cf FILE [VARIABLE]."""
 import sys
+import json
 
 import netCDF4 as nc
 import numpy as np
@@ -105,6 +106,25 @@ def cf_report(path):
 
 if __name__ == '__main__':
     sys.stdout.reconfigure(encoding='utf-8')
+    if len(sys.argv) == 2 and sys.argv[1] == 'labels':
+        request = json.load(sys.stdin)
+        result = {'schema': 1, 'request_id': request.get('request_id'), 'labels': [], 'error': None}
+        try:
+            if request.get('schema') != 1 or len(request['values']) > 256:
+                raise ValueError('Invalid labels request')
+            for value in request['values']:
+                if value is None or not np.isfinite(value):
+                    result['labels'].append(None)
+                    continue
+                moment = nc.num2date(float(value), request['units'], calendar=request['calendar'])
+                label = moment.strftime('%Y-%m-%d %H:%M:%S')
+                if moment.microsecond:
+                    label += ('.%06d' % moment.microsecond).rstrip('0')
+                result['labels'].append(label)
+        except Exception as error:
+            result['error'] = str(error)
+        print(json.dumps(result, ensure_ascii=True))
+        sys.exit(0)
     mode, path = sys.argv[1:3]
     if mode == 'cf':
         cf_report(path)

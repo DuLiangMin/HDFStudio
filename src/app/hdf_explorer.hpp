@@ -100,6 +100,7 @@ public:
   void add_table(ItemData *item_data, int mode = 0);
   void add_image(ItemData *item_data);
   void add_texture_image(ItemData *item_data);
+  void add_space_time_section(ItemData *item_data);
   void add_histogram(ItemData *item_data);
   void export_image(ItemData *item_data, QWidget *parent);
   int read_file(QString file_name);

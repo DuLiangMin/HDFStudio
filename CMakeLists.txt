@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(HDFStudio VERSION 0.12.08 LANGUAGES C CXX)
+project(HDFStudio VERSION 0.12.10 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -50,6 +50,10 @@ set(src
     src/app/layer_navigation.hpp
     src/app/layer_playback.hpp
     src/app/layer_playback.cpp
+    src/app/slice_job_controller.hpp
+    src/app/slice_job_controller.cpp
+    src/app/section_dates.hpp
+    src/app/section_dates.cpp
     src/app/workspace_sync.hpp
     src/app/workspace_sync.cpp
     src/app/visit.hpp
@@ -68,6 +72,11 @@ set(src
     src/views/residual_view.cpp
     src/views/texture_entropy_view.hpp
     src/views/texture_entropy_view.cpp
+    src/views/hovmoller_view.hpp
+    src/views/hovmoller_view.cpp
+    src/views/section_canvas.hpp
+    src/views/section_canvas.cpp
+    src/views/section_snapshot.hpp
     src/views/compare_panel.hpp
     src/views/compare_panel.cpp
     src/views/histogram_view.hpp
@@ -127,10 +136,11 @@ set_target_properties(hdf_explorer PROPERTIES
 # Layers shared by the GUI, the tests and hdf_cli (no Qt Widgets below hdf_explorer):
 #   nc_core  : netCDF-C reading (format probe, NetCDF-3 structure/values, image planes)
 #   hdf_core : Properties summary and text export (HDF5, plus nc_core for NetCDF-3)
-add_library(nc_core STATIC src/core/nc_reader.cpp src/core/nc_classic.cpp)
+add_library(nc_core STATIC src/core/nc_reader.cpp src/core/nc_classic.cpp src/core/nc_slice.cpp src/core/slice_types.cpp)
 target_link_libraries(nc_core PUBLIC Qt6::Core)
-add_library(hdf_core STATIC src/core/properties_inspector.cpp src/core/text_export.cpp src/core/plane_reader.cpp src/core/curve_profile.cpp src/core/color_map.cpp src/core/image_metrics.cpp src/core/image_metrics.hpp src/core/texture_entropy.cpp src/core/texture_entropy.hpp)
+add_library(hdf_core STATIC src/core/properties_inspector.cpp src/core/text_export.cpp src/core/plane_reader.cpp src/core/hdf_slice.cpp src/core/curve_profile.cpp src/core/color_map.cpp src/core/image_metrics.cpp src/core/image_metrics.hpp src/core/texture_entropy.cpp src/core/texture_entropy.hpp)
 target_link_libraries(hdf_core PUBLIC nc_core ${hdf5_dep})
+target_sources(hdf_core PRIVATE src/core/slice_coordinates.cpp src/core/slice_io.cpp src/core/slice_worker.cpp)
 add_executable(hdf_cli src/cli/hdf_cli.cpp ${colormap_resources})
 target_link_libraries(hdf_cli PRIVATE hdf_core)
 set_target_properties(hdf_cli PROPERTIES
@@ -180,6 +190,19 @@ if(MSVC)
       "$<TARGET_FILE:Qt6::Test>" "$<TARGET_FILE_DIR:hdf_explorer_drop_tests>")
 endif()
 enable_testing()
+add_executable(hovmoller_tests tests/hovmoller_test.cpp ${src} ${qrc_sources})
+target_compile_definitions(hovmoller_tests PRIVATE HDF_EXPLORER_TEST_BUILD)
+target_link_libraries(hovmoller_tests PRIVATE hdf_core ${lib_dep} Qt6::Test)
+set_target_properties(hovmoller_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_SOURCE_DIR}/build/output/Debug" RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_SOURCE_DIR}/build/output/Release")
+add_dependencies(hovmoller_tests hdf_cli)
+if(MSVC)
+  add_custom_command(TARGET hovmoller_tests POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:hovmoller_tests>/platforms"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_PREFIX_PATH}/plugins/platforms/qwindows$<$<CONFIG:Debug>:d>.dll" "$<TARGET_FILE_DIR:hovmoller_tests>/platforms/"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:Qt6::Test>" "$<TARGET_FILE_DIR:hovmoller_tests>"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/build/native-nc/Release/netcdf.dll" "$<TARGET_FILE_DIR:hovmoller_tests>")
+endif()
+add_test(NAME hovmoller_tests COMMAND hovmoller_tests)
 add_test(NAME hdf_explorer_drop_tests COMMAND hdf_explorer_drop_tests)
 
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT hdf_explorer)

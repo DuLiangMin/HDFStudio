@@ -1,6 +1,6 @@
 // 26NOV19: Qt Test coverage for local-file drag/drop dispatch.
 // Run: ctest --test-dir build/hdf_explorer -C Debug -R hdf_explorer_drop_tests --output-on-failure
-// Input: daily_bcccsm_2024100100_PRECT_clip.nc at the workspace root; no output files.
+// Input: read-only HDFSTUDIO_ZOOM_SAMPLE and HDFSTUDIO_FORECAST_ANCHOR/TARGET.
 #include <QApplication>
 #include <QBuffer>
 #include <QProcess>
@@ -129,8 +129,7 @@ void DropTargetsTest::rejectsMissingLocalFile() {
 
 void DropTargetsTest::opensNetcdfFromEachTarget() {
   MainWindow window;
-  const QString sample = QDir(QCoreApplication::applicationDirPath())
-                           .absoluteFilePath("../../../../daily_bcccsm_2024100100_PRECT_clip.nc");
+  const QString sample = qEnvironmentVariable("HDFSTUDIO_ZOOM_SAMPLE");
   QVERIFY2(QFileInfo(sample).isFile(), qPrintable(sample));
   auto tree = window.findChild<FileTreeWidget *>();
   auto mdi = window.findChild<QMdiArea *>();
@@ -150,7 +149,7 @@ void DropTargetsTest::opensNetcdfFromEachTarget() {
     QVERIFY(drop.isAccepted());
     QTRY_COMPARE(tree->findItems("PRECT", Qt::MatchExactly | Qt::MatchRecursive).size(), 1);
 
-    auto roots = tree->findItems("daily_bcccsm_2024100100_PRECT_clip.nc",
+    auto roots = tree->findItems(QFileInfo(sample).fileName(),
                                  Qt::MatchContains | Qt::MatchRecursive);
     QCOMPARE(roots.size(), 1);
     delete roots.first();
@@ -802,8 +801,7 @@ void DropTargetsTest::cf18DiagnosticsReportScopedReferencesAndMissingDeclaration
 
 void DropTargetsTest::cf18DiagnosticReportDialogStatesItsCoverageBoundary() {
   MainWindow window;
-  const QString sample=QDir(QCoreApplication::applicationDirPath())
-      .absoluteFilePath("../../../../daily_bcccsm_2024100100_PRECT_clip.nc");
+  const QString sample=qEnvironmentVariable("HDFSTUDIO_ZOOM_SAMPLE");
   QVERIFY2(QFileInfo(sample).isFile(),qPrintable(sample));
   QCOMPARE(window.read_file(sample),0);
   QVERIFY(QMetaObject::invokeMethod(&window,"show_cf_diagnostics",Qt::DirectConnection));
@@ -818,8 +816,7 @@ void DropTargetsTest::cf18DiagnosticReportDialogStatesItsCoverageBoundary() {
 
 void DropTargetsTest::bottomFileInfoPanelShowsCurrentFileMetadata() {
   MainWindow window;
-  const QString sample=QDir(QCoreApplication::applicationDirPath())
-      .absoluteFilePath("../../../../daily_bcccsm_2024100100_PRECT_clip.nc");
+  const QString sample=qEnvironmentVariable("HDFSTUDIO_ZOOM_SAMPLE");
   const QFileInfo expected(sample);
   QVERIFY(expected.isFile());
   QCOMPARE(window.read_file(sample),0);
@@ -875,8 +872,7 @@ void DropTargetsTest::bottomFileInfoPanelShowsCurrentFileMetadata() {
 // state a CF verdict, while tab 1 keeps the metadata that was already verified above.
 void DropTargetsTest::informationTabsExposeNetcdf4StructureAndCfVerdict() {
   MainWindow window;
-  const QString sample=QDir(QCoreApplication::applicationDirPath())
-      .absoluteFilePath("../../../../daily_bcccsm_2024100100_PRECT_clip.nc");
+  const QString sample=qEnvironmentVariable("HDFSTUDIO_ZOOM_SAMPLE");
   QVERIFY2(QFileInfo(sample).isFile(),qPrintable(sample));
   auto *tabs=window.findChild<QTabWidget*>("infoTabs");
   QVERIFY(tabs);
@@ -927,8 +923,7 @@ void DropTargetsTest::startupSplashIsPlainVisibleWidgetNotQSplashScreen() {
 // Oracle values come from netCDF4.num2date on the same read-only samples:
 // tmp2m ... 1999010100: time = seconds since 1970-01-01, standard calendar, 480 steps of 6 h.
 void DropTargetsTest::timeGridShowsDecodedDatesBesideRawValues() {
-  const QString sample=QDir(QCoreApplication::applicationDirPath())
-      .absoluteFilePath("../../../../no_stand_nc/tmp2m_f.01.1999010100.1999050100.1999010100.nc");
+  const QString sample=qEnvironmentVariable("HDFSTUDIO_FORECAST_ANCHOR");
   QVERIFY2(QFileInfo(sample).isFile(),qPrintable(sample));
   MainWindow window;
   QCOMPARE(window.read_file(sample),0);
@@ -964,13 +959,12 @@ void DropTargetsTest::timeGridShowsDecodedDatesBesideRawValues() {
   // Full-table dumps for the independent Python reconciliation (logs/S4-UI-TimeGrid/).
   const QDir logs(QDir(QCoreApplication::applicationDirPath()).absoluteFilePath("../../../logs/S4-UI-TimeGrid"));
   QVERIFY(QDir().mkpath(logs.absolutePath()));
-  const QStringList samples{
-    "tmp2m_f.01.1999010100.1999050100.1999010100.nc",
-    "tmp2m_f.01.1999010106.1999021506.1999010106.nc"};
-  for(const QString &name : samples) {
+  const QStringList samples{sample,qEnvironmentVariable("HDFSTUDIO_FORECAST_TARGET")};
+  for(const QString &path : samples) {
+    QVERIFY2(QFileInfo(path).isFile(),qPrintable(path));
+    const QString name=QFileInfo(path).fileName();
     MainWindow dump_window;
-    QCOMPARE(dump_window.read_file(QDir(QCoreApplication::applicationDirPath())
-        .absoluteFilePath("../../../../no_stand_nc/"+name)),0);
+    QCOMPARE(dump_window.read_file(path),0);
     auto *dump_tree=dump_window.findChild<FileTreeWidget*>();
     const auto items=dump_tree->findItems("time",Qt::MatchExactly|Qt::MatchRecursive);
     QCOMPARE(items.size(),1);
@@ -990,8 +984,7 @@ void DropTargetsTest::timeGridShowsDecodedDatesBesideRawValues() {
 // file must remove only its tree root and views, leave the other file working, and release the
 // file on disk: on Windows QFile::remove() fails while any handle to the file is still open.
 void DropTargetsTest::closeFileRemovesItsViewsAndReleasesTheFile() {
-  const QString sample=QDir(QCoreApplication::applicationDirPath())
-      .absoluteFilePath("../../../../daily_bcccsm_2024100100_PRECT_clip.nc");
+  const QString sample=qEnvironmentVariable("HDFSTUDIO_ZOOM_SAMPLE");
   QVERIFY2(QFileInfo(sample).isFile(),qPrintable(sample));
   QTemporaryDir dir;
   QVERIFY(dir.isValid());

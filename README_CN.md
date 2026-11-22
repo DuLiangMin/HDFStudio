@@ -4,7 +4,7 @@
 
 [English](README.md) | **简体中文**
 
-🔢 **版本：0.12.08**，增加独立的二维纹理熵图，并包含科学色表、图像缩放、超前/滞后比较、双图指标、残差图与逐层联合播放。
+🔢 **版本：0.12.10**，新增独立时空剖面（Hovmöller），并包含二维纹理熵图、科学色表、图像缩放、超前/滞后比较、双图指标、残差图与逐层联合播放。
 
 ⬇️ **下载：** 在[最新发布页](https://github.com/DuLiangMin/HDFStudio/releases/latest)下载 `HDFStudio-<版本>-win64.zip`。**绿色安装**：解压到任意目录，直接双击 `HDFStudio.exe` 即可运行，无需安装，也不需要管理员权限。
 
@@ -20,7 +20,15 @@ HDFStudio 是面向气象、气候与地球科学的 Windows 桌面 **NetCDF 查
 
 *从 Windows 程序实际录制：2米气温（`TMP_2maboveground`，384 × 190，共480层）采用 cmocean Thermal 配色，旁边是 Viridis 配色的4×4局部纹理熵图。绿色 Play 按钮逐层播放，两图同步更新；熵图使用独立的0～4 bits固定色标。[查看静态截图](docs/screenshot-main.png)。*
 
-### 🆕 0.12.08 新增功能速览
+### 🆕 0.12.10 新增功能速览
+
+| 能力 | 使用方法 |
+|---|---|
+| 📈 独立**时空剖面（Hovmöller）** | **View → Space-Time Section (Hovmöller)** 或数值变量右键打开。选择Lat–Time/Lon–Time或任意有序轴对，导航剩余维度，交换/翻转轴、设置Mask，导出原尺寸PNG与数值CSV。 |
+| ▶️ **沿固定轴播放剖面** | 选择一个剩余固定轴，使用主工具栏 **Play / Pause**；每步等待当前剖面Ready后推进。 |
+| 📅 **可选日历标签** | 保留源时间单位和calendar；有Python `netCDF4`时显示日期，否则回退数值时间。剖面读数无需Python。 |
+
+### 🧰 已包含的分析工具
 
 | 能力 | 使用方法 |
 |---|---|
@@ -30,7 +38,7 @@ HDFStudio 是面向气象、气候与地球科学的 Windows 桌面 **NetCDF 查
 | ➖ **二维残差图** | **Residual map** 用零中心发散色标显示`Target − Anchor`，跟随当前层和Mask更新。 |
 | ▶️ **绿色播放/暂停** | 可调帧间隔，单图放映或多图联合播放；指标、残差和跟随源图的纹理熵同步更新。 |
 
-**验证情况：** clean Debug/Release构建各通过 **83项QtTest**，零失败、零跳过，并通过CTest；局部熵数值及导出PNG颜色均与独立NumPy逐值对账，覆盖缺测与Mask。
+**验证情况：** Debug/Release各通过 **20项剖面测试与83项既有QtTest**，零失败、零跳过，**CTest各2/2**。剖面独立对账覆盖 **1,878,490个值**、4D全部有序轴对及导出PNG颜色；局部纹理熵也与NumPy逐值核对，覆盖缺测与Mask。
 
 ## 🤔 为什么用 HDFStudio
 
@@ -40,13 +48,15 @@ HDFStudio 是面向气象、气候与地球科学的 Windows 桌面 **NetCDF 查
 - 纬度是南→北还是北→南？经度是 0–360 还是 −180–180？
 - 这个文件符合 CF 规范吗，画出来的图会不会上下颠倒？
 
-HDFStudio 几秒内就能回答，不需要开 Python、不需要 notebook、也不需要装整套科学环境。它只是一个小巧的免安装程序（约 15 MB），打开文件就把事实摆出来。
+HDFStudio 几秒内就能回答，不需要开 Python、不需要 notebook、也不需要装整套科学环境。它是一个免安装程序，打开文件就把事实摆出来。
 
 ### 🔬 从查看切片到对比模式结果
 
 HDFStudio 在同一工作区中提供以下分析能力：
 
 - **二维纹理熵图**：**View → Texture Entropy Image** 或变量右键同名选项，单变量即可输出真正的二维局部熵图。每个不重叠4×4块计算Shannon熵，双线性插值熵值至原图尺寸后着色，固定0～4 bits色标；可缩放、平移、切层及导出原尺寸PNG/数值CSV。从当前Image View打开时跟随该图的层和Mask，不需要比较对象。
+- **时空剖面**：选中数值变量后，通过 **View → Space-Time Section (Hovmöller)** 或变量右键打开独立窗口。存在可信一维坐标时提供Lat–Time/Lon–Time预设；支持任意两轴切片、固定索引/最近坐标选点、交换轴、翻转、色表、Mask、原尺寸PNG和数值CSV。主工具栏Play沿一个剩余固定轴逐位置播放，等待当前图Ready后推进；二维矩阵没有固定轴播放。
+
 - **同轴滑动与超前/滞后间隔比较**：选定一个 Anchor 和一个或多个 Target 图像，选择 `time` 等前置轴，拖动 Anchor 层滑块即可联动浏览。每个 Target 独立设置正、零、负整数偏移，满足 `target_index = anchor_index + lag`；可同步缩放、平移、翻转，色表与数值范围同步可选。越界目标清空，回到合法范围后自动恢复。
 - **相关系数与误差一起比较**：**Compare & Metrics** 非模态面板实时显示 Pearson r、RMSE、MAE、Bias（`Target − Anchor`）及有效/排除配对数。支持复制报告和原子 CSV 导出，记录源路径、变量、层索引、revision 与单位；CLI 与界面共用核心算法，便于独立数值对账。单图熵不再作为比较结果。
 - **残差图比较**：点击 **Residual map**，用零中心对称发散色标定位 `Target − Anchor` 的正负差异。残差跟随当前层与 Mask 更新，对比无效时清空；支持缩放、平移和完整分辨率 PNG 导出。
@@ -57,7 +67,14 @@ HDFStudio 在同一工作区中提供以下分析能力：
 
 **科学边界**：按整数层索引对齐，即使轴名为 `time`，也不自动换算小时/天或匹配时间坐标。双图平面 shape 必须相同，只计算当前解码值与 Mask 后两图同时有限的像元交集；不隐式插值、裁剪、地理配准或换算单位。单位保留原标签，不同时标为未核实；常量场 Pearson r 不可定义，但误差指标仍可有效。
 
+### 📈 时空剖面的支持边界
+
+每个源样本占一个等宽索引像元，保持原轴顺序，不对非等距坐标插值，不对经度自动取模。刻度保留单位/calendar；可选Python `netCDF4.num2date`提供日期，缺少Python或不支持日历时显示数值时间。普通HDF5在没有可信NetCDF身份及坐标关联时采用通用索引切片；投影坐标和二维经纬网格不启用地理预设。剖面独立于Compare & Metrics、源图跟随和纹理熵图。
+
+CLI与GUI共用解码器：`hdf_cli slice FILE /VARIABLE ROW_AXIS COL_AXIS OUTPUT.csv FIXED_IDX_0 ... FIXED_IDX_N-1`。每维必须给一个0-based固定索引，两个显示轴槽位传0。CSV前两行为元信息注释，之后为`row,col,row_coord,col_coord,value,state`；PNG输出原尺寸色彩图及元数据，不把轴标写入像元。首版支持与存储类型一致的标量`_FillValue/missing_value`及有限标量`scale_factor/add_offset`，明确拒绝`_Unsigned=true`和向量missing_value；float64无法精确表示的整数给出精度警告。单图16Mi像元、共享栅格预算及chunk工作内存分别检查。匹配的`hdf_cli.exe`须与程序同目录；切片读数不依赖Python。
+
 ### 🖼️ 纹理熵图怎样读
+
 
 有效平面的解码值按统一min/max量化为256级灰度，再统计每个4×4块的灰度概率分布，`H=-Σp·log2(p)`。常量块为0，16个不同灰度且各出现一次时为4 bits；边缘不足4×4按实际像元计算，不补零。全缺测块无效，源缺测/Mask像元保持灰色；插值跳过无效邻块并归一化权重，不填补缺测区域。输出横纵索引与源平面一致，PNG恰好与源图同尺寸；4倍插值用于显示，不增加真实空间细节。
 
@@ -145,6 +162,7 @@ hdf_cli export data.nc /lat         数值导出为文本（加文件名则写�
 hdf_cli csv    data.nc /ttr plane.csv 7 42    图像视图所读的那一个二维平面
 hdf_cli entropy data.nc /precipitation 256 0   完整解码平面的熵（bits）及归一化熵
 hdf_cli texture-entropy data.nc /precipitation texture.csv 0   二维4×4局部纹理熵：原尺寸数值和块熵
+hdf_cli slice data.nc /field 1 0 section.csv 0 0 0   行=轴1，列=轴0；固定轴2在索引0
 hdf_cli corr a.nc /field b.nc /field --anchor-idx 0 --target-idx 1
                                               shape严格一致，有限交集，误差定义target-anchor
 hdf_cli mask   data.nc /precipitation 9999 - 0    按解码值做 Mask Range（"-" 表示开区间端点），
@@ -167,14 +185,14 @@ src/core/    nc_reader、nc_classic、properties_inspector、text_export、plane
 src/views/   raster_view、vector_view、mesh_view、histogram_view
 src/cli/     hdf_cli.cpp，无界面的排查工具
 resources/   Qt 资源、图标、sample.ico/.icns、netcdf_report.py、images/
-docs/        FORMAT_CAPABILITY.md、STAGE4_ACCEPTANCE.md
+docs/        程序实录截图与分析演示动画
 ```
 
 头文件按文件名包含（`#include "nc_reader.hpp"`），`CMakeLists.txt` 把 `src/app`、`src/core`、`src/views` 加入头文件搜索路径，所以在这几个目录之间移动文件不必改动调用处。
 
 ## 📌 范围
 
-HDFStudio 是查看器与检查器，从不修改输入文件。CF 诊断仅供参考，不构成合规认证。地图投影与任意非结构网格暂不支持。NetCDF-3 的表格按二维平面读取；NetCDF-4 / HDF5 的表格目前仍整体读入变量，分块读取列在路线图中。已验证的格式边界见 `FORMAT_CAPABILITY.md`。
+HDFStudio 是查看器与检查器，从不修改输入文件。CF 诊断仅供参考，不构成合规认证。地图投影与任意非结构网格暂不支持。NetCDF-3 的表格按二维平面读取；NetCDF-4 / HDF5 的表格目前仍整体读入变量，分块读取列在路线图中。独立剖面使用NetCDF/HDF5 hyperslab读取，packing、坐标和内存支持边界见上文。
 
 ## 🗺️ 路线图
 

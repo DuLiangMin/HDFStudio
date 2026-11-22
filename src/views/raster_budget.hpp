@@ -3,3 +3,4 @@
 #include <QtGlobal>
 #include <memory>
 std::shared_ptr<void> reserve_raster(quint64 pixels);
+std::shared_ptr<void> reserve_raster_bytes(quint64 bytes);

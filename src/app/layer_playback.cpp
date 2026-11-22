@@ -31,9 +31,10 @@ void LayerPlayback::advance_frame() {
   auto *navigation=dynamic_cast<LayerNavigation*>(m_target.data());
   if(!navigation || m_axis<0 || m_axis>=navigation->layer_axis_count()) {stop();return;}
   const int index=navigation->layer_index(m_axis),count=navigation->layer_count(m_axis);
-  if(count<2 || index>=count-1) {stop();return;}
+  if(count<2) {stop();return;}
   if(m_ready_check && !m_ready_check())return; // Wait for rendered frames; never queue skipped frames.
+  if(index>=count-1) {stop();return;}
   m_advancing=true;auto guard=qScopeGuard([this]{m_advancing=false;});
   navigation->set_layer_index(m_axis,index+1);
-  if(!m_target || index+1>=count-1)stop();
+  if(!m_target || (index+1>=count-1 && (!m_ready_check || m_ready_check())))stop();
 }

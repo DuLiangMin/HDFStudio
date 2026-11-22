@@ -1,7 +1,7 @@
 """时间表格对账：HDFStudio 网格表格导出 vs 独立 Python netCDF4 解码。
 
 输入:
-  - 只读样本 no_stand_nc/*.nc 的 time 变量（netCDF4 直接读取，不经过 netcdf_report.py）
+  - HDFSTUDIO_FORECAST_ANCHOR/TARGET 指定只读样本的 time 变量（netCDF4 直接读取，不经过 netcdf_report.py）
   - QtTest timeGridShowsDecodedDatesBesideRawValues 导出的 HDFStudio/logs/S4-UI-TimeGrid/grid-<文件名>.tsv
     每行: 原始值(%.15g)<TAB>yyyymmdd<TAB>yyyymmdd hh:mm:ss
 输出:
@@ -11,6 +11,7 @@
   C:\\Python312\\python.exe HDFStudio/tests/reconcile_time_grid.py
 """
 import sys
+import os
 from pathlib import Path
 
 import netCDF4 as nc
@@ -18,10 +19,6 @@ import numpy as np
 
 s_Project_Root = Path(__file__).resolve().parents[2]
 s_Log_Dir = s_Project_Root / 'HDFStudio' / 'logs' / 'S4-UI-TimeGrid'
-list_Sample_Names = [
-    'tmp2m_f.01.1999010100.1999050100.1999010100.nc',
-    'tmp2m_f.01.1999010106.1999021506.1999010106.nc',
-]
 
 
 def python_rows(s_Path):
@@ -41,8 +38,15 @@ def python_rows(s_Path):
 def main():
     list_Report = []
     b_All_Match = True
-    for s_Name in list_Sample_Names:
-        list_Expected, s_Units, s_Calendar = python_rows(s_Project_Root / 'no_stand_nc' / s_Name)
+    list_Sample_Paths = []
+    for s_Key in ['HDFSTUDIO_FORECAST_ANCHOR', 'HDFSTUDIO_FORECAST_TARGET']:
+        s_Value = os.environ.get(s_Key, '')
+        if not s_Value or not Path(s_Value).is_file():
+            raise ValueError(f'Set {s_Key} to an existing read-only sample')
+        list_Sample_Paths.append(Path(s_Value))
+    for s_Path in list_Sample_Paths:
+        s_Name = s_Path.name
+        list_Expected, s_Units, s_Calendar = python_rows(s_Path)
         s_Grid = s_Log_Dir / f'grid-{s_Name}.tsv'
         if not s_Grid.is_file():
             list_Report.append(f'{s_Name}: MISSING {s_Grid}')

@@ -5,10 +5,17 @@
 #include <netcdf.h>
 #include <vector>
 #include <string>
+#include "slice_types.hpp"
 
 struct NcPlane {
   size_t rows=0, cols=0;
   std::vector<double> values;
+};
+struct NcSliceResult {
+  NcPlane plane;
+  QString reader, error_code, error;
+  bool precision_warning = false;
+  QStringList diagnostics;
 };
 struct FormatProbe {
   QString kind;
@@ -91,6 +98,8 @@ struct NcReader {
   bool locate(const std::string &path, int &group, int &variable) const;
   QString cf_summary() const;
   QString read_plane(const std::string &path, const std::vector<size_t> &indices, NcPlane &plane) const;
+  NcSliceResult read_slice(const std::string &path, const NcSliceSpec &spec) const;
+  NcSliceResult read_coordinate(const std::string &path,size_t index=size_t(-1)) const;
   QString read_vector_planes(const std::string &uPath,const std::string &vPath,
       const std::vector<size_t> &indices,NcVectorPlane &planes) const;
   NcGeographicGrid geographic_grid(const std::string &dataPath,

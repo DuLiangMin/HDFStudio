@@ -32,6 +32,8 @@
 #include "image_metrics.hpp"
 #include "texture_entropy.hpp"
 #include <QCoreApplication>
+#include "slice_io.hpp"
+#include "slice_worker.hpp"
 #include <QFile>
 #include <QFileInfo>
 #include <QSaveFile>
@@ -349,6 +351,8 @@ int main(int argc, char **argv) {
   QCoreApplication app(argc, argv);
   const QStringList args = app.arguments();
   const QString command = args.value(1);
+  if(command=="slice")return slice_command(args);
+  if(command=="slice-worker"&&args.size()==3)return slice_worker(args[2]);
   if(command=="cmap" && args.size()<=4) {
     QString error;const auto palettes=HdfColorMap::load_registry(error);
     if(!error.isEmpty()){QTextStream(stderr)<<error;return 3;}

@@ -35,7 +35,21 @@ function FindName($container,$name){,@($container.FindAll([System.Windows.Automa
 function Controls($container){$container.FindAll([System.Windows.Automation.TreeScope]::Descendants,[System.Windows.Automation.Condition]::TrueCondition)}
 function Check($name,$value){$script:checks+=[pscustomobject]@{check=$name;pass=[bool]$value};"$(Get-Date -Format s) $name : $value";if(-not $value){throw $name}}
 function Click($element,$right=$false){if(-not $element){throw 'UI element missing'};$r=$element.Current.BoundingRectangle;if($r.IsEmpty -or $element.Current.IsOffscreen){throw ('Hidden UI: '+$element.Current.Name)};[TextureMouse]::Click([int]($r.X+$r.Width/2),[int]($r.Y+$r.Height/2),$right);Start-Sleep -Milliseconds 200}
-function SetText($element,$text){Click $element;[Windows.Forms.SendKeys]::SendWait('^a{BACKSPACE}');if($text){[Windows.Forms.Clipboard]::SetText($text);[Windows.Forms.SendKeys]::SendWait('^v')};[Windows.Forms.SendKeys]::SendWait('{TAB}');Start-Sleep -Milliseconds 350}
+function SetText($element,$text){
+ if(-not $element){throw 'Text input missing'}
+ $element.SetFocus();$value=$null;$numeric=$null
+ if($element.TryGetCurrentPattern([Windows.Automation.RangeValuePattern]::Pattern,[ref]$numeric)){
+  $numeric.SetValue([double]$text)
+  if($numeric.Current.Value -ne [double]$text){throw ('Numeric input read-back mismatch: '+$element.Current.Name)}
+ }elseif($element.TryGetCurrentPattern([Windows.Automation.ValuePattern]::Pattern,[ref]$value)){
+  $value.SetValue($text)
+  if($value.Current.Value -ne $text){throw ('Text input read-back mismatch: '+$element.Current.Name)}
+ }else{
+  [Windows.Forms.SendKeys]::SendWait('^a{BACKSPACE}')
+  if($text){[Windows.Forms.Clipboard]::SetText($text);[Windows.Forms.SendKeys]::SendWait('^v')}
+ }
+ [Windows.Forms.SendKeys]::SendWait('{TAB}');Start-Sleep -Milliseconds 350
+}
 function Shot($name){$bitmap=[TextureMouse]::Capture([Windows.Forms.SystemInformation]::VirtualScreen);try{$bitmap.Save((Join-Path $log ($name+'.png')))}finally{$bitmap.Dispose()}}
 function Summary {
  $labels=Controls $window|Where-Object {$_.Current.AutomationId.EndsWith('.textureEntropySummary')}

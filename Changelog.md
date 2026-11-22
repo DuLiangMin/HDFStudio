@@ -1,5 +1,16 @@
 # Changelog
 
+## 📈 0.12.10 Independent space-time sections - 2026-11-22
+
+- Independent **View → Space-Time Section (Hovmöller)** and variable context-menu window; arbitrary ordered axis pairs, trusted Lat–Time/Lon–Time presets, fixed index/nearest coordinate selection, flip/zoom/pan, Mask and shared color maps/colorbar.
+- Shared native numeric hyperslab decoder, scalar storage-domain missing tests before packing, stable diagnostics and strict worker JSON/48-byte binary protocol. GUI reading is isolated in matching CLI processes, with latest-request cancellation and shared byte-budget leases including chunk working memory.
+- Immutable section snapshots drive probes and PNG/CSV exports. Source order, coordinate units and calendar remain explicit; optional bounded Python labels degrade to numeric time. Fixed-axis playback waits for current Ready, including its final frame; sections do not join image comparison/synchronization.
+- New unit, independent numeric/RGB, semantics, GUI heartbeat/cancellation and real-desktop checks are maintained under `tests/26NOV22_v01_hovmoller_*`; evidence remains local in `logs/S4-Hovmoller/`.
+- Clean Debug/Release builds pass 20 section and 83 existing QtTest checks per configuration, with zero failures/skips and CTest 2/2 each. Independent tests cover every ordered 4D axis pair, source packing/coordinate boundaries and unchanged legacy image planes; PNG pixels and section CSV values/metadata are reconciled separately.
+- Keep calendar-label status text and its accessibility name synchronized, including numeric fallback when Python is unavailable.
+- Synchronize the application/About version, English and Chinese READMEs, changelog and portable/source packages at 0.12.10. The portable ZIP includes the matching slice-worker CLI, dependency licenses and README-linked demo images for offline reading.
+- Replace legacy test fixture filenames with explicit read-only sample environment variables, retaining the numerical and GUI assertions.
+
 ## 🖼️ 0.12.08 2D texture entropy image - 2026-11-21
 
 - Add independent **View → Texture Entropy Image** and variable context-menu output, with a real 2D canvas, a fixed 0–4 bits colorbar, zoom/pan, layer navigation, Mask, full-size PNG and numeric CSV exports.

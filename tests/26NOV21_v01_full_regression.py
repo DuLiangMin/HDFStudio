@@ -122,9 +122,9 @@ def main():
     for category, candidates in groups.items():
         for path in rng.sample(candidates, min(2, len(candidates))):
             selected.append((category, path))
-    prect = root.parent / "daily_bcccsm_2024100100_PRECT_clip.nc"
-    if prect.is_file():
-        selected.append(("PRECT", prect))
+    prect = os.environ.get("HDFSTUDIO_ZOOM_SAMPLE", "")
+    if prect and Path(prect).is_file():
+        selected.append(("PRECT", Path(prect)))
     classic = os.environ.get("HDFSTUDIO_CLASSIC_SAMPLE", "")
     if classic and Path(classic).is_file():
         selected.append(("classic", Path(classic)))

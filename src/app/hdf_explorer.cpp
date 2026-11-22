@@ -19,6 +19,7 @@
 #include "hdf_explorer.hpp"
 #include "raster_view.hpp"
 #include "texture_entropy_view.hpp"
+#include "hovmoller_view.hpp"
 #include "compare_panel.hpp"
 #include "layer_playback.hpp"
 #include "histogram_view.hpp"
@@ -99,7 +100,7 @@ int main(int argc, char *argv[])
 {
   Q_INIT_RESOURCE(hdf_explorer);
   QApplication app(argc, argv);
-  QCoreApplication::setApplicationVersion("0.12.08");
+  QCoreApplication::setApplicationVersion("0.12.10");
   QCoreApplication::setApplicationName(app_name);
 #if QT_VERSION >= 0x050000
   QCommandLineParser parser;
@@ -684,6 +685,7 @@ MainWindow::MainWindow()
     m_action_layer_play->setIcon(QIcon(playing?":/images/pause_green.png":":/images/play_green.png"));
   });
   m_layer_playback->set_ready_check([this]{
+    if(auto *section=qobject_cast<HovmollerView*>(m_layer_playback->target()))return section->ready();
     auto *raster=qobject_cast<RasterView*>(m_layer_playback->target());
     if(!raster)return true;
     if(raster->render_pending())return false;
@@ -731,11 +733,14 @@ MainWindow::MainWindow()
   auto *texture_action = view_menu->addAction(tr("Texture Entropy Image"), this, &MainWindow::show_texture_entropy);
   texture_action->setObjectName("actionTextureEntropyImage");
   texture_action->setToolTip(tr("Open a 2D map of local 4x4 gray-level entropy, bilinear to source size; no comparison required"));
-  connect(view_menu, &QMenu::aboutToShow, this, [this, image_action, texture_action] {
+  auto *section_action=view_menu->addAction(tr("Space-Time Section (Hovmöller)"),this,[this]{if(m_tree->currentItem())add_space_time_section(get_item_data(m_tree->currentItem()));});
+  section_action->setObjectName("actionSpaceTimeSection");
+  connect(view_menu, &QMenu::aboutToShow, this, [this, image_action, texture_action, section_action] {
     const auto *item = m_tree->currentItem() ? get_item_data(m_tree->currentItem()) : nullptr;
     const bool numeric_plane = item && item->m_kind == ItemData::Variable && item->m_dataset &&
       item->m_dataset->m_dim.size() >= 2 && (item->m_dataset->m_datatype_class == H5T_INTEGER || item->m_dataset->m_datatype_class == H5T_FLOAT);
     image_action->setEnabled(numeric_plane);
+    section_action->setEnabled(numeric_plane);
     auto *sub = m_mdi_area->currentSubWindow();
     texture_action->setEnabled(numeric_plane || (sub && qobject_cast<RasterView*>(sub->widget())));
   });
@@ -946,7 +951,7 @@ void MainWindow::about()
 {
   QMessageBox::about(this,
     tr("About HDFStudio"),
-    tr("HDFStudio 0.12.08\nAuthor: DuLiangMin\n\n"
+    tr("HDFStudio 0.12.10\nAuthor: DuLiangMin\n\n"
        "Metadata convention target: CF-1.8\n"
        "Product libraries: netCDF-C 4.9.3, HDF5 1.8.20\n\n"
        "Reference environment: Python 3.12.10, netCDF4-python 1.7.5.1.post1\n"
@@ -960,6 +965,15 @@ void MainWindow::about()
 void MainWindow::closeEvent(QCloseEvent *eve)
 {
   m_layer_playback->stop();
+  if(SliceJobController::any_busy()||SectionDates::any_busy()) {
+    eve->ignore();SliceJobController::cancel_all();SectionDates::cancel_all();
+    if(!property("sectionShutdownPending").toBool()) {
+      setProperty("sectionShutdownPending",true);setEnabled(false);
+      auto *timer=new QTimer(this);timer->setInterval(20);
+      connect(timer,&QTimer::timeout,this,[this,timer]{if(!SliceJobController::any_busy()&&!SectionDates::any_busy()){timer->stop();timer->deleteLater();close();}});timer->start();
+    }
+    return;
+  }
   QSettings settings("space", "hdf_explorer");
   settings.setValue("recentFiles", m_sl_recent_files);
   eve->accept();
@@ -1065,6 +1079,7 @@ static void collect_item_data(QTreeWidgetItem *item, std::vector<ItemData*> &out
 void MainWindow::tag_view(QMdiSubWindow *sub, const ItemData *source)
 {
   sub->setProperty("sourceItem", QVariant::fromValue(reinterpret_cast<quintptr>(source)));
+  QStringList files;for(int i=0;i<m_tree->topLevelItemCount();++i)if(auto *item=get_item_data(m_tree->topLevelItem(i)))files.append(QString::fromLocal8Bit(item->m_file_name.c_str()));setProperty("openSourceFiles",files);
   if(m_compare_panel)QTimer::singleShot(0,this,&MainWindow::update_compare_views);
 }
 
@@ -1334,6 +1349,7 @@ QTreeWidgetItem *MainWindow::add_classic_tree(const QString &file_name, const st
 
 int MainWindow::read_file(QString file_name)
 {
+  if(property("sectionShutdownPending").toBool())return -1;
   QByteArray ba;
   std::string path;
   std::string str_file_name;
@@ -1413,6 +1429,7 @@ int MainWindow::read_file(QString file_name)
 
   }
   root_item->setExpanded(true);
+  {auto files=property("openSourceFiles").toStringList();if(!files.contains(file_name))files.append(file_name);setProperty("openSourceFiles",files);}
   set_current_file(file_name);
   update_file_info(file_name);
   QString suffix = QFileInfo(file_name).suffix().toLower();
@@ -2234,6 +2251,9 @@ void FileTreeWidget::show_context_menu(const QPoint &p)
   action_texture->setEnabled(numeric && variable && rank >= 2);
   action_texture->setToolTip(tr("2D local 4x4 texture entropy image (bits), interpolated to the source size"));
   connect(action_texture, &QAction::triggered, this, [this, item_data] { m_main_window->add_texture_image(item_data); });
+  auto *action_section=menu.addAction(tr("Space-Time Section (Hovmöller)..."));
+  action_section->setObjectName("actionSpaceTimeSectionContext");action_section->setEnabled(numeric&&variable&&rank>=2);
+  connect(action_section,&QAction::triggered,this,[this,item_data]{m_main_window->add_space_time_section(item_data);});
 
   QAction *action_histogram = menu.addAction(tr("Histogram..."));
   action_histogram->setToolTip(tr("One layer of this variable as a histogram, sampled at random "
@@ -3282,6 +3302,7 @@ MainWindow::~MainWindow()
   disconnect(m_layer_connection);
   // Derived widgets outlive this destructor body; their source may emit while QWidget deletes them.
   for(auto *view : findChildren<TextureEntropyView*>()) disconnect(view, nullptr, this, nullptr);
+  for(auto *view : findChildren<HovmollerView*>()) disconnect(view, nullptr, this, nullptr);
   delete m_compare_panel;m_compare_panel=nullptr;
   delete m_workspace_sync;m_workspace_sync=nullptr;
 }
@@ -3375,7 +3396,7 @@ void MainWindow::update_layer_controls()
       m_layer_axis_combo->addItem(tr("%1 (%2)").arg(view->layer_axis_name(a)).arg(view->layer_count(a)));
     m_layer_index_combo->clear();
     QStringList numbers;
-    for(int i = 1; i <= count; ++i) numbers << QString::number(i);
+    if(!dynamic_cast<HovmollerView*>(view)||count<=10000)for(int i = 1; i <= count; ++i) numbers << QString::number(i);
     m_layer_index_combo->addItems(numbers);
     m_layer_combo_view = view;
     m_layer_combo_axis = axis;
@@ -3384,13 +3405,14 @@ void MainWindow::update_layer_controls()
   m_layer_axis_combo->setCurrentIndex(axis);
   m_layer_index_combo->setCurrentIndex(count>0?index:-1);
   m_layer_axis_combo->setEnabled(true);
-  m_layer_index_combo->setEnabled(count>1);
+  m_layer_index_combo->setEnabled(count>1&&(!dynamic_cast<HovmollerView*>(view)||count<=10000));
   m_action_layer_next->setEnabled(index < count - 1);
   m_action_layer_last->setEnabled(index < count - 1);
   m_action_layer_previous->setEnabled(index > 0);
   m_action_layer_first->setEnabled(index > 0);
   m_action_layer_goto->setEnabled(count > 1);
   m_layer_label->setText(count>0?tr("Layer %1 of %2").arg(index + 1).arg(count):tr("No frames on this axis"));
+  if(dynamic_cast<HovmollerView*>(view)){m_layer_label->setText(count>0?tr("Position %1 of %2 (index0=%3)").arg(index+1).arg(count).arg(index):tr("No toolbar frames (axis exceeds int range)"));m_action_layer_play->setToolTip(tr("Sweep %1; wait for each section to become Ready").arg(view->layer_axis_name(axis)));}
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////
@@ -3447,6 +3469,15 @@ void MainWindow::add_texture_image(ItemData *item) {
   connect(view, &TextureEntropyView::layer_changed, this, &MainWindow::update_layer_controls);
   auto *sub = m_mdi_area->addSubWindow(view); sub->setAttribute(Qt::WA_DeleteOnClose);
   tag_view(sub, item); sub->resize(820, 660); sub->show();
+}
+
+void MainWindow::add_space_time_section(ItemData *item) {
+  if(property("sectionShutdownPending").toBool()||!item||item->m_kind!=ItemData::Variable||!item->m_dataset||item->m_dataset->m_dim.size()<2||
+      (item->m_dataset->m_datatype_class!=H5T_INTEGER&&item->m_dataset->m_datatype_class!=H5T_FLOAT))return;
+  auto *view=new HovmollerView(QString::fromLocal8Bit(item->m_file_name.c_str()),QString::fromStdString(item->m_dataset->m_path));
+  connect(view,&HovmollerView::stop_playback_requested,m_layer_playback,&LayerPlayback::stop);
+  auto *sub=m_mdi_area->addSubWindow(view);sub->setAttribute(Qt::WA_DeleteOnClose);tag_view(sub,item);
+  const auto available=m_mdi_area->viewport()->size();sub->resize(std::min(1100,available.width()),std::min(800,available.height()));sub->showMaximized();
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////

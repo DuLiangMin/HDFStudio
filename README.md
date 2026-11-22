@@ -4,7 +4,7 @@
 
 **English** | [简体中文](README_CN.md)
 
-🔢 **Version 0.12.08** — independent 2D texture entropy images, scientific color maps, cached recoloring, image zoom, lead/lag comparison, pair metrics, residual maps and joint slice playback.
+🔢 **Version 0.12.10** — independent space-time sections (Hovmöller), 2D texture entropy images, scientific color maps, image zoom, lead/lag comparison, pair metrics, residual maps and joint slice playback.
 
 ⬇️ **Download:** get `HDFStudio-<version>-win64.zip` from the [latest release](https://github.com/DuLiangMin/HDFStudio/releases/latest). **Portable (green) app:** unzip it anywhere and double-click `HDFStudio.exe` to run. No installation and no administrator rights needed.
 
@@ -23,7 +23,15 @@ coordinates into real dates, and check CF metadata conventions, all without writ
 
 *Recorded from the running Windows application: 2-metre temperature (`TMP_2maboveground`, 384 × 190, 480 layers) in cmocean Thermal, alongside its synchronized 4×4 local texture entropy image in Viridis. The green Play button advances both views. Entropy has its own fixed 0–4 bits scale. [View the static screenshot](docs/screenshot-main.png).*
 
-### 🆕 New in 0.12.08
+### 🆕 New in 0.12.10
+
+| Capability | How to use it |
+|---|---|
+| 📈 Independent **space-time sections (Hovmöller)** | **View → Space-Time Section (Hovmöller)**, or right-click a numeric variable. Choose Lat–Time/Lon–Time or any ordered axis pair, navigate remaining dimensions, swap/flip axes, apply Mask and export original-size PNG/numeric CSV. |
+| ▶️ **Fixed-axis section playback** | Select a remaining fixed axis and use the main **Play / Pause** button. Each step waits for the current section to become Ready. |
+| 📅 **Optional calendar labels** | Retain source time units and calendar; use Python `netCDF4` for dates when available, with numeric time as the fallback. Reading sections needs no Python. |
+
+### 🧰 Included analysis tools
 
 | Capability | How to use it |
 |---|---|
@@ -33,7 +41,7 @@ coordinates into real dates, and check CF metadata conventions, all without writ
 | ➖ **Spatial residual map** | **Residual map** shows `Target − Anchor` with a zero-centered diverging scale and follows the selected layers and Mask. |
 | ▶️ **Green Play / Pause** | Animate one dataset or linked views with an adjustable interval; metrics, residuals and source-following entropy update with the layers. |
 
-**Validation:** clean Debug/Release builds each pass **83 QtTest checks**, with no failures or skips, plus CTest. Local entropy outputs are reconciled independently against NumPy, including exported PNG colors and missing/Mask pixels.
+**Validation:** Debug/Release each pass **20 section checks and 83 existing QtTest checks**, with no failures or skips, and **CTest 2/2**. Independent section reconciliation covers **1,878,490 values**, all ordered 4D axis pairs and exported PNG colors; local texture entropy is also checked against NumPy, including missing/Mask pixels.
 
 ## 🤔 Why HDFStudio?
 
@@ -45,13 +53,15 @@ really inside** before you trust it. Typical questions:
 - Is this file CF compliant, or will my plotting library flip the map?
 
 HDFStudio answers these in seconds, with no Python session, no notebook and no installation of a
-scientific stack. It is a small, portable program (about 15 MB) that opens a file and shows you the facts.
+scientific stack. It is a portable program that opens a file and shows you the facts.
 
 ### 🔬 From inspecting a slice to comparing model output
 
 HDFStudio brings the following analysis tasks into the same workspace:
 
 - **2D texture entropy images:** choose **View → Texture Entropy Image**, or the same variable context-menu item. Each non-overlapping 4×4 block produces a Shannon entropy value; numeric bilinear interpolation reconstructs the source image dimensions before coloring. The independent image has a fixed 0–4 bits colorbar, zoom/pan, layer navigation, and full-size PNG/numeric CSV exports. Opening it from an Image View follows that image's layer and Mask; no comparison is required.
+- **Space-time sections:** select a numeric variable and choose **View → Space-Time Section (Hovmöller)**, or its context-menu entry. The independent window provides Lat–Time/Lon–Time presets when trusted one-dimensional coordinates exist, any two-axis slicing, fixed index/nearest coordinate selection, swap, flips, color maps, Mask, original-size PNG and numeric CSV. The main Play button sweeps a remaining fixed axis and waits for each section to finish. Two-dimensional matrices have no fixed-axis playback.
+
 - **Sliding comparison along a shared index axis:** choose an Anchor and one or more Target image views, select a leading axis such as `time`, then drag the Anchor layer slider. Each Target follows `target_index = anchor_index + lag`, with its own positive, zero or negative integer offset. Zoom, pan and flips can follow the Anchor; color/range synchronization is optional. Out-of-range targets clear and recover automatically.
 - **Correlation and error together:** the live **Compare & Metrics** dock shows Pearson r, RMSE, MAE, Bias (`Target − Anchor`) and valid/excluded pair counts. Copy the report or export an atomic CSV record containing source paths, variables, layer indices, revisions and units. Single-image entropy is no longer included as a comparison result. The CLI uses the same core algorithms for independent numerical checks.
 - **Residual maps:** open **Residual map** to locate positive and negative `Target − Anchor` differences spatially, with a zero-centered symmetric diverging color scale. The map follows the current layer and Mask, clears when comparison becomes invalid, supports zoom/pan and exports a full-resolution PNG.
@@ -61,6 +71,12 @@ HDFStudio brings the following analysis tasks into the same workspace:
 For two forecasts initialized at different times, inspect their decoded time coordinates first and choose the index offset that corresponds to your intended comparison. Changing the selected Target retains the other Targets' individual offsets, so several forecast sequences can follow one Anchor.
 
 **Scientific scope:** alignment is by integer layer index, including when the chosen axis is named `time`; HDFStudio does not infer hours/days or match coordinate timestamps. Pair calculations require identical plane shapes and use only pixels finite in both decoded, currently masked planes. There is no implicit interpolation, cropping, geographical registration or unit conversion. Units are retained, and differing units are marked unverified; a constant field has undefined Pearson r even when error metrics remain valid.
+
+### 📈 Space-time section boundaries
+
+Sections use equal-width source-index cells, preserve original axis order and do not interpolate nonuniform coordinates or wrap longitude. Labels retain coordinate units/calendar; optional Python `netCDF4.num2date` supplies dates, with numeric time when Python or the calendar is unavailable. Plain HDF5 remains a generic index slice unless NetCDF identity and coordinate associations are verified; projected and two-dimensional geolocation grids do not enable geographic presets. Sections are independent of Compare & Metrics, source image following and texture entropy.
+
+The same decoder serves `hdf_cli slice FILE /VARIABLE ROW_AXIS COL_AXIS OUTPUT.csv FIXED_IDX_0 ... FIXED_IDX_N-1` and the GUI. Supply one zero-based fixed index per dimension, using zero for the two display axes. CSV contains two metadata comment lines and `row,col,row_coord,col_coord,value,state`. PNG contains full-size colored pixels plus metadata, without axes. Supported packing is scalar storage-typed `_FillValue`/`missing_value`, `scale_factor` and `add_offset`; `_Unsigned=true` and vector missing values are rejected. Integer values beyond exact float64 precision carry a warning. The 16 Mi-pixel limit, shared raster budget and chunk working memory can reject oversized requests. The matching `hdf_cli.exe` must remain beside the program; slice reading does not require Python.
 
 ### 🖼️ Reading a texture entropy image
 
@@ -152,6 +168,7 @@ hdf_cli export data.nc /lat         values as text (add a file name to write a f
 hdf_cli csv    data.nc /ttr plane.csv 7 42    one 2-D plane as the image view reads it
 hdf_cli entropy data.nc /precipitation 256 0   full decoded plane, bits and normalized entropy
 hdf_cli texture-entropy data.nc /precipitation texture.csv 0   2D 4x4 local entropy values and block entropy
+hdf_cli slice data.nc /field 1 0 section.csv 0 0 0   row=axis 1, column=axis 0; fixed axis 2 at index 0
 hdf_cli corr a.nc /field b.nc /field --anchor-idx 0 --target-idx 1
                                               identical shape, finite intersection, target-anchor errors
 hdf_cli mask   data.nc /precipitation 9999 - 0    Mask Range on decoded values ("-" = open end):
@@ -178,7 +195,7 @@ src/core/    nc_reader, nc_classic, properties_inspector, text_export, plane_rea
 src/views/   raster_view, vector_view, mesh_view, histogram_view
 src/cli/     hdf_cli.cpp, the window-less debug tool
 resources/   Qt resources, icon, sample.ico/.icns, netcdf_report.py, images/
-docs/        FORMAT_CAPABILITY.md, STAGE4_ACCEPTANCE.md
+docs/        application screenshots and recorded analysis demo
 ```
 
 Headers are included by file name (`#include "nc_reader.hpp"`); `CMakeLists.txt` adds
@@ -191,7 +208,7 @@ HDFStudio is a viewer and checker; it never modifies input files. CF diagnostics
 conformance certification. Map projections and arbitrary unstructured meshes are not supported yet.
 NetCDF-3 grids read one 2-D plane at a time; for NetCDF-4/HDF5 the grid still reads the whole variable,
 and chunked reading for those is on the roadmap.
-See `FORMAT_CAPABILITY.md` for the verified format boundary.
+The independent section reader uses hyperslabs for NetCDF/HDF5; its packing, coordinate and memory limits are described above.
 
 ## 🗺️ Roadmap
 
