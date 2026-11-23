@@ -6,7 +6,11 @@
 
 ## ⬇️ Download
 
+[![Release](https://img.shields.io/github/v/release/DuLiangMin/HDFStudio?label=release&color=3d99a4)](https://github.com/DuLiangMin/HDFStudio/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/DuLiangMin/HDFStudio/total?color=3d99a4)](https://github.com/DuLiangMin/HDFStudio/releases)
+[![License: GPL v3](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-lightgrey)](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.02/HDFStudio-0.14.02-update-20261123-win64.zip)
+[![Qt](https://img.shields.io/badge/Qt-6.8-41cd52)](https://www.qt.io/)
 
 **[Download](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.02/HDFStudio-0.14.02-update-20261123-win64.zip)** — **0.14.02 Windows x64 portable binary ZIP** · [All releases](https://github.com/DuLiangMin/HDFStudio/releases)
 
