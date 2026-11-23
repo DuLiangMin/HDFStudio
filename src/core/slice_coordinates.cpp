@@ -1,4 +1,6 @@
 #include "slice_coordinates.hpp"
+#include "grib/grib_data.hpp"
+#include <QElapsedTimer>
 #include <cmath>
 #include <algorithm>
 #include <QRegularExpression>
@@ -39,6 +41,20 @@ void classify(SliceAxisDescriptor &axis,int group,int variable) {
 }
 SliceInfo slice_inspect(const QString &file,const std::string &path) {
   SliceInfo out;
+  if(GribData::is_grib(file)) {
+    out.source_kind="grib";out.decode_profile="GribDecodedV1";out.reader="ecCodes";out.storage_type="GRIB decoded double";
+    try {
+      QElapsedTimer timer;timer.start();const auto catalog=GribData::open(file);out.catalog_scan_ms=timer.elapsed();
+      const auto info=GribData::describe(*catalog,QString::fromUtf8(path.c_str()));
+      if(!info.rectangular)throw grib::Error("UnsupportedGrid","Sections require a rectangular source grid; no interpolation");
+      out.shape.assign(info.shape.begin(),info.shape.end());out.units=info.units;
+      out.source_working_bytes=GribData::slice_source_bytes(*catalog,QString::fromUtf8(path.c_str()));
+      for(size_t i=0;i<info.axes.size();++i){SliceAxisDescriptor axis;axis.dimension_index=i;axis.length=info.shape[i];axis.dimension_name=info.axes[i].name;
+        axis.units="index0";axis.source_labels=info.axes[i].labels;axis.diagnostic="Source index order; physical coordinate semantics unverified";out.axes.push_back(std::move(axis));}
+      out.diagnostics<<"GRIB section uses source indices and original axis labels; no CF coordinate inference";
+    }catch(const grib::Error &error){out.error_code=error.code;out.error=error.message;}
+    return out;
+  }
   {NcReader reader(file);int group=-1,variable=-1,rank=0;
     if(reader.locate(path,group,variable)) {
       out.reader="netCDF-C";

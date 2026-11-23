@@ -13,6 +13,7 @@ public:
   void clear_result(const QString &message);
   const NcResidualPlane &residual() const {return m_residual;}
   QImage image_for_export() const;
+  QString export_png(const QString &path) const;
 private:
   QGraphicsView *m_canvas;
   QGraphicsPixmapItem *m_image;
@@ -23,4 +24,5 @@ private:
   quint64 m_reserved_pixels=0;
   PlaneSnapshot m_anchor,m_target;
   QString m_label;
+  QAction *m_export_action = nullptr;
 };

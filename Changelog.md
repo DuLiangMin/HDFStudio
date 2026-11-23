@@ -1,5 +1,16 @@
 # Changelog
 
+## 🌦️ 0.14.02 GRIB browsing and offline help - 2026-11-23
+
+- Ship a complete portable GRIB runtime and local help; make Download a direct Windows binary link in both READMEs. Public source excludes third-party code copies, retaining pinned restoration manifests and license texts.
+- Add native read-only GRIB1/GRIB2 browsing: virtual variables, physical messages, provenance, decoded/Quantized X grids, rectangular-field images, Mask and CSV/PNG export.
+- Reuse histograms, curve profiles, whole-plane and texture entropy, index-based comparison/residuals, synchronization and layer playback for GRIB. Unknown units and missing fields remain explicit.
+- Add arbitrary-axis GRIB sections to the CLI/worker. GUI sections, geographic-coordinate integration and GRIB vectors remain pending.
+- Add **Help → Help** before About, with F1 and a local bilingual `doc/help.html` guide opened in the default browser. Copy the guide beside development executables and include it in the package recipe.
+- Shorten both READMEs, introduce GRIB capabilities and limits, and synchronize the application/About version at 0.14.02.
+- Introduce LLM/AI-agent-friendly metadata extraction in both READMEs, with Properties/CLI workflows and copyable prompt examples in the offline help.
+- GRIB section acceptance: Debug/Release each pass 11 section, 20 HDF/NetCDF section, 14 GRIB core and 8 scheduler checks; independent GRIB1 and CRA40 GRIB2 values reconcile with unchanged source hashes.
+
 ## 🧩 0.12.12 HDF5 update - 2026-11-23 (version unchanged)
 
 - Add a built-in, read-only Bitshuffle (32008) decoder for plain HDF5: none, LZ4 and Zstd modes; share it across image, grid, text export and arbitrary-axis reads.

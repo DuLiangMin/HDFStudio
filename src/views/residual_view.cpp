@@ -1,5 +1,6 @@
 #include "residual_view.hpp"
 #include "raster_budget.hpp"
+#include "slice_io.hpp"
 #include <QSaveFile>
 #include <cmath>
 #include <algorithm>
@@ -27,12 +28,13 @@ ResidualView::ResidualView(QWidget *parent):QWidget(parent,Qt::Window) {
   tools->addAction(tr("Zoom in"),this,[this]{m_canvas->scale(1.25,1.25);});
   tools->addAction(tr("Zoom out"),this,[this]{m_canvas->scale(.8,.8);});
   tools->addAction(tr("Fit"),this,[this]{m_canvas->fitInView(m_canvas->sceneRect(),Qt::KeepAspectRatio);});
-  tools->addAction(tr("Export PNG"),this,[this]{
+  m_export_action=tools->addAction(tr("Export PNG"),this,[this]{
     const auto image=image_for_export();if(image.isNull()) return;
     const auto path=QFileDialog::getSaveFileName(this,tr("Export residual PNG"),{},tr("PNG (*.png)"));if(path.isEmpty())return;
-    QSaveFile output(path);
-    if(!output.open(QIODevice::WriteOnly)||!image.save(&output,"PNG")||!output.commit()) QMessageBox::warning(this,tr("Export residual"),output.errorString());
+    const auto error=export_png(path);
+    if(!error.isEmpty())QMessageBox::warning(this,tr("Export residual"),error);
   });
+  m_export_action->setObjectName("residualExportPngAction");
   layout->addWidget(m_canvas,1);m_bar=new ColorBar(this);layout->addWidget(m_bar);
   m_summary=new QLabel(this);m_summary->setWordWrap(true);m_summary->setObjectName("residualSummary");layout->addWidget(m_summary);
   clear_result(tr("Select two matching image planes"));
@@ -41,6 +43,7 @@ void ResidualView::clear_result(const QString &message) {
   m_residual={};m_image->setPixmap(QPixmap());m_bar->clear();m_summary->setText(message);
   m_reservation.reset();m_reserved_pixels=0;setProperty("residualValid",false);
   m_anchor={};m_target={};m_label.clear();
+  m_export_action->setEnabled(false);
 }
 void ResidualView::update_planes(const PlaneSnapshot &anchor,const PlaneSnapshot &target,const QString &label) {
   if(anchor.out_of_range || target.out_of_range || !anchor.values || !target.values) {clear_result(tr("Out of range or unavailable plane"));return;}
@@ -70,13 +73,23 @@ void ResidualView::update_planes(const PlaneSnapshot &anchor,const PlaneSnapshot
   }
   const bool first=m_image->pixmap().isNull();m_image->setPixmap(QPixmap::fromImage(image));
   m_canvas->scene()->setSceneRect(0,0,image.width(),image.height());
-  const QString units=anchor.units==target.units ? anchor.units : tr("unverified: target %1 / anchor %2").arg(target.units,anchor.units);
+  const QString units=anchor.units==target.units && plane_units_known(anchor.units) ? anchor.units : tr("unverified: target %1 / anchor %2").arg(target.units,anchor.units);
   m_bar->set_mapping(*selected,mapping,units);
   m_summary->setText(tr("%1\nTarget - Anchor; %2 x %3; valid %4; excluded %5; units: %6%7")
     .arg(label).arg(m_residual.cols).arg(m_residual.rows).arg(m_residual.valid_pairs).arg(m_residual.excluded_pairs).arg(units,
       m_residual.absolute_max==0 ? tr("; all residuals zero (display range -1..1)") : QString()));
   setProperty("residualValid",true);setProperty("anchorRevision",anchor.revision);setProperty("targetRevision",target.revision);
   m_anchor=anchor;m_target=target;m_label=label;
+  m_export_action->setEnabled(true);
   if(first) m_canvas->fitInView(m_canvas->sceneRect(),Qt::KeepAspectRatio);
 }
 QImage ResidualView::image_for_export() const {return m_residual.valid ? m_image->pixmap().toImage() : QImage();}
+
+QString ResidualView::export_png(const QString &path) const {
+  if((!m_anchor.file_path.isEmpty()&&slice_same_file(path,m_anchor.file_path))||(!m_target.file_path.isEmpty()&&slice_same_file(path,m_target.file_path)))return tr("Cannot overwrite a source dataset");
+  for(const QObject *root=this;root;root=root->parent())for(const auto &file:root->property("openSourceFiles").toStringList())if(slice_same_file(path,file))return tr("Cannot overwrite an open source dataset");
+  const auto image=image_for_export();if(image.isNull())return tr("No residual available");
+  QSaveFile output(path);if(!output.open(QIODevice::WriteOnly))return output.errorString();
+  if(!image.save(&output,"PNG")||!output.commit())return tr("Cannot save residual PNG: %1").arg(output.errorString());
+  return {};
+}

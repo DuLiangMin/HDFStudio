@@ -3,6 +3,7 @@
 #include "hdf_filters.hpp"
 #include "slice_decode.hpp"
 #include "nc_classic.hpp"
+#include "grib/grib_data.hpp"
 #include <QFile>
 
 namespace {
@@ -41,6 +42,15 @@ NcSliceResult nc_read_slice_decoded(const QString &file,const std::string &path,
   auto fail=[&](const QString &code,const QString &message){out.error_code=code;out.error=message;return out;};
   const std::vector<size_t> shape(expected.begin(),expected.end());
   const auto error=slice_validate(shape,spec);if(!error.isEmpty())return fail(error,"Invalid requested slice");
+  if(GribData::is_grib(file)) {
+    const auto info=GribData::describe(file,QString::fromUtf8(path.c_str()));
+    if(!info.error.isEmpty())return fail(info.error_code,info.error);
+    if(info.shape!=shape)return fail("ShapeChanged","GRIB object shape differs from expected shape");
+    DataSource::ReadSelection selection;selection.row_axis=spec.row_axis;selection.col_axis=spec.col_axis;selection.fixed_indices=spec.fixed_indices;
+    auto read=GribData::slice(file,QString::fromUtf8(path.c_str()),selection);
+    out.reader=read.reader;out.error_code=read.error_code;out.error=read.error;out.missing_fields=read.missing_fields;out.lease=std::move(read.lease);
+    out.plane.rows=read.rows;out.plane.cols=read.cols;out.plane.values=std::move(read.values);return out;
+  }
   if(is_classic_netcdf_file(file) || probe_data_format(file).netcdf) {
     NcReader reader(file);int group=-1,variable=-1;
     if(reader.locate(path,group,variable)) {

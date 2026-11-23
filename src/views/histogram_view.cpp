@@ -1,5 +1,6 @@
 // Histogram window: one layer of a variable, sampled at random (default one value in twenty).
 #include "histogram_view.hpp"
+#include "data_read_controller.hpp"
 #include <climits>
 #include <algorithm>
 #include <cmath>
@@ -50,22 +51,33 @@ void HistogramCanvas::paintEvent(QPaintEvent *) {
   // tick labels: first, middle and last bin bound, plus the peak count
   painter.setPen(Qt::black);
   const QFontMetrics metrics(painter.font());
-  auto label = [&](const QString &text, int x, int alignment) {
-    painter.drawText(QRect(x - 60, area.bottom() + 4, 120, 20), alignment | Qt::AlignVCenter, text);
+  auto label = [&](const QString &text, int x) {
+    const int width=metrics.horizontalAdvance(text)+4;
+    const int left=std::clamp(x-width/2,2,std::max(2,this->width()-width-2));
+    painter.drawText(QRect(left,area.bottom()+4,width,20),Qt::AlignHCenter|Qt::AlignVCenter,text);
   };
   const QString low = QString::number(m_histogram.edges.front(), 'g', 6);
   const QString high = QString::number(m_histogram.edges.back(), 'g', 6);
   const QString middle = QString::number((m_histogram.edges.front() + m_histogram.edges.back()) / 2.0, 'g', 6);
-  label(low, area.left(), Qt::AlignLeft);
+  label(low, area.left());
   if(metrics.horizontalAdvance(low) + metrics.horizontalAdvance(high) + 40 < area.width())
-    label(middle, area.center().x(), Qt::AlignHCenter);
-  label(high, area.right(), Qt::AlignRight);
+    label(middle, area.center().x());
+  label(high, area.right());
   painter.drawText(QRect(2, area.top() - 8, 52, 16), Qt::AlignRight | Qt::AlignVCenter,
                    QString::number(qulonglong(peak)));
 }
 
 HistogramView::HistogramView(std::string filename, std::string varpath, std::vector<hsize_t> shape)
-  : m_file(std::move(filename)), m_path(std::move(varpath)), m_dims(std::move(shape)) {
+  :HistogramView(std::move(filename),std::move(varpath),std::move(shape),std::nullopt) {}
+
+HistogramView::HistogramView(QString filename,QString target,const DataSource::ArrayInfo &info)
+  :HistogramView(filename.toUtf8().toStdString(),target.toUtf8().toStdString(),
+                 std::vector<hsize_t>(info.shape.begin(),info.shape.end()),info) {}
+
+HistogramView::HistogramView(std::string filename,std::string varpath,std::vector<hsize_t> shape,
+                             std::optional<DataSource::ArrayInfo> info)
+  :m_file(std::move(filename)),m_path(std::move(varpath)),m_dims(std::move(shape)),m_grib_info(std::move(info)) {
+  if(m_grib_info)m_grib_file=QString::fromUtf8(m_file.c_str());
   setObjectName("histogramView");
   setWindowTitle(QString::fromStdString(m_path) + tr(" - Histogram"));
 
@@ -88,7 +100,9 @@ HistogramView::HistogramView(std::string filename, std::string varpath, std::vec
       emit layer_changed();
     });
   }
-  const std::vector<std::string> names = nc_dimension_names(QString::fromLocal8Bit(m_file.c_str()), m_path);
+  std::vector<std::string> names;
+  if(m_grib_info)for(const auto &axis:m_grib_info->axes)names.push_back(axis.name.toStdString());
+  else names=nc_dimension_names(QString::fromLocal8Bit(m_file.c_str()),m_path);
   for(size_t axis = 0; axis < m_layers.size(); ++axis)
     m_axis_names << (names.size() == m_dims.size() ? QString::fromStdString(names[axis])
                                                    : tr("axis %1").arg(int(axis) + 1));
@@ -121,6 +135,7 @@ HistogramView::HistogramView(std::string filename, std::string varpath, std::vec
 
   m_summary = new QLabel(this);
   m_summary->setObjectName("histogramSummary");
+  m_summary->setWordWrap(true);
   m_summary->setTextInteractionFlags(Qt::TextSelectableByMouse);
   layout->addWidget(m_summary);
   m_canvas = new HistogramCanvas(this);
@@ -131,7 +146,30 @@ HistogramView::HistogramView(std::string filename, std::string varpath, std::vec
   connect(m_every_nth, QOverload<int>::of(&QSpinBox::valueChanged), this, [this] { update_histogram(); });
   connect(m_bins, QOverload<int>::of(&QSpinBox::valueChanged), this, [this] { update_histogram(); });
 
+  if(m_grib_info) {
+    m_grib_reader=new DataReadController;
+    connect(m_grib_reader,&DataReadController::completed,this,[this](auto plane,auto budget){
+      const auto current=GribData::describe(m_grib_file,QString::fromUtf8(m_path.c_str()));
+      if(!current.error.isEmpty()||current.object.source_session_id!=m_grib_info->object.source_session_id){clear_plane(tr("SourceChanged: close and reopen source"));return;}
+      if(m_dims.size()<2||plane->rows!=m_dims[m_dims.size()-2]||plane->cols!=m_dims.back()||plane->values.size()!=plane->rows*plane->cols){clear_plane(tr("Incomplete GRIB plane"));return;}
+      m_values=std::shared_ptr<const std::vector<double>>(plane,&plane->values);m_budget=std::move(budget);
+      setProperty("reading",false);setProperty("readError",QString());setProperty("reader",plane->reader);
+      setProperty("decodeProfile",plane->decode_profile);setProperty("units",plane->units);
+      setProperty("planeReadCount",property("planeReadCount").toULongLong()+1);
+      setProperty("planeValues",qulonglong(m_values->size()));
+      m_entropy=nc_gray_entropy(*m_values);update_histogram();
+    });
+    connect(m_grib_reader,&DataReadController::failed,this,[this](const QString &error){clear_plane(error);});
+  }
   read_plane();
+  update_histogram();
+}
+
+HistogramView::~HistogramView(){if(m_grib_reader){m_grib_reader->disconnect(this);m_grib_reader->dispose();}}
+
+void HistogramView::clear_plane(const QString &error) {
+  m_values.reset();m_budget.reset();m_entropy={};
+  setProperty("reading",false);setProperty("readError",error);setProperty("planeValues",qulonglong(0));
   update_histogram();
 }
 
@@ -142,33 +180,45 @@ double HistogramView::keep_fraction() const {
 void HistogramView::read_plane() {
   std::vector<size_t> start;
   for(QSpinBox *spin : m_layers) start.push_back(size_t(std::max(0, spin->value())));
+  const quint64 cells=m_dims.size()<2?0:quint64(m_dims[m_dims.size()-2])*quint64(m_dims.back());
+  setProperty("planeCells",qulonglong(cells));
+  if(m_grib_info) {
+    clear_plane(tr("Reading GRIB plane..."));
+    if(!m_grib_info->error.isEmpty()){clear_plane(m_grib_info->error);return;}
+    if(!m_grib_info->can_image){clear_plane(m_grib_info->disabled_reasons.value("image",tr("Histogram requires a rectangular GRIB plane")));return;}
+    setProperty("reading",true);
+    m_grib_reader->read(m_grib_file,QString::fromUtf8(m_path.c_str()),start,false,false);
+    return;
+  }
   // The whole plane is decoded once and kept: the file is read once, then every step and bin change
   // is a memory pass over values that are already there.
-  const NcPlaneResult result = nc_read_plane_decoded(QString::fromLocal8Bit(m_file.c_str()),
+  NcPlaneResult result = nc_read_plane_decoded(QString::fromLocal8Bit(m_file.c_str()),
                                                      m_path, m_dims, start);
   setProperty("reader", result.reader);
   setProperty("readError", result.error);
-  m_values = result.error.isEmpty() ? std::move(result.plane.values) : std::vector<double>();
+  m_values=result.error.isEmpty()?std::make_shared<const std::vector<double>>(std::move(result.plane.values)):nullptr;
   setProperty("planeReadCount",property("planeReadCount").toULongLong()+1);
-  m_entropy=nc_gray_entropy(m_values);
+  m_entropy=m_values?nc_gray_entropy(*m_values):NcGrayEntropy{};
   setProperty("entropyBits",m_entropy.valid ? QVariant(m_entropy.entropy_bits) : QVariant());
-  setProperty("planeValues", qulonglong(m_values.size()));
+  setProperty("planeValues",qulonglong(m_values?m_values->size():0));
   // how many positions the whole plane has, so the window can say "of how many"
   quint64 plane = m_dims.size() >= 2 ? quint64(m_dims[m_dims.size() - 2]) * quint64(m_dims.back()) : 0;
   setProperty("planeCells", qulonglong(plane));
 }
 
 void HistogramView::update_histogram() {
+  setProperty("entropyBits",m_entropy.valid?QVariant(m_entropy.entropy_bits):QVariant());
   const QString entropy_text=m_entropy.valid
     ? tr("Whole-plane histogram entropy (256 bins): %1 bits   Normalized: %2").arg(m_entropy.entropy_bits,0,'f',4).arg(m_entropy.normalized_entropy,0,'g',9)
     : tr("Whole-plane histogram entropy (256 bins): N/A");
-  if(m_values.empty()) {
+  if(!m_values||m_values->empty()) {
+    for(const auto key:{"sampled","total","missing","bins","minimum","maximum","mean","stddev"})setProperty(key,QVariant());
     m_summary->setText(tr("Cannot read this plane: %1\n%2").arg(property("readError").toString(),entropy_text));
-    m_canvas->set_histogram(NcHistogram());
+    NcHistogram empty;empty.error=property("readError").toString();m_canvas->set_histogram(empty);
     return;
   }
   // A uniform random sample of the plane: 1 in N keeps exactly round(finite / N) values.
-  const NcHistogram histogram = nc_histogram(m_values, keep_fraction(), m_bins->value(), m_seed);
+  const NcHistogram histogram=nc_histogram(*m_values,keep_fraction(),m_bins->value(),m_seed);
   m_canvas->set_histogram(histogram);
   // the same numbers a test and hdf_cli hist see
   setProperty("sampled", qulonglong(histogram.sampled));
@@ -190,7 +240,8 @@ void HistogramView::update_histogram() {
       .arg(histogram.sampled).arg(histogram.total).arg(m_every_nth->value())
       .arg(histogram.bins)
       .arg(histogram.minimum, 0, 'g', 9).arg(histogram.maximum, 0, 'g', 9)
-      .arg(histogram.mean, 0, 'g', 9).arg(histogram.stddev, 0, 'g', 9).arg(histogram.missing)+"\n"+entropy_text);
+       .arg(histogram.mean, 0, 'g', 9).arg(histogram.stddev, 0, 'g', 9).arg(histogram.missing)+"\n"+entropy_text);
+  if(m_grib_info)m_summary->setText(m_summary->text()+tr("\nGRIB decoded values | units: %1").arg(property("units").toString()));
 }
 
 int HistogramView::layer_axis_count() const { return int(m_layers.size()); }

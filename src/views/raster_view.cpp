@@ -7,6 +7,7 @@
 #include "plane_reader.hpp"
 #include "image_metrics.hpp"
 #include "raster_budget.hpp"
+#include "data_read_controller.hpp"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -191,7 +192,16 @@ private:
 }
 
 RasterView::RasterView(std::string filename, std::string varpath, std::vector<hsize_t> shape)
-  : file(std::move(filename)), path(std::move(varpath)), dims(std::move(shape)) {
+  :RasterView(std::move(filename),std::move(varpath),std::move(shape),std::nullopt) {}
+
+RasterView::RasterView(QString filename,QString target,const DataSource::ArrayInfo &info)
+  :RasterView(filename.toUtf8().toStdString(),target.toUtf8().toStdString(),
+              std::vector<hsize_t>(info.shape.begin(),info.shape.end()),info) {}
+
+RasterView::RasterView(std::string filename,std::string varpath,std::vector<hsize_t> shape,
+                       std::optional<DataSource::ArrayInfo> descriptor)
+  :file(std::move(filename)),path(std::move(varpath)),grib_info(std::move(descriptor)),dims(std::move(shape)) {
+  if(grib_info)grib_file=QString::fromUtf8(file.c_str());
   setWindowTitle(QString::fromUtf8(path.c_str()) + tr(" - Image"));
   auto layout = new QVBoxLayout(this);
   auto tools = new QToolBar(this);
@@ -199,12 +209,14 @@ RasterView::RasterView(std::string filename, std::string varpath, std::vector<hs
   auto geo_action=tools->addAction(tr("Projs"));
   geo_action->setObjectName("projsAction");
   geo_action->setCheckable(true);
-  classic=is_classic_netcdf_file(QString::fromLocal8Bit(file.c_str()));
-  NcReader coordinate_reader(QString::fromLocal8Bit(file.c_str()));
-  std::vector<size_t> coordinate_shape;
-  coordinate_shape.reserve(dims.size());
-  for(hsize_t dim:dims) coordinate_shape.push_back(static_cast<size_t>(dim));
-  geo_grid=coordinate_reader.geographic_grid(path,coordinate_shape);
+  if(!grib_info) {
+    classic=is_classic_netcdf_file(QString::fromLocal8Bit(file.c_str()));
+    NcReader coordinate_reader(QString::fromLocal8Bit(file.c_str()));
+    std::vector<size_t> coordinate_shape;
+    coordinate_shape.reserve(dims.size());
+    for(hsize_t dim:dims) coordinate_shape.push_back(static_cast<size_t>(dim));
+    geo_grid=coordinate_reader.geographic_grid(path,coordinate_shape);
+  }else geo_grid.error=tr("GRIB source-grid index image; geographic coordinate lookup awaits a separate verified adapter.");
   geo_action->setEnabled(geo_grid.valid);
   geo_action->setToolTip(geo_grid.valid
       ? tr("Use verified one-dimensional CF latitude/longitude coordinates")
@@ -276,10 +288,11 @@ RasterView::RasterView(std::string filename, std::string varpath, std::vector<hs
 
   // Mask Range works on decoded values, the numbers shown in the legend; the file's valid range
   // attributes are in stored units, so both forms are shown in the tooltip to avoid mixing them up
-  const NcPacking packing=nc_packing(QString::fromLocal8Bit(file.c_str()),path);
+  const NcPacking packing=grib_info?NcPacking{}:nc_packing(QString::fromLocal8Bit(file.c_str()),path);
   QString mask_tip=tr("Mask Range: decoded values from start to end (inclusive) become NaN and are drawn white.\n"
                       "Empty start = -infinity, empty end = +infinity; both empty = no mask.\n"
-                      "Decoded value = stored x scale_factor + add_offset, the value shown in the legend.");
+                       "Decoded value = stored x scale_factor + add_offset, the value shown in the legend.");
+  if(grib_info)mask_tip=tr("Mask Range applies to ecCodes decoded values, inclusive; masked values are white. Empty bounds are open. No CF scale/offset is applied to GRIB.");
   if(packing.packed())
     mask_tip+=tr("\nThis variable: decoded = stored x %1 + %2.").arg(packing.scale,0,'g',15).arg(packing.offset,0,'g',15);
   if(packing.has_valid_min && packing.has_valid_max)
@@ -352,7 +365,9 @@ RasterView::RasterView(std::string filename, std::string varpath, std::vector<hs
     mask_hint->setText(mask_hint->text()+tr("   (%1 decoded [%2, %3], stored [%4, %5])").arg(packing.valid_source)
         .arg(packing.decode(packing.valid_min),0,'g',15).arg(packing.decode(packing.valid_max),0,'g',15)
         .arg(packing.valid_min,0,'g',15).arg(packing.valid_max,0,'g',15));
-  const std::vector<std::string> dimension_names = nc_dimension_names(QString::fromLocal8Bit(this->file.c_str()), this->path);
+  std::vector<std::string> dimension_names;
+  if(grib_info)for(const auto &axis:grib_info->axes)dimension_names.push_back(axis.name.toStdString());
+  else dimension_names=nc_dimension_names(QString::fromLocal8Bit(this->file.c_str()),this->path);
   for(size_t i = 0; i + 2 < dims.size(); ++i) {
     axis_names << (dimension_names.size() == dims.size() ? QString::fromStdString(dimension_names[i])
                                                          : tr("axis %1").arg(i));
@@ -433,7 +448,7 @@ RasterView::RasterView(std::string filename, std::string varpath, std::vector<hs
     clear_profile_action->setEnabled(false);
     redraw_profile_overlay();
     if(profile_window) if(auto *view=qobject_cast<ProfileView*>(profile_window.data()))
-      view->update_data(last_values,last_rows,last_cols,{},CurvePathMode::SmoothSpline);
+      view->update_data(last_values, last_rows, last_cols, {}, CurvePathMode::SmoothSpline, raster_reservation);
   });
   connect(fit_action,&QAction::triggered,this,[this,apply_flip] {
     canvas->fitInView(scene->sceneRect(), Qt::KeepAspectRatio);
@@ -452,6 +467,26 @@ RasterView::RasterView(std::string filename, std::string varpath, std::vector<hs
   entropy_summary->setObjectName("rasterEntropySummary");
   entropy_summary->setTextInteractionFlags(Qt::TextSelectableByMouse);
   layout->addWidget(entropy_summary);
+  if(grib_info) {
+    grib_reader=new DataReadController;
+    connect(grib_reader,&DataReadController::completed,this,[this](auto data,auto lease){
+      grib_read_pending=false;
+      if(sync_out_of_range)return;
+      const auto current=GribData::describe(grib_file,QString::fromUtf8(path.c_str()));
+      if(!current.error.isEmpty()||current.object.source_session_id!=grib_info->object.source_session_id){clear_plane(tr("SourceChanged: close and reopen source"));return;}
+      const auto rows=dims[dims.size()-2],cols=dims.back();
+      if(data->rows!=rows||data->cols!=cols||data->values.size()!=size_t(rows*cols)){clear_plane(tr("Incomplete GRIB plane."));return;}
+      grib_plane=data;raster_reservation=lease;
+      decoded_values=std::shared_ptr<const std::vector<double>>(data,&data->values);
+      cached_indices=grib_requested_indices;last_rows=data->rows;last_cols=data->cols;
+      cached_units=data->units;declared_categories.clear();cached_meanings.clear();reading_valid=true;mask_valid=false;
+      setProperty("reader",data->reader);setProperty("decodeProfile",data->decode_profile);
+      setProperty("planeReadCount",property("planeReadCount").toULongLong()+1);
+      refresh();
+      if(grib_first_fit&&display_valid){canvas->fitInView(scene->sceneRect(),Qt::KeepAspectRatio);grib_first_fit=false;notify_viewport_changed();}
+    });
+    connect(grib_reader,&DataReadController::failed,this,[this](const QString &error){grib_read_pending=false;clear_plane(error);});
+  }
   QTimer::singleShot(0, this, [this]{ refresh(); canvas->fitInView(scene->sceneRect(), Qt::KeepAspectRatio);notify_viewport_changed(); });
 }
 
@@ -561,12 +596,20 @@ void RasterView::refresh() {
     clear_plane(tr("Plane exceeds the 16 megapixel preview limit."));return;
   }
   const QString filename=QString::fromLocal8Bit(file.c_str());
-  if(!raster_reservation) {
+  std::vector<size_t> indices;for(auto *spin:layers) indices.push_back(size_t(spin->value()));
+  if(grib_info&&(!reading_valid||indices!=cached_indices)) {
+    if(grib_read_pending&&indices==grib_requested_indices)return;
+    clear_plane(tr("Reading GRIB plane..."));reading_valid=false;mask_valid=false;
+    decoded_values.reset();last_values.reset();grib_plane.reset();raster_reservation.reset();
+    grib_requested_indices=indices;grib_read_pending=true;
+    if(!grib_info->can_image){grib_read_pending=false;clear_plane(grib_info->disabled_reasons.value("image",tr("Unsupported GRIB image grid")));return;}
+    grib_reader->read(grib_file,QString::fromUtf8(path.c_str()),indices,false,false);return;
+  }
+  if(!grib_info&&!raster_reservation) {
     raster_reservation=reserve_raster(quint64(rows)*cols);
     if(!raster_reservation) {clear_plane(tr("Raster memory budget reached. Close another image or select a smaller plane."));return;}
   }
-  std::vector<size_t> indices;for(auto *spin:layers) indices.push_back(size_t(spin->value()));
-  if(!reading_valid||indices!=cached_indices) {
+  if(!grib_info&&(!reading_valid||indices!=cached_indices)) {
     reading_valid=false;mask_valid=false;decoded_values.reset();last_values.reset();
     auto read=nc_read_plane_decoded(filename,path,dims,indices);
     setProperty("planeReadCount",property("planeReadCount").toULongLong()+1);
@@ -611,7 +654,7 @@ void RasterView::refresh() {
     for(double value:*last_values) if(std::isfinite(value)){data_low=std::min(data_low,value);data_high=std::max(data_high,value);}
   }
   if(values_changed&&profile_window) if(auto *view=qobject_cast<ProfileView*>(profile_window.data()))
-    view->update_data(last_values,last_rows,last_cols,profile_points,CurvePathMode::SmoothSpline);
+    view->update_data(last_values, last_rows, last_cols, profile_points, CurvePathMode::SmoothSpline, raster_reservation);
   if(values_changed || !snapshot_available) {
     const auto entropy=nc_gray_entropy(*last_values);
     entropy_summary->setText(entropy.valid
@@ -739,18 +782,22 @@ void RasterView::clear_plane(const QString &error) {
   if(profile_window) if(auto *view=qobject_cast<ProfileView*>(profile_window.data()))
     view->update_data({},0,0,{},CurvePathMode::SmoothSpline);
 }
-RasterView::~RasterView() {render_generation->fetch_add(1);pending_render={};}
-bool RasterView::render_pending() const {return render_running || bool(pending_render);}
+RasterView::~RasterView() {if(grib_reader){grib_reader->disconnect(this);grib_reader->dispose();}render_generation->fetch_add(1);pending_render={};}
+bool RasterView::render_pending() const {return grib_read_pending||render_running || bool(pending_render);}
 PlaneSnapshot RasterView::plane_snapshot() const {
   PlaneSnapshot snapshot;
-  snapshot.file_path=QString::fromLocal8Bit(file.c_str());
+  snapshot.file_path=grib_info?grib_file:QString::fromLocal8Bit(file.c_str());
   snapshot.variable_path=QString::fromUtf8(path.c_str());
   for(auto *spin:layers) snapshot.leading_indices.push_back(size_t(spin->value()));
   snapshot.rows=dims.size()<2 ? 0 : size_t(dims[dims.size()-2]);
   snapshot.cols=dims.empty() ? 0 : size_t(dims.back());
-  snapshot.units=cached_units.isEmpty() ? QString("unspecified") : cached_units;
+  snapshot.units=cached_units.isEmpty() ? (grib_info?QString("unknown"):QString("unspecified")) : cached_units;
   snapshot.revision=snapshot_revision;
   snapshot.out_of_range=sync_out_of_range;
+  if(grib_plane && snapshot_available) {
+    snapshot.grid_identity=grib_plane->grid_identity;
+    snapshot.time_identity=grib_plane->time_identity;
+  }
   if(snapshot_available) {snapshot.values=last_values;snapshot.storage_lease=raster_reservation;}
   return snapshot;
 }
@@ -813,6 +860,7 @@ void RasterView::set_sync_out_of_range(bool out_of_range,const QString &message)
   if(sync_out_of_range==out_of_range && (!out_of_range || sync_range_message==message)) return;
   sync_out_of_range=out_of_range;sync_range_message=message;
   setProperty("syncOutOfRange",out_of_range);
+  if(out_of_range&&grib_reader){grib_reader->cancel();grib_read_pending=false;}
   if(out_of_range) clear_plane(tr("Out of range: %1").arg(message));
   else refresh();
 }
@@ -836,7 +884,18 @@ QImage RasterView::image_for_export() {
   const QVariant previous=qApp->property("synchronousRasterPreview");
   qApp->setProperty("synchronousRasterPreview",true);
   refresh();
+  if(grib_read_pending) {
+    QEventLoop loop;QTimer timeout;timeout.setSingleShot(true);
+    connect(grib_reader,&DataReadController::drained,&loop,&QEventLoop::quit);
+    connect(&timeout,&QTimer::timeout,&loop,&QEventLoop::quit);
+    timeout.start(30000);loop.exec(QEventLoop::ExcludeUserInputEvents);
+  }
+  if(grib_info) {
+    const auto current=GribData::describe(grib_file,QString::fromUtf8(path.c_str()));
+    if(!current.error.isEmpty()||current.object.source_session_id!=grib_info->object.source_session_id)clear_plane(tr("SourceChanged: close and reopen source"));
+  }
   qApp->setProperty("synchronousRasterPreview",previous);
+  if(grib_read_pending)return {};
   if(!display_valid || image_item->pixmap().isNull()) return {};
   return image_item->pixmap().toImage().mirrored(flip_h_action->isChecked(),flip_v_action->isChecked());
 }
@@ -932,9 +991,9 @@ void RasterView::show_profile_window() {
   if(!profile_window) {
     profile_window = new ProfileView(QString::fromUtf8(path.c_str()),
                                      last_values, last_rows, last_cols,
-                                     profile_points, CurvePathMode::SmoothSpline, this);
+                                      profile_points, CurvePathMode::SmoothSpline, this, raster_reservation);
   } else if(auto *view = qobject_cast<ProfileView*>(profile_window.data())) {
-    view->update_data(last_values, last_rows, last_cols, profile_points, CurvePathMode::SmoothSpline);
+    view->update_data(last_values, last_rows, last_cols, profile_points, CurvePathMode::SmoothSpline, raster_reservation);
   }
   profile_window->show();
   profile_window->raise();

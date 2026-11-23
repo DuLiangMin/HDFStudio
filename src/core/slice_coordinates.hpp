@@ -10,6 +10,9 @@ struct SliceInfo {
   bool netcdf_identity=false;
   quint64 chunk_bytes=0;
   QStringList diagnostics;
+  QString source_kind = "hdf", decode_profile = "DecodeProfileV1";
+  quint64 source_working_bytes = 0;
+  qint64 catalog_scan_ms = 0;
 };
 SliceInfo slice_inspect(const QString &file,const std::string &path);
 std::vector<double> slice_read_coordinate(const QString &file,const SliceAxisDescriptor &axis,QString &error,size_t index=size_t(-1));

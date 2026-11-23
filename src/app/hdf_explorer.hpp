@@ -159,6 +159,7 @@ private:
   WorkspaceSyncController *m_workspace_sync=nullptr;
   ComparePanel *m_compare_panel=nullptr;
   QAction *m_action_compare=nullptr;
+  QAction *m_action_hide_infobar=nullptr;
   FileTreeWidget *m_tree;
   QDockWidget *m_tree_dock;
   QSplitter *m_main_splitter;
@@ -226,6 +227,7 @@ private:
   void update_recent_file_actions();
   QTreeWidgetItem *add_classic_tree(const QString &file_name, const std::string &stored_name,
                                     const QString &display_name);
+  QTreeWidgetItem *add_grib_tree(const QString &file_name);
   void update_close_actions();
   // A view remembers which tree item produced it, so closing a file can find exactly its views.
   void tag_view(QMdiSubWindow *sub, const ItemData *source);

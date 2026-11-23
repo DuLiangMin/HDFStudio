@@ -1,6 +1,8 @@
 // Calculate entropy in data space, then map the full-resolution entropy plane to colors.
 #include "texture_entropy_view.hpp"
 #include "raster_view.hpp"
+#include "data_read_controller.hpp"
+#include "slice_io.hpp"
 #include "raster_budget.hpp"
 #include "plane_reader.hpp"
 #include <QSaveFile>
@@ -32,6 +34,31 @@ TextureEntropyView::TextureEntropyView(std::string file, std::string path, std::
   setup();
 }
 
+TextureEntropyView::TextureEntropyView(QString file,QString target,const DataSource::ArrayInfo &info)
+  :m_file(file.toUtf8().toStdString()),m_path(target.toUtf8().toStdString()),
+   m_dims(info.shape.begin(),info.shape.end()),m_grib_info(info),m_grib_file(std::move(file)) {
+  m_grib_reader=new DataReadController;
+  connect(m_grib_reader,&DataReadController::completed,this,[this](auto plane,auto budget){
+    const auto error=source_error();
+    if(!error.isEmpty()){clear_result(error);return;}
+    if(m_dims.size()<2||plane->rows!=m_dims[m_dims.size()-2]||plane->cols!=m_dims.back()||plane->values.size()!=plane->rows*plane->cols){clear_result(tr("Incomplete GRIB plane"));return;}
+    m_decoded=std::shared_ptr<const std::vector<double>>(plane,&plane->values);m_plane_budget=std::move(budget);m_cached_indices=m_read_indices;
+    setProperty("reading",false);setProperty("readError",QString());setProperty("reader",plane->reader);setProperty("decodeProfile",plane->decode_profile);setProperty("units",plane->units);
+    setProperty("planeReadCount",property("planeReadCount").toULongLong()+1);refresh();
+  });
+  connect(m_grib_reader,&DataReadController::failed,this,[this](const QString &error){clear_result(error);});
+  setup();
+}
+
+TextureEntropyView::~TextureEntropyView(){if(m_grib_reader){m_grib_reader->disconnect(this);m_grib_reader->dispose();}}
+
+QString TextureEntropyView::source_error() const {
+  if(!m_grib_info)return {};
+  const auto current=GribData::describe(m_grib_file,QString::fromUtf8(m_path.c_str()));
+  if(!current.error.isEmpty()||current.object.source_session_id!=m_grib_info->object.source_session_id)return tr("SourceChanged: close and reopen source");
+  return {};
+}
+
 TextureEntropyView::TextureEntropyView(RasterView *source) : m_following(true), m_source(source) {
   if(source) {
     const auto snapshot = source->plane_snapshot();
@@ -56,7 +83,9 @@ void TextureEntropyView::setup() {
     auto *label = new QLabel(tr("Following Image View: layer and Mask"), this);
     label->setObjectName("textureSourceLabel"); tools->addWidget(label);
   } else {
-    const auto names = nc_dimension_names(QString::fromLocal8Bit(m_file.c_str()), m_path);
+    std::vector<std::string> names;
+    if(m_grib_info)for(const auto &axis:m_grib_info->axes)names.push_back(axis.name.toStdString());
+    else names=nc_dimension_names(QString::fromLocal8Bit(m_file.c_str()),m_path);
     for(size_t axis = 0; axis + 2 < m_dims.size(); ++axis) {
       const QString name = names.size() == m_dims.size() ? QString::fromStdString(names[axis]) : tr("axis %1").arg(axis + 1);
       m_axis_names << name;
@@ -120,6 +149,7 @@ void TextureEntropyView::setup() {
 
 void TextureEntropyView::clear_result(const QString &error) {
   m_entropy = {}; m_snapshot = {}; m_decoded.reset(); m_cached_indices.clear();
+  m_plane_budget.reset();setProperty("reading",false);setProperty("readError",error);
   m_image->setPixmap(QPixmap()); m_canvas->scene()->setSceneRect(QRectF());
   m_canvas->viewport()->setToolTip({}); m_bar->clear(); m_summary->setText(error);
   m_export_png->setEnabled(false); m_export_csv->setEnabled(false);
@@ -133,6 +163,11 @@ void TextureEntropyView::refresh() {
     if(!m_source) { clear_result(tr("Source image closed")); return; }
     snapshot = m_source->plane_snapshot();
     if(!snapshot.values || snapshot.out_of_range) { clear_result(tr("Source plane unavailable or out of range")); return; }
+    if(m_source->property("decodeProfile").toString()=="GribDecodedV1") {
+      if(!m_grib_info){m_grib_file=snapshot.file_path;m_path=snapshot.variable_path.toUtf8().toStdString();m_grib_info=GribData::describe(m_grib_file,snapshot.variable_path);}
+      const auto error=source_error();if(!error.isEmpty()){clear_result(error);return;}
+      setProperty("reader",m_source->property("reader"));setProperty("decodeProfile",m_source->property("decodeProfile"));setProperty("units",snapshot.units);
+    }
     if(m_entropy.valid && snapshot.values == m_snapshot.values && snapshot.revision == m_snapshot.revision) return;
   } else {
     if(m_dims.size() < 2 || std::find(m_dims.begin(), m_dims.end(), 0) != m_dims.end()) {
@@ -140,6 +175,15 @@ void TextureEntropyView::refresh() {
     }
     snapshot.rows = size_t(m_dims[m_dims.size() - 2]); snapshot.cols = size_t(m_dims.back());
     for(auto *spin : m_layers) snapshot.leading_indices.push_back(size_t(spin->value()));
+    if(m_grib_info) {
+      const auto error=source_error();if(!error.isEmpty()){clear_result(error);return;}
+      if(!m_grib_info->can_image){clear_result(tr("Texture entropy requires a rectangular GRIB plane"));return;}
+      if(!m_decoded||m_cached_indices!=snapshot.leading_indices) {
+        m_read_indices=snapshot.leading_indices;clear_result(tr("Reading GRIB plane..."));setProperty("reading",true);
+        m_grib_reader->read(m_grib_file,QString::fromUtf8(m_path.c_str()),m_read_indices,false,false);return;
+      }
+      snapshot.file_path=m_grib_file;snapshot.variable_path=QString::fromUtf8(m_path.c_str());snapshot.units=property("units").toString();snapshot.storage_lease=m_plane_budget;
+    }
   }
   if(!snapshot.rows || !snapshot.cols || snapshot.rows > INT_MAX || snapshot.cols > INT_MAX ||
      snapshot.rows > size_t(16 * 1024 * 1024) / snapshot.cols) {
@@ -147,7 +191,7 @@ void TextureEntropyView::refresh() {
   }
   const quint64 pixels = quint64(snapshot.rows) * snapshot.cols;
   if(!m_reservation || m_reserved_pixels != pixels) {
-    m_entropy = {}; m_snapshot = {}; m_decoded.reset(); m_image->setPixmap(QPixmap()); m_reservation.reset();
+    m_entropy = {}; m_snapshot = {};if(!m_grib_info)m_decoded.reset();m_image->setPixmap(QPixmap());m_reservation.reset();
     m_reservation = reserve_raster(pixels); m_reserved_pixels = pixels;
     if(!m_reservation) { clear_result(tr("Raster memory budget reached. Close another image.")); return; }
   }
@@ -194,9 +238,11 @@ void TextureEntropyView::refresh() {
   m_summary->setText(tr("2D texture entropy | %1 x %2 pixels | layer [%3]\n4x4 blocks: %4 x %5; 256 shared gray levels; bilinear to source size; 0..4 bits\nValid samples: %6; excluded: %7. Missing/Mask stay gray. Higher = richer local gray distribution (noise may also be high).")
     .arg(m_entropy.rows).arg(m_entropy.cols).arg(indices.join(","))
     .arg(m_entropy.block_rows).arg(m_entropy.block_cols).arg(m_entropy.valid_count).arg(m_entropy.excluded_count));
+  if(m_grib_info)m_summary->setText(m_summary->text()+tr("\nGRIB decoded values | source units: %1").arg(property("units").toString()));
   m_snapshot = std::move(snapshot);
   m_export_png->setEnabled(true); m_export_csv->setEnabled(true);
   setProperty("textureValid", true); setProperty("sourceRevision", m_snapshot.revision);
+  setProperty("readError",QString());
   setProperty("textureComputeCount", property("textureComputeCount").toULongLong() + 1);
   if(first) m_canvas->fitInView(m_canvas->sceneRect(), Qt::KeepAspectRatio);
 }
@@ -218,12 +264,16 @@ void TextureEntropyView::set_layer_index(int axis, int index) {
 }
 QImage TextureEntropyView::image_for_export() const { return m_entropy.valid ? m_image->pixmap().toImage() : QImage(); }
 QString TextureEntropyView::export_png(const QString &path) const {
+  const auto error=source_error();if(!error.isEmpty())return error;
+  if(m_grib_info&&slice_same_file(path,m_grib_file))return tr("Cannot overwrite source dataset");
   if(!m_entropy.valid) return tr("No valid texture entropy image");
   QSaveFile output(path);
   if(!output.open(QIODevice::WriteOnly) || !image_for_export().save(&output, "PNG") || !output.commit()) return output.errorString();
   return {};
 }
 QString TextureEntropyView::export_csv(const QString &path) const {
+  const auto error=source_error();if(!error.isEmpty())return error;
+  if(m_grib_info&&slice_same_file(path,m_grib_file))return tr("Cannot overwrite source dataset");
   if(!m_entropy.valid) return tr("No valid texture entropy image");
   QSaveFile output(path); if(!output.open(QIODevice::WriteOnly)) return output.errorString();
   QTextStream text(&output); text.setRealNumberPrecision(17);

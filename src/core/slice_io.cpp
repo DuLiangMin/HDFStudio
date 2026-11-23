@@ -19,25 +19,30 @@
 
 QJsonObject slice_stamp(const QString &file){QFileInfo info(file);return {{"size_bytes",QString::number(info.size())},{"mtime_utc_ms",QString::number(info.lastModified().toMSecsSinceEpoch())}};}
 QJsonObject slice_axis_json(const SliceAxisDescriptor &axis) {
-  return {{"dimension_index",int(axis.dimension_index)},{"length",QString::number(axis.length)},{"dimension_name",axis.dimension_name},
+  QJsonObject object{{"dimension_index",int(axis.dimension_index)},{"length",QString::number(axis.length)},{"dimension_name",axis.dimension_name},
     {"coordinate_path",axis.coordinate_path},{"units",axis.units},{"calendar",axis.calendar},{"standard_name",axis.standard_name},
     {"role",int(axis.role)},{"association",axis.association},{"diagnostic",axis.diagnostic},{"calendar_source",axis.calendar_source},{"date_supported",axis.date_supported}};
+  if(!axis.source_labels.isEmpty())object["source_labels"]=QJsonArray::fromStringList(axis.source_labels);
+  return object;
 }
 SliceAxisDescriptor slice_axis_from_json(const QJsonObject &object) {
   SliceAxisDescriptor axis;axis.dimension_index=object["dimension_index"].toInt();axis.length=object["length"].toString().toULongLong();
   axis.dimension_name=object["dimension_name"].toString();axis.coordinate_path=object["coordinate_path"].toString();axis.units=object["units"].toString();
   axis.calendar=object["calendar"].toString();axis.standard_name=object["standard_name"].toString();axis.role=SliceAxisRole(object["role"].toInt());
-  axis.association=object["association"].toString();axis.diagnostic=object["diagnostic"].toString();axis.calendar_source=object["calendar_source"].toString();axis.date_supported=object["date_supported"].toBool();return axis;
+  axis.association=object["association"].toString();axis.diagnostic=object["diagnostic"].toString();axis.calendar_source=object["calendar_source"].toString();axis.date_supported=object["date_supported"].toBool();
+  for(const auto &value:object["source_labels"].toArray())axis.source_labels.append(value.toString());return axis;
 }
 QJsonObject slice_metadata(const QString &file,const QString &variable,const SliceInfo &info,const NcSliceSpec &spec) {
   QJsonArray shape,axes,fixed;
   for(auto length:info.shape)shape.append(QString::number(length));
   for(const auto &axis:info.axes)axes.append(slice_axis_json(axis));
   for(auto index:spec.fixed_indices)fixed.append(QString::number(index));
-  return {{"schema",1},{"file",QFileInfo(file).absoluteFilePath()},{"variable",variable},{"source_stamp",slice_stamp(file)},
+  QJsonObject object{{"schema",info.source_kind=="grib"?2:1},{"file",QFileInfo(file).absoluteFilePath()},{"variable",variable},{"source_stamp",slice_stamp(file)},
     {"shape",shape},{"axes",axes},{"spec",QJsonObject{{"row_axis",int(spec.row_axis)},{"col_axis",int(spec.col_axis)},{"fixed_indices",fixed}}},
-    {"value_units",info.units},{"decode_profile","DecodeProfileV1"},{"index_spacing",true},{"flip_h",false},{"flip_v",false},
+    {"value_units",info.units},{"decode_profile",info.decode_profile},{"index_spacing",true},{"flip_h",false},{"flip_v",false},
     {"request_id","0"},{"render_revision","0"},{"mask",QJsonValue::Null},{"storage_type",info.storage_type},{"netcdf_identity",info.netcdf_identity}};
+  if(info.source_kind=="grib"){object["source_kind"]="grib";object["source_working_bytes"]=QString::number(info.source_working_bytes);object["diagnostics"]=QJsonArray::fromStringList(info.diagnostics);}
+  return object;
 }
 bool slice_same_file(const QString &left,const QString &right) {
   if(QFileInfo(left).absoluteFilePath().compare(QFileInfo(right).absoluteFilePath(),
@@ -71,7 +76,7 @@ QString slice_write_csv(const QString &path,const NcPlane &plane,const std::vect
   if(slice_same_file(path,metadata["file"].toString()))return "Cannot overwrite a source dataset";
   return slice_write_atomic(path,overwrite,[&](QIODevice &output){
     QTextStream stream(&output);stream.setLocale(QLocale::c());stream.setRealNumberPrecision(17);
-    stream<<"# hovmoller_schema=1\n# metadata="<<QJsonDocument(metadata).toJson(QJsonDocument::Compact)<<"\nrow,col,row_coord,col_coord,value,state\n";
+    stream<<"# hovmoller_schema="<<metadata["schema"].toInt(1)<<"\n# metadata="<<QJsonDocument(metadata).toJson(QJsonDocument::Compact)<<"\nrow,col,row_coord,col_coord,value,state\n";
     auto number=[](double value){return std::isfinite(value)?QString::number(value,'g',17):QString("nan");};
     for(size_t row=0;row<plane.rows;++row)for(size_t col=0;col<plane.cols;++col){const size_t i=row*plane.cols+col;const double value=plane.values[i];stream<<row<<','<<col<<',';
       if(row<row_coordinates.size())stream<<number(row_coordinates[row]);stream<<',';if(col<col_coordinates.size())stream<<number(col_coordinates[col]);
@@ -92,6 +97,7 @@ int slice_command(const QStringList &args) {
   auto metadata=slice_metadata(args[2],args[3],info,spec);QJsonArray fixed;
   for(size_t axis=0;axis<info.shape.size();++axis)if(axis!=spec.row_axis&&axis!=spec.col_axis){auto value=slice_read_coordinate(args[2],info.axes[axis],error,spec.fixed_indices[axis]);fixed.append(QJsonObject{{"dimension_index",int(axis)},{"index0",QString::number(spec.fixed_indices[axis])},{"value",value.empty()||!std::isfinite(value[0])?QJsonValue(QJsonValue::Null):QJsonValue(value[0])},{"units",info.axes[axis].units}});}
   metadata["fixed_coordinates"]=fixed;metadata["precision_warning"]=read.precision_warning;metadata["reader"]=read.reader;
+  if(info.source_kind=="grib")metadata["missing_fields"]=QString::number(read.missing_fields);
   error=slice_write_csv(args[6],read.plane,read.plane.values,rows,cols,metadata);
   if(!error.isEmpty()){QTextStream(stderr)<<error;return 4;}return 0;
 }

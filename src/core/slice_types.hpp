@@ -16,6 +16,7 @@ struct SliceAxisDescriptor {
   SliceAxisRole role = SliceAxisRole::Unknown;
   QString association = "none", diagnostic, calendar_source = "none";
   bool date_supported = false;
+  QStringList source_labels;
 };
 QString slice_validate(const std::vector<size_t> &shape, const NcSliceSpec &spec);
 void slice_orient(std::vector<double> &values, size_t rows, size_t cols, bool transpose);

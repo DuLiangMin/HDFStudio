@@ -1,5 +1,6 @@
 #include "compare_panel.hpp"
 #include "image_metrics.hpp"
+#include "slice_io.hpp"
 #include <QSaveFile>
 #include <cmath>
 #include <algorithm>
@@ -62,8 +63,14 @@ void ComparePanel::set_views(const QList<RasterView*> &views) {
     m_anchor->addItem(label);m_target->addItem(label);
     m_anchor->setItemData(m_views.size(),snapshot.file_path,Qt::ToolTipRole);m_target->setItemData(m_views.size(),snapshot.file_path,Qt::ToolTipRole);
     if(view==previous_anchor)a=m_views.size();if(view==previous_target)b=m_views.size();
-    m_connections.push_back(connect(view,&RasterView::plane_snapshot_changed,this,&ComparePanel::schedule_refresh));
-    m_connections.push_back(connect(view,&QObject::destroyed,this,[this]{QTimer::singleShot(0,this,[this]{QList<RasterView*> live;for(const auto &view:m_views)if(view)live.append(view);set_views(live);});}));
+    m_connections.push_back(connect(view,&RasterView::plane_snapshot_changed,this,[this,view]{
+      if(view==selected_view(m_anchor)||view==selected_view(m_target))invalidate_current();
+      schedule_refresh();
+    }));
+    m_connections.push_back(connect(view,&QObject::destroyed,this,[this]{
+      invalidate_current();
+      QTimer::singleShot(0,this,[this]{QList<RasterView*> live;for(const auto &view:m_views)if(view)live.append(view);set_views(live);});
+    }));
   }
   if(!m_initialized && !m_views.empty()) {a=1;b=m_views.size()>1?2:0;m_initialized=true;}
   m_anchor->setCurrentIndex(a);m_target->setCurrentIndex(b);m_editing=false;
@@ -95,7 +102,13 @@ void ComparePanel::apply_binding() {
   }
   schedule_refresh();
 }
+void ComparePanel::invalidate_current() {
+  m_residual_button->setEnabled(false);
+  if(m_residual)m_residual->clear_result(tr("Current planes are updating or unavailable"));
+  m_metrics->setPlainText(tr("Pairing: by index\nStatus: Updating current planes\nRMSE: N/A"));
+}
 void ComparePanel::schedule_refresh() {
+  // 控制器可能在RasterView的QObject析构阶段发信号，此处不能读取派生成员。
   if(m_refresh_pending)return;m_refresh_pending=true;
   QTimer::singleShot(0,this,[this]{m_refresh_pending=false;refresh_now();});
 }
@@ -127,23 +140,31 @@ void ComparePanel::refresh_now() {
   if(!anchor || !target || !m_a.values || !m_b.values || m_a.out_of_range || m_b.out_of_range) {
     m_computed=false;m_computed_a={};m_computed_b={};
   }
-  const QString units=m_a.units==m_b.units?m_a.units:tr("unverified: anchor %1 / target %2").arg(m_a.units,m_b.units);
+  const QString diagnostic=plane_pair_diagnostics(m_a,m_b);
+  const QString units=m_a.units==m_b.units && plane_units_known(m_a.units)?m_a.units:tr("unverified: anchor %1 / target %2").arg(m_a.units,m_b.units);
   m_metrics->setPlainText(tr("%1\nStatus: %2\nShape: %3x%4 / %5x%6\nValid pairs: %7\nExcluded pairs: %8\nPearson r: %9\nRMSE: %10\nMAE: %11\nBias (Target - Anchor): %12\nUnits: %13\nRevisions: %14 / %15\nLinked followers: %16")
     .arg(m_alignment,status).arg(m_a.rows).arg(m_a.cols).arg(m_b.rows).arg(m_b.cols)
     .arg(pair.valid_pairs).arg(pair.excluded_pairs).arg(number(pair.pearson_r,pair.r_valid),number(pair.rmse,pair.valid),number(pair.mae,pair.valid),number(pair.bias,pair.valid),units)
-    .arg(m_a.revision).arg(m_b.revision).arg(m_controller->followers().size()));
+     .arg(m_a.revision).arg(m_b.revision).arg(m_controller->followers().size()));
+  m_metrics->appendPlainText(tr("Pairing: by index; no resampling or coordinate matching"));
+  if(!diagnostic.isEmpty())m_metrics->appendPlainText(tr("Diagnostics: %1").arg(diagnostic));
   m_residual_button->setEnabled(pair.valid);
   if(m_residual) {
     if(!pair.valid)m_residual->clear_result(status);
-    else if(m_residual->isVisible())m_residual->update_planes(m_a,m_b,m_alignment);
+    else if(m_residual->isVisible())m_residual->update_planes(m_a,m_b,m_alignment+tr("\nPairing: by index; ")+diagnostic);
   }
   QStringList headers={"status","anchor_file","anchor_variable","anchor_indices","anchor_revision","anchor_units","target_file","target_variable","target_indices","target_revision","target_units","lag_axis","lag_offset","sync_layer","sync_viewport","sync_colormap","anchor_rows","anchor_cols","target_rows","target_cols","valid_pairs","excluded_pairs","pearson_r","rmse","mae","bias_target_minus_anchor"};
   QStringList values={status,m_a.file_path,m_a.variable_path,indices_text(m_a.leading_indices),QString::number(m_a.revision),m_a.units,m_b.file_path,m_b.variable_path,indices_text(m_b.leading_indices),QString::number(m_b.revision),m_b.units,QString::number(axis),QString::number(m_lag->value()),QString::number(m_sync_layer->isChecked()),QString::number(m_sync_viewport->isChecked()),QString::number(m_sync_colormap->isChecked()),QString::number(m_a.rows),QString::number(m_a.cols),QString::number(m_b.rows),QString::number(m_b.cols),QString::number(pair.valid_pairs),QString::number(pair.excluded_pairs),number(pair.pearson_r,pair.r_valid),number(pair.rmse,pair.valid),number(pair.mae,pair.valid),number(pair.bias,pair.valid)};
+  headers << "pairing" << "diagnostics" << "anchor_grid_identity" << "target_grid_identity" << "anchor_time_identity" << "target_time_identity";
+  values << "by index" << diagnostic << m_a.grid_identity << m_b.grid_identity << m_a.time_identity << m_b.time_identity;
   m_csv=csv_row(headers)+csv_row(values);
 }
 QString ComparePanel::comparison_csv() const {return m_csv;}
 QString ComparePanel::export_csv(const QString &path) {
-  refresh_now();QSaveFile output(path);if(!output.open(QIODevice::WriteOnly))return output.errorString();
+  refresh_now();
+  if((!m_a.file_path.isEmpty()&&slice_same_file(path,m_a.file_path))||(!m_b.file_path.isEmpty()&&slice_same_file(path,m_b.file_path)))return tr("Cannot overwrite a source dataset");
+  for(const QObject *root=this;root;root=root->parent())for(const auto &file:root->property("openSourceFiles").toStringList())if(slice_same_file(path,file))return tr("Cannot overwrite an open source dataset");
+  QSaveFile output(path);if(!output.open(QIODevice::WriteOnly))return output.errorString();
   const auto bytes=m_csv.toUtf8();if(output.write(bytes)!=bytes.size() || !output.commit())return output.errorString();return {};
 }
 void ComparePanel::show_residual() {

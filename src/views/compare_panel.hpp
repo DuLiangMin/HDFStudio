@@ -17,6 +17,7 @@ private:
   void select_anchor();
   void select_target();
   void apply_binding();
+  void invalidate_current();
   void schedule_refresh();
   void show_residual();
   WorkspaceSyncController *m_controller;

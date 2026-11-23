@@ -1,0 +1,162 @@
+[
+  {
+    "name": "mini_bitmap.grb2",
+    "bytes": 214,
+    "sha256": "a895ccebcac7b73d4cc85e8162e7152ad9a2b9775881427f59e7de7791c78b68"
+  },
+  {
+    "name": "mini_constant.grb2",
+    "bytes": 179,
+    "sha256": "170d79428661bf6f72e4c5b43f3c7cd60c884ab3d4fd88587886fa26b5049d7a"
+  },
+  {
+    "name": "mini_cube.grb2",
+    "bytes": 860,
+    "sha256": "c93b0e7f04ca93add4009cbdabe1a7e4bee85c6e451b5ba322dd62c2687c8900"
+  },
+  {
+    "name": "mini_duplicates.grb2",
+    "bytes": 430,
+    "sha256": "7a9ede40ed54605ba5cc825dcb1710d1e059d62292aae682a8a3f9c46bb10e72"
+  },
+  {
+    "name": "mini_grib1.grb",
+    "bytes": 144,
+    "sha256": "500acc742321ff05f9ae27d0cdeac8a7199dbe1a2851a927ea7ca5dd23ae744c"
+  },
+  {
+    "name": "mini_grid_ccsds.grb2",
+    "bytes": 270,
+    "sha256": "8b5a7e7dd020cf00bfc7391fbee30343ba7c45adbfef03da0bb65eb0c32eb8fd"
+  },
+  {
+    "name": "mini_grid_complex.grb2",
+    "bytes": 240,
+    "sha256": "ba6cc55171731cdf5aaca2d96dc2fd99b19a72b29275c5ccc1c8b7f51d722f04"
+  },
+  {
+    "name": "mini_grid_complex_spatial_differencing.grb2",
+    "bytes": 215,
+    "sha256": "b7b11a99649e9fea448bc8ae3adb7014372328a87e598187e85dcc66dad671ae"
+  },
+  {
+    "name": "mini_grid_ieee.grb2",
+    "bytes": 218,
+    "sha256": "397fb7456a2f2f0dcd63dfd20ef42bb0e343e3402f3ca22438af76e4b9f5e9b2"
+  },
+  {
+    "name": "mini_grid_jpeg.grb2",
+    "bytes": 322,
+    "sha256": "23c36e4d37691c6d6e2c7ca04d6c1c23963a1d59fcc7c9759d4705a67ac66fee"
+  },
+  {
+    "name": "mini_grid_png.grb2",
+    "bytes": 285,
+    "sha256": "381e1e911d2250b29680e8096b651c43add157cf26f13ef7b6f1013180cfc7de"
+  },
+  {
+    "name": "mini_members.grb2",
+    "bytes": 436,
+    "sha256": "f372e0fb66e6bb25a67976401383aecaa4c759701a8627d6af17ae4750a615ac"
+  },
+  {
+    "name": "mini_missing_slice.grb2",
+    "bytes": 645,
+    "sha256": "31cae453d4b410519e1eff81fad9e672788f4c6f4fb4142b79dd8b8620159b7e"
+  },
+  {
+    "name": "mini_mixed.grib",
+    "bytes": 359,
+    "sha256": "5b721cba76ff60c303743b725c86805b4d9a45d6c678ce09cf5c996e99accba0"
+  },
+  {
+    "name": "mini_multifield.grb2",
+    "bytes": 245,
+    "sha256": "1e5bab52965760b9de0bef97dd9cd3eeb3578abf5e8a1bbd4fe13a4ab1220ac1"
+  },
+  {
+    "name": "mini_polar.grb2",
+    "bytes": 225,
+    "sha256": "8bd8ed5c360a31dcbe24f422e49d953f32f747cbc8e9fa4015e9a4dceb5a8bfd"
+  },
+  {
+    "name": "mini_scan_0.grb2",
+    "bytes": 215,
+    "sha256": "4deb1233fb05f2d69bc02271f023b8c3a5f2a3d6b7b99c6a46828d1963e268e7"
+  },
+  {
+    "name": "mini_scan_128.grb2",
+    "bytes": 215,
+    "sha256": "6bee540539539d54c98373c0fa06e565240603135b618671be9a0d285bab873c"
+  },
+  {
+    "name": "mini_scan_16.grb2",
+    "bytes": 215,
+    "sha256": "2f6ec47a018b955a008a33fc93d51369d539d7450ba596daf4889fc6fd097ca3"
+  },
+  {
+    "name": "mini_scan_32.grb2",
+    "bytes": 215,
+    "sha256": "703fc6518e66e47240882e82ea212e0de677bb2362f03558874d3e14edf6283f"
+  },
+  {
+    "name": "mini_scan_48.grb2",
+    "bytes": 215,
+    "sha256": "57ecb30ca59d92d03ea74e9e9f1749de3506ca22a3b4a56822c43153b1ca7aba"
+  },
+  {
+    "name": "mini_scan_64.grb2",
+    "bytes": 215,
+    "sha256": "db2bf7ca2edb6f8ce2764f277a2ae9653e724739c7499345a97dda2b4daec61e"
+  },
+  {
+    "name": "mini_showcase.grb2",
+    "bytes": 12179,
+    "sha256": "4f745a4d23777230be0d0646f602bf2d240b1e979c94f17caffd1dc8d83d2710"
+  },
+  {
+    "name": "mini_simple.grb2",
+    "bytes": 215,
+    "sha256": "4deb1233fb05f2d69bc02271f023b8c3a5f2a3d6b7b99c6a46828d1963e268e7"
+  },
+  {
+    "name": "mini_trailing_corrupt.bin",
+    "bytes": 420,
+    "sha256": "d8c57f58dc333e7dfb0f71a5e18d99574cbbda99088fbe0da5f857e6d7f2fb88"
+  },
+  {
+    "name": "mini_truncated.grb2",
+    "bytes": 205,
+    "sha256": "6ee9f891e08c3972d5ac3b38564829e004dea1fbff4e274a82b19cd6d61dfb75"
+  },
+  {
+    "name": "mini_unknown.grb2",
+    "bytes": 215,
+    "sha256": "5e5eb66c0da9fe64ba0a33f20541dd3cf3f6d24043ed8a037d1010804f852a95"
+  },
+  {
+    "name": "mini_vector_layers.grb2",
+    "bytes": 716,
+    "sha256": "b65a15169ef6040821da1bf15ae7eb956b8d7e8bd4e14de962959ffe89287176"
+  },
+  {
+    "name": "mini_vector_missing.grb2",
+    "bytes": 362,
+    "sha256": "5097883dabc38bd9f37b24dcb3a1a046b42763e8cc11d8d8e9fb143a94780bf3"
+  },
+  {
+    "name": "mini_vector_north.grb2",
+    "bytes": 358,
+    "sha256": "770be6f832333aaf7e2e0b69f0a68daf5ed72dde54585e6fd28253be3c7c07f9"
+  },
+  {
+    "name": "mini_wrapped.bin",
+    "bytes": 241,
+    "sha256": "73c813f792e27b7d0d6703c25d1cfdc4921a94795587b566b4c85605352f9518"
+  },
+  {
+    "name": "not_grib.bin",
+    "bytes": 19,
+    "sha256": "bd8ab697836f52fc002e0fbb5db5e687fd8f4bad896d374e24f4df50685618d5"
+  }
+]

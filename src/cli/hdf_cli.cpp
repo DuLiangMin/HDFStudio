@@ -31,6 +31,9 @@
 #include "color_map.hpp"
 #include "image_metrics.hpp"
 #include "texture_entropy.hpp"
+#include "data_source.hpp"
+#include "grib/grib_data.hpp"
+#include <QJsonDocument>
 #include <QCoreApplication>
 #include "slice_io.hpp"
 #include "slice_worker.hpp"
@@ -68,6 +71,10 @@ void print_text(const QString &text) {
 }
 
 int command_probe(const QString &file) {
+  if(GribData::is_grib(file)) {
+    try {const auto catalog=GribData::open(file);print_text(QString("kind: %1\nreader: ecCodes %2\nfields: %3\n").arg(catalog->format,grib::api_version()).arg(catalog->fields.size()));return 0;}
+    catch(const grib::Error& error){print_text(error.code+": "+error.message+"\n");return 3;}
+  }
   const FormatProbe probe = probe_data_format(file);
   print_text(QString("kind: %1\nnetcdf: %2\nclassic (read with netCDF-C): %3\ndetail: %4\n")
                  .arg(probe.kind, probe.netcdf ? "yes" : "no",
@@ -77,6 +84,10 @@ int command_probe(const QString &file) {
 }
 
 int command_info(const QString &file) {
+  if(GribData::is_grib(file)) {
+    try {print_text(QString::fromUtf8(QJsonDocument(grib::catalog_json(*GribData::open(file))).toJson()));return 0;}
+    catch(const grib::Error& error){print_text(error.code+": "+error.message+"\n");return 3;}
+  }
   const NcClassicFile info = nc_classic_inspect(file);
   if(!info.error.isEmpty()) { QTextStream(stderr) << info.error << '\n'; return 3; }
   print_text(nc_classic_listing(file));
@@ -84,6 +95,10 @@ int command_info(const QString &file) {
 }
 
 int command_props(const QString &file, const QString &path) {
+  if(GribData::is_grib(file)) {
+    try {const auto catalog=GribData::open(file);if(path!="/")grib::resolve(*catalog,path);print_text(GribData::properties(file,path)+"\n");return 0;}
+    catch(const grib::Error& error){print_text(error.code+": "+error.message+"\n");return 3;}
+  }
   const HdfProperties::Summary summary = HdfProperties::inspect(file, path);
   QStringList lines;
   lines << QString("Path: %1").arg(path);
@@ -98,6 +113,15 @@ int command_props(const QString &file, const QString &path) {
 }
 
 int command_export(const QString &file, const QString &path, const QString &target) {
+  if(GribData::is_grib(file)) {
+    try {
+      const auto catalog=GribData::open(file);auto plane=grib::read_plane(*catalog,grib::resolve(*catalog,path),false,false);
+      QFile output;
+      if(target.isEmpty()){if(!output.open(stdout,QIODevice::WriteOnly))return 4;}
+      else {output.setFileName(target);if(QFileInfo(target).absoluteFilePath()==QFileInfo(file).absoluteFilePath()||!output.open(QIODevice::WriteOnly|QIODevice::NewOnly))return 4;}
+      grib::export_text(plane,output);return 0;
+    }catch(const grib::Error& error){QTextStream(stderr)<<error.code<<": "<<error.message<<'\n';return 3;}
+  }
   QFile output;
   if(target.isEmpty()) {
     if(!output.open(stdout, QIODevice::WriteOnly)) return 4;
@@ -128,10 +152,8 @@ int command_csv(const QStringList &args) {
     if(!ok) { print_usage(); return 2; }
     indices.push_back(size_t(index));
   }
-  NcReader reader(args[2]);
-  NcPlane plane;
-  const QString error = reader.read_plane(args[3].toStdString(), indices, plane);
-  if(!error.isEmpty()) { err << error << '\n'; return 3; }
+  auto plane = DataSource::read_plane(args[2],args[3],indices);
+  if(!plane.error.isEmpty()) { err << plane.error << '\n'; return 3; }
   QFile file(args[4]);
   if(!file.open(QIODevice::WriteOnly | QIODevice::NewOnly)) { err << file.errorString() << '\n'; return 4; }
   QTextStream out(&file);
@@ -193,6 +215,10 @@ int command_mask(const QStringList &args) {
 }
 
 NcPlaneResult read_metrics_plane(const QString &file, const QString &path, const std::vector<size_t> &indices) {
+  if(GribData::is_grib(file)) {
+    auto read=GribData::read(file,path,indices);NcPlaneResult result;
+    result.error=read.error;result.reader=read.reader;result.plane={read.rows,read.cols,std::move(read.values)};return result;
+  }
   std::vector<hsize_t> shape;
   if(probe_data_format(file).netcdf) {
     NcReader reader(file);
@@ -322,24 +348,7 @@ int command_hist(const QStringList &args) {
     if(!ok) { print_usage(); return 2; }
     indices.push_back(size_t(index));
   }
-  NcReader shape_reader(args[2]);
-  int group = -1, variable = -1;
-  if(!shape_reader.locate(args[3].toStdString(), group, variable)) {
-    err << "Variable not found\n"; return 3;
-  }
-  int rank = 0;
-  if(nc_inq_varndims(group, variable, &rank) != NC_NOERR || rank < 2) {
-    err << "A histogram needs a variable with at least two dimensions\n"; return 3;
-  }
-  std::vector<hsize_t> dims(size_t(rank), 0);
-  std::vector<int> dimids(size_t(rank), 0);
-  if(nc_inq_vardimid(group, variable, dimids.data()) != NC_NOERR) { err << "Cannot read dimensions\n"; return 3; }
-  for(int i = 0; i < rank; ++i) {
-    size_t length = 0;
-    if(nc_inq_dimlen(group, dimids[size_t(i)], &length) != NC_NOERR) { err << "Cannot read dimensions\n"; return 3; }
-    dims[size_t(i)] = hsize_t(length);
-  }
-  const NcPlaneResult plane = nc_read_plane_decoded(args[2], args[3].toStdString(), dims, indices);
+  const auto plane = read_metrics_plane(args[2], args[3], indices);
   if(!plane.error.isEmpty()) { err << plane.error << '\n'; return 3; }
   const auto histogram = nc_histogram(plane.plane.values, keep, bins);
   print_text(nc_histogram_lines(histogram).join('\n') + "\n");
@@ -351,6 +360,7 @@ int main(int argc, char **argv) {
   QCoreApplication app(argc, argv);
   const QStringList args = app.arguments();
   const QString command = args.value(1);
+  if((command=="ls"||command=="cubes")&&args.size()>=3)return command_info(args[2]);
   if(command=="slice")return slice_command(args);
   if(command=="slice-worker"&&args.size()==3)return slice_worker(args[2]);
   if(command=="cmap" && args.size()<=4) {

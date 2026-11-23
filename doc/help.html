@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HDFStudio Help / 使用帮助 — 0.14.02</title>
+  <style>
+    :root { color-scheme: light; --ink: #203440; --accent: #126c79; --line: #d8e4e8; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #f3f7f8; color: var(--ink); font: 16px/1.75 "Segoe UI", "Microsoft YaHei", sans-serif; }
+    header, main, footer { max-width: 980px; margin: auto; padding: 28px 32px; }
+    header { padding-top: 40px; }
+    h1 { font-size: 2rem; margin: 0 0 8px; line-height: 1.3; }
+    h2 { font-size: 1.4rem; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+    h3 { color: var(--accent); margin-bottom: 6px; font-size: 1.1rem; }
+    p { margin: 8px 0 16px; }
+    a { color: #095f80; text-underline-offset: 3px; }
+    a:focus-visible { outline: 3px solid #e8ae36; outline-offset: 3px; }
+    nav { display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 14px 0; }
+    main { background: white; border: 1px solid var(--line); border-radius: 10px; }
+    section { scroll-margin-top: 20px; }
+    .version { color: #526974; }
+    .note { border-left: 4px solid var(--accent); padding: 10px 16px; background: #eff7f7; }
+    li { margin-bottom: 8px; }
+    code, kbd { font-family: Consolas, monospace; background: #edf2f4; border-radius: 3px; padding: 2px 5px; overflow-wrap: anywhere; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 16px; background: #edf2f4; border-radius: 6px; line-height: 1.6; }
+    pre code { padding: 0; }
+    .table-wrap { overflow-x: auto; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { text-align: left; vertical-align: top; padding: 10px 12px; border-bottom: 1px solid var(--line); }
+    th { background: #eff5f7; }
+    footer { color: #526974; font-size: 0.9rem; }
+    @media (max-width: 600px) { header, main, footer { padding: 20px 16px; } h1 { font-size: 1.6rem; } main { border-radius: 0; } }
+    @media print { body, main { background: white; } main { border: 0; } nav { display: none; } h2, h3 { break-after: avoid; } }
+  </style>
+</head>
+<body>
+<header id="top">
+  <h1>HDFStudio Help / 使用帮助</h1>
+  <p class="version">0.14.02 · NetCDF / HDF5 / GRIB · Windows</p>
+  <p>Unleash the Power of Your NetCDF and GRIB Data</p>
+  <nav aria-label="Language / 语言"><a href="#zh">简体中文</a><a href="#en" lang="en">English</a></nav>
+</header>
+<main>
+  <section id="zh" lang="zh-CN" aria-labelledby="zh-title">
+    <h2 id="zh-title">常用功能</h2>
+    <p>从程序的 <strong>Help → Help</strong>（About 前）或 <kbd>F1</kbd> 打开本页。也可以直接双击 <code>doc/help.html</code>；全部内容可离线阅读。</p>
+    <nav aria-label="中文目录"><a href="#zh-open">打开文件</a><a href="#zh-grib">GRIB</a><a href="#zh-grid">表格</a><a href="#zh-image">图像</a><a href="#zh-analysis">分析</a><a href="#zh-play">播放</a><a href="#zh-section">剖面</a><a href="#zh-export">导出与提示</a><a href="#zh-ai">LLM / AI Agent</a></nav>
+    <section id="zh-open">
+      <h3>1. 打开文件与查看属性</h3>
+      <p>选择 <strong>File → Open</strong>，或把文件拖到窗口中。可同时打开 NetCDF-3、NetCDF-4、HDF5、GRIB1 和 GRIB2；程序按文件内容识别格式。展开左侧树，右键文件或变量选择 <strong>Properties...</strong> 查看属性，可用 <strong>Copy All</strong> 复制报告。</p>
+      <p>用 <strong>File → Close File</strong> 关闭当前文件及关联视图；<strong>Close All Files</strong> 关闭所有文件。<strong>Window → Tile</strong> 可平铺视图，<strong>Hide Infobar</strong> 勾选时隐藏底部信息栏，再点一次恢复。</p>
+    </section>
+    <section id="zh-grib">
+      <h3>2. 浏览 GRIB1 / GRIB2</h3>
+      <p>打开后等待索引完成。<strong>Variables</strong> 将兼容场组织为可逐层浏览的虚拟变量；<strong>Messages</strong> 分页保留原始消息与子场。右键变量或场，可打开表格、图像、直方图或纹理熵图；Properties 保留参数、层次、时间相关原始键与来源信息。</p>
+      <p>矩形网格支持图像及相关分析。GRIB 表格提供解码值、<strong>Quantized X</strong> 及并排模式；Quantized X 是支持的打包方式下重建的量化整数，并非原始字节，不可用时明确显示。缺场会清空旧结果，未知名称/单位保留 <code>unknown</code>。</p>
+      <p class="note">当前 GRIB 图像按源网格索引显示。比较与播放按整数索引推进，不自动匹配物理时间、转换单位或重采样。GRIB 任意两轴剖面已接入 CLI/worker；GUI 剖面、可靠地理坐标及 U/V 矢量入口尚未接通。CF 检查不适用于 GRIB。</p>
+    </section>
+    <section id="zh-grid">
+      <h3>3. 数值表格</h3>
+      <p>右键变量选择 <strong>Data Grid</strong>。NetCDF/HDF5 可选解码值、存储值或并排表格；GRIB 使用上面的解码/量化模式。用顶部维度和层号控件切换高维数据。<strong>Auto-fit columns</strong> 自动调整列宽，关闭后可手动拖动。</p>
+      <p>单击或拖动选择单元格，<kbd>Ctrl</kbd>/<kbd>Shift</kbd> 调整选区，<kbd>Ctrl+C</kbd> 复制到电子表格。复制有大小上限，大表请分块选择或使用相应导出功能。</p>
+    </section>
+    <section id="zh-image">
+      <h3>4. 图像、色表与 Mask</h3>
+      <p>右键变量选择 <strong>Image View</strong>，用 <strong>CMaps</strong> 切换科学色表。滚轮或放大/缩小按钮调整视图；<strong>Fit</strong> 显示完整图像，<strong>Reset</strong> 恢复初始方向和适配大小。色表和显示范围的变化复用当前解码数据。</p>
+      <p><strong>Mask Range</strong> 按解码后的数值排除闭区间：起点或终点留空代表无下限或无上限。Mask 影响图像及跟随它的分析。未声明的特殊数字不会自动当作缺测，使用前请确认数据含义。</p>
+    </section>
+    <section id="zh-analysis">
+      <h3>5. 直方图、曲线、熵与比较</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th scope="col">功能</th><th scope="col">常用操作</th></tr></thead>
+        <tbody>
+          <tr><td>Histogram...</td><td>右键变量打开。Sample 1 in N 缺省为 20；设为 1 使用全部有限值。调整分箱或重新抽样复用已读平面。</td></tr>
+          <tr><td>曲线剖面</td><td>在 Image View 中使用曲线工具选择折线/样条路径，查看沿线采样并导出 CSV。GRIB 使用网格索引空间。</td></tr>
+          <tr><td>Texture Entropy Image</td><td>查看局部 4×4 灰度分布复杂度，色标为 0–4 bits。可独立打开，或从图像打开并跟随其层号和 Mask。</td></tr>
+          <tr><td>Compare &amp; Metrics</td><td>打开两个图像，在工具栏或 Window 菜单打开比较面板。选择 Anchor/Target 和整数 lag，查看 Pearson r、RMSE、MAE、Bias。</td></tr>
+          <tr><td>Residual map</td><td>在比较面板打开 Target − Anchor 残差图，用以定位差异，可导出 PNG。</td></tr>
+        </tbody>
+      </table></div>
+      <p>比较要求平面形状相同，仅统计两图都有效的像元；请自行确认时间、网格和单位可比较。高熵也可能来自噪声，不能单凭熵判断预报信号。</p>
+    </section>
+    <section id="zh-play">
+      <h3>6. 逐层与联动播放</h3>
+      <p>激活图像或表格，选择有多层的维度，点击绿色 <strong>Play / Pause</strong>。<strong>Frame interval</strong> 为显示间隔，缺省 500 ms；播放等待当前读取/渲染完成，到末层停止。少于两帧时禁用播放。</p>
+      <p>联动播放先在 Compare &amp; Metrics 选择 Anchor/Target 并启用 <strong>Sync layer indices</strong>，再设各 Target 的 lag。目标索引为 Anchor 索引加 lag；缺场或越界时清空结果，恢复有效索引后重新计算。</p>
+    </section>
+    <section id="zh-section">
+      <h3>7. NetCDF / HDF5 时空剖面</h3>
+      <p>选择数值变量后用 <strong>View → Space-Time Section (Hovmöller)</strong>，选两条显示轴并固定其他维度。支持交换轴、翻转、Mask、PNG/CSV 导出；剩余固定轴有多层时可播放。可信一维坐标存在时提供 Lat–Time/Lon–Time 预设；通用 HDF5 保持索引含义。</p>
+      <p>剖面按源索引等宽显示，不对不均匀坐标插值。请保留同目录的 <code>hdf_cli.exe</code>，它承担独立进程读取。</p>
+    </section>
+    <section id="zh-export">
+      <h3>8. 导出与常见提示</h3>
+      <ul>
+        <li><strong>导出：</strong>使用对应视图的 PNG、CSV 或文本导出。图像 PNG 按数据分辨率输出当前色表、Mask 与翻转结果，不是窗口截图；不要选择源文件作为输出。</li>
+        <li><strong>Python：</strong>基本浏览与原生分析无需 Python。By NetCDF4、CF Check 和可选日期标签需配置 Python 及相应的 netCDF4 / numpy / compliance-checker 模块；可用 <code>HDFSTUDIO_PYTHON</code> 指定解释器。</li>
+        <li><strong>读不出数据：</strong>查看 Properties 与错误信息，区分不支持的网格/打包、缺场、文件变化和内存限制。CF 诊断仅供参考，不是完整合规认证。</li>
+        <li><strong>帮助页打不开：</strong>确认 <code>doc/help.html</code> 位于程序旁的 doc 文件夹中，并设置可用的默认浏览器。</li>
+      </ul>
+    </section>
+    <section id="zh-ai">
+      <h3>9. 为 LLM 和 AI Agent 提取数据上下文</h3>
+      <p>HDFStudio 是对现代 LLM 和 AI Agent 友好的数据检查工具：把 NetCDF、HDF5、GRIB 中的结构、属性和选定数值转成模型可参考的文本，帮助其快速了解数据特点，并据此辅助编写读取、绘图或分析代码。以下流程通过复制报告或调用 CLI 交接信息。</p>
+      <ol>
+        <li><strong>先给结构：</strong>打开文件，右键文件或变量选择 Properties → Copy All。报告可提供对象路径、维度、shape、类型、属性及格式相关信息。</li>
+        <li><strong>再给语义：</strong>重点保留单位、坐标和时间原文、calendar、填充值与打包参数。对 GRIB 保留场/对象 ID、参数与中心来源、层次、参考时间、step 及网格相关键；缺少或 unknown 的项目明确标出。</li>
+        <li><strong>按问题补数值：</strong>复制少量有代表性的表格单元格，或导出指定层 CSV。说明选了哪些零基索引、数值是 decoded / stored / Quantized X、是否使用 Mask，并提供最小值、最大值或缺测统计。</li>
+        <li><strong>让 Agent 调用 CLI：</strong>使用明确的文件路径和对象 ID，读取 stdout、stderr 与退出码。先运行 probe / info，再用 props 查看目标，必要时导出单个平面。核对实际输出后再生成后续分析代码。</li>
+      </ol>
+      <pre><code>hdf_cli probe "data.grib2"
+hdf_cli info "data.grib2"
+hdf_cli props "data.grib2" /field/0
+hdf_cli csv "data.grib2" /field/0 "plane.csv"
+hdf_cli props "data.nc" /temperature</code></pre>
+      <p>文件名与对象 ID 请替换为实际值。高维变量导出需追加对应的前导维度索引；GRIB 多轴虚拟变量可先查看 info，再查看具体 /field/N 的 Properties。需要剖面时使用 <code>hdf_cli slice FILE OBJECT ROW_AXIS COL_AXIS OUTPUT.csv FIXED_IDX_0 ... FIXED_IDX_N-1</code>，为每一维提供索引，两条显示轴位置填 0。</p>
+      <p><strong>可复制的提问模板：</strong></p>
+      <pre>任务：请依据下面的实际报告，说明如何读取并绘制这个变量。
+数据：文件格式、对象路径/ID、shape、维度顺序。
+元信息：[粘贴 Properties / CLI 输出，保留原始单位与时间键]
+数值样例：[附少量 CSV 行，说明层索引、解码模式与 Mask]
+请先总结已确认的数据特点，再列出报告中缺少的信息。
+坐标、时间或单位无法确认时请明确说明；GRIB Quantized X 不是物理值。
+给出代码时遵循报告中的维度与缺测语义，并提供可核对的 shape、极值和缺测数。</pre>
+      <p class="note">报告为模型提供依据，结论仍需与实际文件和导出值核对。源索引不自动等于地理坐标，GRIB 时间键不自动等于已验证的有效时间，unknown 单位不应猜测。向外部模型分享报告前，可按需要去除本地路径等非必要信息。</p>
+    </section>
+    <p><a href="#top">返回顶部</a> · <a href="#en">English guide</a></p>
+  </section>
+
+  <section id="en" lang="en" aria-labelledby="en-title">
+    <h2 id="en-title">Everyday tasks</h2>
+    <p>Open this page with <strong>Help → Help</strong> (before About) or <kbd>F1</kbd>. You can also open <code>doc/help.html</code> directly. All content is available offline.</p>
+    <nav aria-label="English contents"><a href="#en-open">Open files</a><a href="#en-grib">GRIB</a><a href="#en-grid">Tables</a><a href="#en-image">Images</a><a href="#en-analysis">Analysis</a><a href="#en-play">Playback</a><a href="#en-section">Sections</a><a href="#en-export">Export &amp; tips</a><a href="#en-ai">LLMs / AI agents</a></nav>
+    <section id="en-open">
+      <h3>1. Open files and inspect metadata</h3>
+      <p>Choose <strong>File → Open</strong> or drop files onto the window. Open NetCDF-3, NetCDF-4, HDF5, GRIB1 and GRIB2 together; format detection uses file content. Expand the tree and right-click a file or variable for <strong>Properties...</strong>. <strong>Copy All</strong> copies the report.</p>
+      <p><strong>File → Close File</strong> closes a source and its views; <strong>Close All Files</strong> closes all sources. Use <strong>Window → Tile</strong> for side-by-side views. <strong>Hide Infobar</strong> hides the bottom information panel when checked; click again to restore it.</p>
+    </section>
+    <section id="en-grib">
+      <h3>2. Browse GRIB1 / GRIB2</h3>
+      <p>Wait for indexing to finish. <strong>Variables</strong> groups compatible fields into virtual arrays with layer navigation. <strong>Messages</strong> preserves paged physical messages and sub-fields. Right-click a variable or field for tables, images, histograms or texture entropy. Properties retains parameter, level, raw time-related keys and provenance.</p>
+      <p>Rectangular grids support images and related analyses. GRIB tables offer decoded values, <strong>Quantized X</strong> and paired modes. Quantized X is a reconstructed integer for supported packing, not a raw-byte dump; unsupported reconstruction is marked unavailable. Missing fields clear old results; unknown names/units stay <code>unknown</code>.</p>
+      <p class="note">GRIB images currently use source-grid indices. Comparison and playback use integer indices without automatic physical-time matching, unit conversion or resampling. Arbitrary-axis GRIB sections are available through the CLI/worker; GUI sections, verified geographic coordinates and U/V vector integration remain pending. CF checks do not apply to GRIB.</p>
+    </section>
+    <section id="en-grid">
+      <h3>3. Read and copy table values</h3>
+      <p>Right-click a variable for <strong>Data Grid</strong>. NetCDF/HDF5 offers decoded, stored or paired tables; GRIB uses the decoded/quantized modes above. Choose a dimension and layer in the main toolbar. <strong>Auto-fit columns</strong> sizes columns automatically; disable it for manual widths.</p>
+      <p>Click or drag to select cells, refine with <kbd>Ctrl</kbd>/<kbd>Shift</kbd>, then use <kbd>Ctrl+C</kbd> to paste into a spreadsheet. Copying has size limits; select smaller blocks or use the view's export action for larger data.</p>
+    </section>
+    <section id="en-image">
+      <h3>4. Images, colors and Mask</h3>
+      <p>Right-click a variable for <strong>Image View</strong>. Choose a scientific palette in <strong>CMaps</strong>. Zoom with the wheel or zoom buttons; <strong>Fit</strong> shows the full image and <strong>Reset</strong> restores orientation and fit. Color and range changes reuse the decoded plane.</p>
+      <p><strong>Mask Range</strong> excludes an inclusive interval of decoded values. A blank start or end means no lower or upper bound. Mask affects the image and analyses following it. Undeclared special values are not inferred as missing; confirm their meaning first.</p>
+    </section>
+    <section id="en-analysis">
+      <h3>5. Histograms, curves, entropy and comparison</h3>
+      <div class="table-wrap"><table>
+        <thead><tr><th scope="col">Tool</th><th scope="col">Typical use</th></tr></thead>
+        <tbody>
+          <tr><td>Histogram...</td><td>Right-click a variable. Sample 1 in N defaults to 20; use 1 for all finite values. Bins and resampling reuse the cached plane.</td></tr>
+          <tr><td>Curve profile</td><td>Use the Image View curve tools to draw a polyline/spline, inspect samples and export CSV. GRIB curves use grid-index space.</td></tr>
+          <tr><td>Texture Entropy Image</td><td>Inspect local 4×4 gray-distribution complexity on a 0–4 bits scale. Open independently or from an image to follow its layer and Mask.</td></tr>
+          <tr><td>Compare &amp; Metrics</td><td>Open two images and use the toolbar or Window menu. Choose Anchor/Target and an integer lag to inspect Pearson r, RMSE, MAE and Bias.</td></tr>
+          <tr><td>Residual map</td><td>Open the Target − Anchor map from the comparison panel to locate differences; export PNG when needed.</td></tr>
+        </tbody>
+      </table></div>
+      <p>Comparison requires identical plane shapes and uses pixels valid in both images. Confirm compatible times, grids and units yourself. High entropy can also be noise; it is not evidence of forecast skill.</p>
+    </section>
+    <section id="en-play">
+      <h3>6. Layer and linked playback</h3>
+      <p>Activate an image or table, choose a multi-layer axis, then press the green <strong>Play / Pause</strong> button. <strong>Frame interval</strong> is a display delay (default 500 ms). Playback waits for each read/render and stops at the last layer. Fewer than two frames disables Play.</p>
+      <p>For linked playback, select Anchor/Target in Compare &amp; Metrics, enable <strong>Sync layer indices</strong> and set each Target's lag. Target index equals Anchor index plus lag. Missing or out-of-range fields clear results; valid indices restore calculations.</p>
+    </section>
+    <section id="en-section">
+      <h3>7. NetCDF / HDF5 space-time sections</h3>
+      <p>Select a numeric variable and choose <strong>View → Space-Time Section (Hovmöller)</strong>. Select two display axes and fix the others. Swap axes, flip, Mask and export PNG/CSV; play a remaining fixed axis with multiple layers. Trusted 1D coordinates enable Lat–Time/Lon–Time presets; generic HDF5 retains index semantics.</p>
+      <p>Cells have equal source-index widths; nonuniform coordinates are not interpolated. Keep the matching <code>hdf_cli.exe</code> beside the application for separate-process reads.</p>
+    </section>
+    <section id="en-export">
+      <h3>8. Export and common tips</h3>
+      <ul>
+        <li><strong>Export:</strong> use the view's PNG, CSV or text actions. Image PNGs contain data-resolution pixels with current colors, Mask and flips, rather than a window screenshot. Choose a destination distinct from the source.</li>
+        <li><strong>Python:</strong> basic browsing and native analysis need no Python. By NetCDF4, CF Check and optional date labels need Python and the corresponding netCDF4 / numpy / compliance-checker modules. Set <code>HDFSTUDIO_PYTHON</code> to choose an interpreter.</li>
+        <li><strong>Read errors:</strong> inspect Properties and the error text for unsupported grids/packing, missing fields, changed sources or memory limits. CF diagnostics are advisory, not full certification.</li>
+        <li><strong>Help will not open:</strong> keep <code>doc/help.html</code> in the doc folder beside the executable and configure an available default browser.</li>
+      </ul>
+    </section>
+    <section id="en-ai">
+      <h3>9. Extract context for LLMs and AI agents</h3>
+      <p>HDFStudio is friendly to modern LLMs and AI agents: it turns NetCDF, HDF5 and GRIB structure, attributes and selected values into reference text. This helps a model understand the data quickly and assist with reading, plotting or analysis code. Share information by copying reports or invoking the CLI.</p>
+      <ol>
+        <li><strong>Start with structure:</strong> open a file, right-click a file or variable, then use Properties → Copy All. Reports provide object paths, dimensions, shape, types, attributes and format-specific information.</li>
+        <li><strong>Keep semantics:</strong> retain original units, coordinate/time metadata, calendar, missing-value and packing attributes. For GRIB include field/object IDs, parameter and centre provenance, levels, reference time, step and grid keys. Mark missing or unknown items explicitly.</li>
+        <li><strong>Add relevant values:</strong> copy representative table cells or export a selected plane to CSV. Identify zero-based indices, decoded / stored / Quantized X mode, Mask settings and available range or missing-value statistics.</li>
+        <li><strong>Let an agent use the CLI:</strong> pass explicit file paths and object IDs; capture stdout, stderr and the exit code. Start with probe / info, inspect the target with props, then export a plane if needed. Check actual output before generating further analysis code.</li>
+      </ol>
+      <pre><code>hdf_cli probe "data.grib2"
+hdf_cli info "data.grib2"
+hdf_cli props "data.grib2" /field/0
+hdf_cli csv "data.grib2" /field/0 "plane.csv"
+hdf_cli props "data.nc" /temperature</code></pre>
+      <p>Replace the example paths/IDs with actual ones. Higher-dimensional plane exports require the corresponding leading-axis indices. For multi-axis GRIB virtual arrays, inspect info first, then use a concrete /field/N for Properties. Section syntax is <code>hdf_cli slice FILE OBJECT ROW_AXIS COL_AXIS OUTPUT.csv FIXED_IDX_0 ... FIXED_IDX_N-1</code>; supply an index for every dimension, with 0 in the two display-axis positions.</p>
+      <p><strong>Example prompt:</strong></p>
+      <pre>Task: explain how to read and plot this variable using the actual reports below.
+Data: file format, object path/ID, shape and dimension order.
+Metadata: [paste Properties / CLI output; retain original units and time keys]
+Values: [include a few CSV rows, layer indices, decode mode and Mask settings]
+First summarize confirmed data characteristics, then identify missing information.
+State when coordinates, time or units cannot be verified. GRIB Quantized X is not a physical value.
+Use the reported dimension and missing-value semantics in code, with checks for shape, extrema and missing counts.</pre>
+      <p class="note">Reports ground a model's answer; verify conclusions against the file and exported values. Source indices do not establish geographic coordinates, raw GRIB time keys do not establish verified valid times, and unknown units should stay unknown. Remove unnecessary local-path information when sharing externally if appropriate.</p>
+    </section>
+    <p><a href="#top">Back to top</a> · <a href="#zh">简体中文</a></p>
+  </section>
+</main>
+<footer>HDFStudio 0.14.02 · Offline user guide / 离线使用帮助</footer>
+</body>
+</html>

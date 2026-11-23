@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(HDFStudio VERSION 0.12.12 LANGUAGES C CXX)
+project(HDFStudio VERSION 0.14.02 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -52,6 +52,10 @@ set(src
     src/app/layer_playback.cpp
     src/app/slice_job_controller.hpp
     src/app/slice_job_controller.cpp
+    src/app/data_read_controller.hpp
+    src/app/data_read_controller.cpp
+    src/app/read_scheduler.hpp
+    src/app/read_scheduler.cpp
     src/app/section_dates.hpp
     src/app/section_dates.cpp
     src/app/workspace_sync.hpp
@@ -63,6 +67,8 @@ set(src
     src/views/vector_view.hpp
     src/views/analysis_table_view.hpp
     src/views/analysis_table_view.cpp
+    src/views/grib_table_view.hpp
+    src/views/grib_table_view.cpp
     src/views/vector_view.cpp
     src/views/mesh_view.hpp
     src/views/mesh_view.cpp
@@ -135,6 +141,13 @@ set_target_properties(hdf_explorer PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_RELWITHDEBINFO "${CMAKE_SOURCE_DIR}/build/output/RelWithDebInfo"
     RUNTIME_OUTPUT_DIRECTORY_MINSIZEREL "${CMAKE_SOURCE_DIR}/build/output/MinSizeRel"
 )
+# Refresh offline help even when only the HTML changes and the executable is not relinked.
+add_custom_target(hdf_help ALL
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_SOURCE_DIR}/build/output/$<CONFIG>/doc"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_SOURCE_DIR}/doc/help.html" "${CMAKE_SOURCE_DIR}/build/output/$<CONFIG>/doc/help.html"
+    VERBATIM)
+add_dependencies(hdf_explorer hdf_help)
 # Layers shared by the GUI, the tests and hdf_cli (no Qt Widgets below hdf_explorer):
 #   nc_core  : netCDF-C reading (format probe, NetCDF-3 structure/values, image planes)
 #   hdf_core : Properties summary and text export (HDF5, plus nc_core for NetCDF-3)
@@ -144,6 +157,9 @@ add_library(hdf_core STATIC src/core/properties_inspector.cpp src/core/text_expo
 add_subdirectory(third_party/hdf_filters)
 target_sources(hdf_core PRIVATE src/core/hdf_filters.cpp src/core/hdf_filters.hpp)
 target_link_libraries(hdf_core PUBLIC nc_core ${hdf5_dep} hdf_filter_codecs)
+include(cmake/Grib.cmake)
+target_link_libraries(hdf_core PUBLIC grib_backend)
+target_sources(hdf_core PRIVATE src/core/data_source.cpp)
 target_sources(hdf_core PRIVATE src/core/slice_coordinates.cpp src/core/slice_io.cpp src/core/slice_worker.cpp)
 add_executable(hdf_cli src/cli/hdf_cli.cpp ${colormap_resources})
 target_link_libraries(hdf_cli PRIVATE hdf_core)
@@ -165,7 +181,7 @@ set_target_properties(hdf_explorer_drop_tests PROPERTIES
 target_compile_definitions(hdf_explorer_drop_tests PRIVATE HDF_EXPLORER_TEST_BUILD)
 target_link_libraries(hdf_explorer_drop_tests PRIVATE hdf_core ${lib_dep} Qt6::Test)
 # the tests also run hdf_cli to check that it prints what the GUI shows
-add_dependencies(hdf_explorer_drop_tests hdf_cli)
+add_dependencies(hdf_explorer_drop_tests hdf_cli hdf_help)
 if(MSVC)
   add_custom_command(TARGET hdf_explorer_drop_tests POST_BUILD COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_SOURCE_DIR}/build/native-nc/Release/netcdf.dll" "$<TARGET_FILE_DIR:hdf_explorer_drop_tests>")
@@ -212,5 +228,39 @@ add_executable(hdf_filters_tests tests/hdf_filters_test.cpp)
 target_link_libraries(hdf_filters_tests PRIVATE hdf_core Qt6::Test)
 set_target_properties(hdf_filters_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_SOURCE_DIR}/build/output/Debug" RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_SOURCE_DIR}/build/output/Release")
 add_test(NAME hdf_filters_tests COMMAND hdf_filters_tests)
+add_executable(grib_integration_tests tests/grib_integration_test.cpp)
+target_link_libraries(grib_integration_tests PRIVATE hdf_core Qt6::Test)
+target_compile_definitions(grib_integration_tests PRIVATE HDFSTUDIO_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+set_target_properties(grib_integration_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_SOURCE_DIR}/build/output/Debug" RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_SOURCE_DIR}/build/output/Release")
+add_test(NAME grib_integration_tests COMMAND grib_integration_tests)
+add_executable(grib_gui_tests tests/grib_gui_test.cpp src/app/data_read_controller.cpp src/app/read_scheduler.cpp src/views/raster_budget.cpp src/app/slice_job_controller.cpp)
+target_compile_definitions(grib_gui_tests PRIVATE HDFSTUDIO_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+target_link_libraries(grib_gui_tests PRIVATE hdf_core Qt6::Test)
+set_target_properties(grib_gui_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_SOURCE_DIR}/build/output/Debug" RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_SOURCE_DIR}/build/output/Release")
+add_test(NAME grib_gui_tests COMMAND grib_gui_tests)
+add_executable(grib_browser_tests tests/grib_browser_test.cpp ${src} ${qrc_sources})
+target_compile_definitions(grib_browser_tests PRIVATE HDF_EXPLORER_TEST_BUILD HDFSTUDIO_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+target_link_libraries(grib_browser_tests PRIVATE hdf_core ${lib_dep} Qt6::Test)
+set_target_properties(grib_browser_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_SOURCE_DIR}/build/output/Debug" RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_SOURCE_DIR}/build/output/Release")
+add_test(NAME grib_browser_tests COMMAND grib_browser_tests)
+add_executable(grib_analysis_tests tests/grib_analysis_test.cpp ${src} ${qrc_sources})
+target_compile_definitions(grib_analysis_tests PRIVATE HDF_EXPLORER_TEST_BUILD HDFSTUDIO_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+target_link_libraries(grib_analysis_tests PRIVATE hdf_core ${lib_dep} Qt6::Test)
+set_target_properties(grib_analysis_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_SOURCE_DIR}/build/output/Debug" RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_SOURCE_DIR}/build/output/Release")
+add_test(NAME grib_analysis_tests COMMAND grib_analysis_tests)
+add_executable(grib_playback_tests tests/grib_playback_test.cpp ${src} ${qrc_sources})
+target_compile_definitions(grib_playback_tests PRIVATE HDF_EXPLORER_TEST_BUILD HDFSTUDIO_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+target_link_libraries(grib_playback_tests PRIVATE hdf_core ${lib_dep} Qt6::Test)
+set_target_properties(grib_playback_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_SOURCE_DIR}/build/output/Debug" RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_SOURCE_DIR}/build/output/Release")
+add_test(NAME grib_playback_tests COMMAND grib_playback_tests)
+add_executable(grib_slice_tests tests/grib_slice_test.cpp)
+target_compile_definitions(grib_slice_tests PRIVATE HDFSTUDIO_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+target_link_libraries(grib_slice_tests PRIVATE hdf_core Qt6::Test)
+set_target_properties(grib_slice_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_SOURCE_DIR}/build/output/Debug" RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_SOURCE_DIR}/build/output/Release")
+add_dependencies(grib_slice_tests hdf_cli)
+add_test(NAME grib_slice_tests COMMAND grib_slice_tests)
 
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT hdf_explorer)
+foreach(target hdf_explorer hdf_cli hdf_explorer_drop_tests hovmoller_tests hdf_filters_tests grib_integration_tests grib_gui_tests grib_browser_tests grib_analysis_tests grib_playback_tests grib_slice_tests)
+  hdf_deploy_grib(${target})
+endforeach()

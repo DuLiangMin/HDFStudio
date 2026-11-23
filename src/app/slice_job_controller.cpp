@@ -1,4 +1,5 @@
 #include "slice_job_controller.hpp"
+#include "read_scheduler.hpp"
 #include "raster_budget.hpp"
 #include <QCoreApplication>
 #include <QDir>
@@ -11,10 +12,10 @@
 
 namespace {
 QList<QPointer<SliceJobController>> sessions;
-int running_processes=0;
 }
 SliceJobController::SliceJobController():QObject(QCoreApplication::instance()) {
   sessions.append(this);
+  connect(ReadScheduler::instance(),&ReadScheduler::available,this,&SliceJobController::pump);
   connect(this,&QObject::destroyed,[]{sessions.removeAll(nullptr);});
 }
 bool SliceJobController::any_busy(){for(const auto &session:sessions)if(session&&session->busy())return true;return false;}
@@ -31,17 +32,18 @@ void SliceJobController::cancel() {
 }
 void SliceJobController::dispose(){m_dispose=true;cancel();}
 void SliceJobController::pump() {
-  if(m_running||m_pending.isEmpty()||m_dispose||running_processes>=2)return;
+  if(m_running||m_pending.isEmpty()||m_dispose)return;
+  if(!ReadScheduler::instance()->acquire())return;
   m_lease=reserve_raster_bytes(m_bytes);
-  if(!m_lease){m_pending={};emit failed("MemoryBudgetExceeded: close another image or select a smaller section");emit drained();return;}
+  if(!m_lease){ReadScheduler::instance()->release();m_pending={};emit failed("MemoryBudgetExceeded: close another image or select a smaller section");emit drained();return;}
   const QString base=QStandardPaths::writableLocation(QStandardPaths::TempLocation)+"/HDFStudio";QDir().mkpath(base);
   m_directory=std::make_shared<QTemporaryDir>(base+"/tmp-hovmoller-XXXXXX");
-  if(!m_directory->isValid()){m_pending={};m_lease.reset();emit failed("Cannot create task directory");emit drained();return;}
+  if(!m_directory->isValid()){ReadScheduler::instance()->release();m_pending={};m_lease.reset();emit failed("Cannot create task directory");emit drained();return;}
   const auto request=m_pending;m_pending={};m_active_generation=m_generation;m_stderr.clear();
   m_expected_id=request["request_id"].toString().toULongLong();m_active_request=request;
   QFile file(m_directory->path()+"/request.json");const auto bytes=QJsonDocument(request).toJson(QJsonDocument::Compact);
-  if(bytes.size()>4*1024*1024||!file.open(QIODevice::WriteOnly)||file.write(bytes)!=bytes.size()){file.close();m_lease.reset();m_directory.reset();emit failed("Cannot write task request");emit drained();return;}file.close();
-  auto *process=new QProcess(this);m_process=process;m_running=true;m_reaping=false;++running_processes;
+  if(bytes.size()>4*1024*1024||!file.open(QIODevice::WriteOnly)||file.write(bytes)!=bytes.size()){ReadScheduler::instance()->release();file.close();m_lease.reset();m_directory.reset();emit failed("Cannot write task request");emit drained();return;}file.close();
+  auto *process=new QProcess(this);m_process=process;m_running=true;m_reaping=false;
   m_timer.start();
   connect(process,&QProcess::readyReadStandardError,this,[this,process]{m_stderr+=process->readAllStandardError();if(m_stderr.size()>1024*1024)m_stderr=m_stderr.right(1024*1024);});
   connect(process,&QProcess::readyReadStandardOutput,this,[process]{process->readAllStandardOutput();});
@@ -50,7 +52,7 @@ void SliceJobController::pump() {
   process->start(QCoreApplication::applicationDirPath()+"/hdf_cli.exe",{"slice-worker",m_directory->path()+"/request.json"});
 }
 void SliceJobController::finished(bool normal,int code) {
-  if(m_reaping)return;m_reaping=true;--running_processes;
+  if(m_reaping)return;m_reaping=true;ReadScheduler::instance()->release();
   if(m_process){m_process->deleteLater();m_process=nullptr;}
   if(m_active_generation!=m_generation){released();return;}
   if(!normal||code!=0) {

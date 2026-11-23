@@ -7,6 +7,8 @@
 #include "plane_reader.hpp"
 #include "image_metrics.hpp"
 #include "layer_navigation.hpp"
+#include "data_types.hpp"
+#include <optional>
 #include <vector>
 #include <string>
 
@@ -29,6 +31,8 @@ class HistogramView : public QWidget, public LayerNavigation
   Q_OBJECT
 public:
   HistogramView(std::string file, std::string path, std::vector<hsize_t> dims);
+  HistogramView(QString file,QString target,const DataSource::ArrayInfo &info);
+  ~HistogramView() override;
   // LayerNavigation: the leading-axis spin boxes pick the plane; the main Layer toolbar drives them
   int layer_axis_count() const override;
   QString layer_axis_name(int axis) const override;
@@ -38,6 +42,9 @@ public:
 signals:
   void layer_changed();
 private:
+  HistogramView(std::string file,std::string path,std::vector<hsize_t> dims,
+                std::optional<DataSource::ArrayInfo> info);
+  void clear_plane(const QString &error);
   void read_plane();      // read the selected plane once and keep its decoded values
   void update_histogram(); // sample the kept values and redraw, after a setting change
   double keep_fraction() const;
@@ -46,7 +53,11 @@ private:
   std::vector<hsize_t> m_dims;
   std::vector<QSpinBox *> m_layers;
   QStringList m_axis_names;
-  std::vector<double> m_values;    // decoded plane values, NaN = missing; kept between settings
+  std::shared_ptr<const std::vector<double>> m_values; // decoded values retained with the plane lease
+  std::optional<DataSource::ArrayInfo> m_grib_info;
+  QString m_grib_file;
+  class DataReadController *m_grib_reader=nullptr;
+  std::shared_ptr<void> m_budget;
   NcGrayEntropy m_entropy;
   HistogramCanvas *m_canvas;
   QLabel *m_summary;

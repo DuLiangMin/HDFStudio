@@ -8,3 +8,6 @@
 /third_party/hdf_filters/bitshuffle/** -text -whitespace
 /third_party/hdf_filters/lz4/** -text -whitespace
 /third_party/hdf_filters/zstd/** -text -whitespace
+# Preserve pinned ecCodes notices verbatim, including upstream whitespace.
+/licenses/eccodes/*.txt -text -whitespace
+/testdata/grib/** -text -whitespace

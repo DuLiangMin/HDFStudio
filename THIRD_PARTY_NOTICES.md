@@ -15,6 +15,8 @@ The Windows binary package bundles or links the following components.
 | Bitshuffle core | 0.5.2 | Statically linked read-only HDF5 filter 32008 | MIT | `licenses/hdf-filters/Bitshuffle-MIT.txt` |
 | LZ4 | 1.10.0 | Statically linked Bitshuffle block decoding | BSD-2-Clause | `licenses/hdf-filters/LZ4-BSD-2-Clause.txt` |
 | Zstandard | 1.5.7 | Statically linked Bitshuffle block decoding | BSD-3-Clause | `licenses/hdf-filters/Zstandard-BSD-3-Clause.txt` |
+| ecCodes and embedded definitions/samples | 2.47.0 | Native GRIB1/GRIB2 decoding, pinned official wheel binaries | Apache-2.0 | `licenses/eccodes/libeccodes.txt` |
+| OpenJPEG / libaec / libpng / zlib | Pinned ecCodes wheel dependencies | GRIB JPEG2000, CCSDS and PNG decoding | Upstream BSD-style / libpng / zlib terms | `licenses/eccodes/` |
 | Microsoft Visual C++ runtime | 14.x | `msvcp140.dll`, `vcruntime140*.dll` | Visual Studio redistributable terms | - |
 
 Qt is used under the LGPL-3.0. The Qt libraries are shipped as separate, unmodified DLLs, so
@@ -47,3 +49,11 @@ identified as HDFStudio changes. No source institution endorses this program.
 
 User RGB imports remain in the user's application-data directory and are not
 silently added to the distributed palette collection.
+
+## 🧩 GRIB source and fixtures
+
+The GRIB domain reader is adapted from GribStudio (GPL-3.0), with HDFStudio-specific
+catalog, data-source and view adapters. ecCodes binaries/headers and their hashes are
+listed in `licenses/eccodes/native-manifest.json`; source for the pinned version is
+https://github.com/ecmwf/eccodes/tree/2.47.0 . The small `testdata/grib/` files are
+generated test fixtures from GribStudio; no external business data are bundled.

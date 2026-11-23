@@ -2,6 +2,7 @@
 #include "plane_reader.hpp"
 #include "hdf_filters.hpp"
 #include "nc_classic.hpp"
+#include "grib/grib_data.hpp"
 #include <QFileInfo>
 #include <QObject>
 #include <climits>
@@ -51,6 +52,12 @@ NcPlaneResult nc_read_plane_decoded(const QString &file, const std::string &path
                                     const std::vector<hsize_t> &shape,
                                     const std::vector<size_t> &start) {
   NcPlaneResult result;
+  if(GribData::is_grib(file)) {
+    auto read=GribData::read(file,QString::fromUtf8(path.c_str()),start);
+    result.error=read.error;result.reader=read.reader;
+    result.plane.rows=read.rows;result.plane.cols=read.cols;result.plane.values=std::move(read.values);
+    return result;
+  }
   if(shape.size() < 2) { result.error = QObject::tr("A histogram needs at least a two-dimensional variable"); return result; }
   const hsize_t rows = shape[shape.size() - 2], cols = shape.back();
   if(rows == 0 || cols == 0) { result.error = QObject::tr("This variable has no values yet."); return result; }

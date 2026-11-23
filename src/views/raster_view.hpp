@@ -9,6 +9,7 @@
 #include "color_bar.hpp"
 #include "plane_snapshot.hpp"
 #include "viewport_state.hpp"
+#include "data_types.hpp"
 #include <QPointer>
 #include <memory>
 #include <atomic>
@@ -45,6 +46,8 @@ class RasterView : public QWidget, public LayerNavigation {
   Q_OBJECT
 public:
   RasterView(std::string file, std::string path, std::vector<hsize_t> dims);
+  // GRIB source already indexed by the browser; all reads retain PlaneData and budget leases.
+  RasterView(QString file,QString target,const DataSource::ArrayInfo &info);
   ~RasterView() override;
   // LayerNavigation: the leading-axis spin boxes are the selection; the main Layer toolbar drives them
   int layer_axis_count() const override;
@@ -72,6 +75,8 @@ signals:
 protected:
   bool eventFilter(QObject *watched,QEvent *event) override;
 private:
+  RasterView(std::string file,std::string path,std::vector<hsize_t> dims,
+             std::optional<DataSource::ArrayInfo> grib_info);
   void refresh();
   void redraw_profile_overlay();
   void show_profile_window();
@@ -82,6 +87,12 @@ private:
   void start_pending_render();
   void notify_viewport_changed();
   std::string file, path;
+  std::optional<DataSource::ArrayInfo> grib_info;
+  QString grib_file;
+  class DataReadController *grib_reader=nullptr;
+  std::shared_ptr<const DataSource::PlaneData> grib_plane;
+  bool grib_read_pending=false,grib_first_fit=true;
+  std::vector<size_t> grib_requested_indices;
   std::vector<hsize_t> dims;
   std::vector<QSpinBox*> layers;
   QStringList axis_names;   // names of the leading dimensions, e.g. time, lev

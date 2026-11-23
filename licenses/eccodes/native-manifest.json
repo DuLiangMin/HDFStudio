@@ -1,0 +1,101 @@
+{
+  "version": "2.47.0",
+  "origin": "Pinned ecCodes runtime and development headers from GribStudio; see THIRD_PARTY_NOTICES.md",
+  "files": [
+    {
+      "file": "bin/aec.dll",
+      "sha256": "e0639cfa0dc40f917b73158968bd0077c0a782a1beb2546376802cf82ab8ce37",
+      "bytes": 31744
+    },
+    {
+      "file": "bin/eccodes.dll",
+      "sha256": "3a44ba91ba018e33ccfeca9d2a91aad0de6c79d5e36574fe68961df09da9c538",
+      "bytes": 4630016
+    },
+    {
+      "file": "bin/eccodes_memfs.dll",
+      "sha256": "e313f3915074df8f0e316b08de98445d57165e80b89749060df9540868da0140",
+      "bytes": 46795776
+    },
+    {
+      "file": "bin/libpng16.dll",
+      "sha256": "48d45dcd52b51b33edc6e3ea2ba4e5381717c2d1642638dcb30c5dfd018e7fbd",
+      "bytes": 198656
+    },
+    {
+      "file": "bin/openjp2.dll",
+      "sha256": "9927066aae802465d3ec4b077c5b7f1aa598a00ef3de3e643cd49b378da9951e",
+      "bytes": 360448
+    },
+    {
+      "file": "bin/zlib1.dll",
+      "sha256": "6c0d81faf982ce209d04face780e73fd4e06c7edd31be1cffdfc00bb1f4ef160",
+      "bytes": 90112
+    },
+    {
+      "file": "include/eccodes.h",
+      "sha256": "7155ced9d5c27e2771a23248802eaeae2590b07925be26ae5f158b13cbe18211",
+      "bytes": 71978
+    },
+    {
+      "file": "include/eccodes_version.h",
+      "sha256": "aff4d5ce3b8bfab0552947337342cdcedd29d8d89597293d0cced9d26809e406",
+      "bytes": 732
+    },
+    {
+      "file": "include/eccodes_version.h.in",
+      "sha256": "45f00aa1b7837516212766427a9724ffbdf337098e26101f3c11a8e654f525e9",
+      "bytes": 812
+    },
+    {
+      "file": "include/eccodes_windef.h",
+      "sha256": "b64f78cd4e4b775d56b63a7ba1a05ad6c06a131c2fef953eba20596cab1fc367",
+      "bytes": 626
+    },
+    {
+      "file": "include/grib_api.h",
+      "sha256": "163c1b6d4f46cc912bf1ca347d9c20647d642517f842a368f4d06c6ecf9feee3",
+      "bytes": 67809
+    },
+    {
+      "file": "lib/eccodes.def",
+      "sha256": "24c8eada1a3e6fc640187b084f3545b153699c39b52c5089038268a6208ee67a",
+      "bytes": 17742
+    },
+    {
+      "file": "lib/eccodes.exp",
+      "sha256": "6bb267fb289a1ee93e8cc29eb48bb04e49f0cbf192fd96b5bee328d0195fc181",
+      "bytes": 105614
+    },
+    {
+      "file": "lib/eccodes.lib",
+      "sha256": "e004f80e2d5553d689245fdb131fa4a92dc93daf42a7c98b4395775d111a0092",
+      "bytes": 174202
+    },
+    {
+      "file": "licenses/libaec.txt",
+      "sha256": "352b6ac4900fc4d24f4855e2bb5d2f4d9673988e42e8c39f390f703f6df38c9d",
+      "bytes": 1372
+    },
+    {
+      "file": "licenses/libeccodes.txt",
+      "sha256": "2e1f3e356459f58cbc033c515902be0b98b1e952a59cafb04a302b9b7dfc6e78",
+      "bytes": 11541
+    },
+    {
+      "file": "licenses/libopenjp2.txt",
+      "sha256": "249e2fb53e3dc426f8dfd908faab773174ec592c013bdb3597cafaac5f68719e",
+      "bytes": 2153
+    },
+    {
+      "file": "licenses/libpng.txt",
+      "sha256": "6b73da42b172ec25e5374e96286aacce78e593e95d07f8e326899837d709c9d8",
+      "bytes": 5481
+    },
+    {
+      "file": "licenses/libzlib1.txt",
+      "sha256": "2d3f36ef0b051ebd244d241d73c08141dc986de73e5312c8a0bb91a562db3715",
+      "bytes": 1847
+    }
+  ]
+}

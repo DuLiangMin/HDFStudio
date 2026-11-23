@@ -39,6 +39,16 @@
 #include <QStandardItemModel>
 #include <QScopeGuard>
 #include <QPlainTextEdit>
+#include <QDesktopServices>
+
+class HelpUrlReceiver : public QObject {
+  Q_OBJECT
+public:
+  QUrl url;
+  int calls = 0;
+public slots:
+  void receive(const QUrl &value) { url = value; ++calls; }
+};
 
 class DropTargetsTest : public QObject {
   Q_OBJECT
@@ -92,6 +102,7 @@ private slots:
   void bottomFileInfoPanelShowsCurrentFileMetadata();
   void informationTabsExposeNetcdf4StructureAndCfVerdict();
   void startupSplashIsPlainVisibleWidgetNotQSplashScreen();
+  void localHelpOpensBesideExecutableRegardlessOfWorkingDirectory();
   void timeGridShowsDecodedDatesBesideRawValues();
   void closeFileRemovesItsViewsAndReleasesTheFile();
   void classicNetcdfOpensWithTreeGridImagePropertiesAndExport();
@@ -121,6 +132,47 @@ private slots:
   void regressionProfileCsvMatchesAnalyticField();
   void fileDropOpensFromEveryAreaOfTheMainWindow();
 };
+
+void DropTargetsTest::localHelpOpensBesideExecutableRegardlessOfWorkingDirectory() {
+  const QString original_directory = QDir::currentPath();
+  QTemporaryDir temporary;
+  QVERIFY(temporary.isValid());
+  const auto restore_directory = qScopeGuard([&] { QDir::setCurrent(original_directory); });
+  QVERIFY(QDir::setCurrent(temporary.path()));
+  QVERIFY(QDir().mkpath("doc"));
+  QFile decoy("doc/help.html");
+  QVERIFY(decoy.open(QIODevice::WriteOnly));
+  decoy.write("Wrong working-directory help");
+  decoy.close();
+
+  MainWindow window;
+  auto *action = window.findChild<QAction*>("actionHelp");
+  QVERIFY(action);
+  QCOMPARE(action->shortcut(), QKeySequence(QKeySequence::HelpContents));
+  QMenu *menu = nullptr;
+  for(auto *candidate : window.findChildren<QMenu*>())
+    if(candidate->actions().contains(action)) menu = candidate;
+  QVERIFY(menu);
+  const auto actions = menu->actions();
+  QCOMPARE(actions.front(), action);
+  QVERIFY(actions.size() >= 2);
+  QCOMPARE(actions[1]->text().remove('&'), QString("About"));
+
+  HelpUrlReceiver receiver;
+  QDesktopServices::setUrlHandler("file", &receiver, "receive");
+  const auto restore_handler = qScopeGuard([] { QDesktopServices::unsetUrlHandler("file"); });
+  action->trigger();
+  QCOMPARE(receiver.calls, 1);
+  QVERIFY(receiver.url.isLocalFile());
+  const QString expected = QDir(QCoreApplication::applicationDirPath()).filePath("doc/help.html");
+  QCOMPARE(receiver.url.toLocalFile(), expected);
+  QFile help(expected);
+  QVERIFY(help.open(QIODevice::ReadOnly));
+  const auto content = help.readAll();
+  QVERIFY(content.contains("0.14.02"));
+  QVERIFY(content.contains("id=\"zh-ai\""));
+  QVERIFY(content.contains("id=\"en-ai\""));
+}
 
 void DropTargetsTest::acceptsExistingLocalFile() {
   MainWindow window;
@@ -1138,6 +1190,25 @@ void DropTargetsTest::bottomFileInfoPanelShowsCurrentFileMetadata() {
   QTest::mouseRelease(handle,Qt::LeftButton,Qt::NoModifier,down);
   QCoreApplication::processEvents();
   QVERIFY(splitter->sizes().at(1)<=grown-30);
+
+  auto *hide=window.findChild<QAction*>("actionHideInfobar");
+  QVERIFY(hide);QVERIFY(hide->isCheckable());QVERIFY(!hide->isChecked());
+  QCOMPARE(hide->text(),QString("Hide Infobar"));
+  auto *panel=splitter->widget(1);auto *mdi=window.findChild<QMdiArea*>();
+  QVERIFY(panel->isVisible());QVERIFY(mdi);
+  const int panel_height=splitter->sizes().at(1),mdi_height=mdi->height();
+  for(int repeat=0;repeat<3;++repeat) {
+    hide->trigger();
+    QVERIFY(hide->isChecked());QTRY_VERIFY(!panel->isVisible());
+    QTRY_VERIFY(mdi->height()>mdi_height+panel_height-10);
+    QVERIFY(QMetaObject::invokeMethod(&window,"update_window_menu"));
+    QCOMPARE(window.findChild<QAction*>("actionHideInfobar"),hide);
+    QVERIFY(hide->isChecked());
+    hide->trigger();
+    QVERIFY(!hide->isChecked());QTRY_VERIFY(panel->isVisible());
+    QTRY_VERIFY(qAbs(splitter->sizes().at(1)-panel_height)<=2);
+    QCOMPARE(text->toPlainText(),content);
+  }
 }
 
 // The bottom panel exposes three tabs; tab 2 must describe the netCDF4 structure and tab 3 must
@@ -1188,7 +1259,12 @@ void DropTargetsTest::startupSplashIsPlainVisibleWidgetNotQSplashScreen() {
   const auto labels=splash->findChildren<QLabel*>();
   QCOMPARE(labels.size(),2);
   QVERIFY(labels.at(0)->text().contains("HDFStudio"));
-  QCOMPARE(labels.at(1)->text(),QString("Unleash Your NetCDF Power."));
+  QCOMPARE(labels.at(1)->text(),QString("Unleash the Power of Your NetCDF and GRIB Data"));
+  splash->show();
+  QVERIFY(QTest::qWaitForWindowExposed(splash));
+  QVERIFY(labels.at(1)->contentsRect().width() >= labels.at(1)->fontMetrics().horizontalAdvance(labels.at(1)->text()));
+  const auto evidence=qEnvironmentVariable("HDFSTUDIO_SPLASH_EVIDENCE");
+  if(!evidence.isEmpty())QVERIFY(splash->grab().save(evidence));
   delete splash;
 }
 
@@ -1864,7 +1940,7 @@ void DropTargetsTest::propertiesDialogCopiesReportAndWindowMenuListsViews() {
   QVERIFY(cascade);
   refresh();
   QVERIFY(!cascade->isEnabled());
-  QCOMPARE(windowMenu->actions().size(),4);   // Cascade, Tile, Close All Views, Compare & Metrics
+  QCOMPARE(windowMenu->actions().size(),5);   // Cascade, Tile, Close All Views, Compare & Metrics, Hide Infobar
   QVERIFY(window.findChild<QAction*>("actionCompareMetrics")->isEnabled());
 
   for(const char *name:{"ttr","count","ttr"}) {
@@ -1876,7 +1952,7 @@ void DropTargetsTest::propertiesDialogCopiesReportAndWindowMenuListsViews() {
   refresh();
   QVERIFY(cascade->isEnabled());
   QCOMPARE(windowMenu->actions().at(0),cascade);
-  QVERIFY(windowMenu->actions().at(4)->isSeparator());
+  QVERIFY(windowMenu->actions().at(5)->isSeparator());
   for(int i=0;i<3;i++) {
     QAction *entry=window.findChild<QAction*>(QString("actionWindow%1").arg(i+1));
     QVERIFY(entry);
@@ -1907,7 +1983,8 @@ void DropTargetsTest::propertiesDialogCopiesReportAndWindowMenuListsViews() {
 
   mdi->closeAllSubWindows();
   refresh();
-  QCOMPARE(windowMenu->actions().size(),4);
+  QCOMPARE(windowMenu->actions().size(),5);
+  QVERIFY(windowMenu->actions().contains(window.findChild<QAction*>("actionHideInfobar")));
   window.close_all_files();
 }
 
@@ -3441,6 +3518,7 @@ void DropTargetsTest::comparePanelComputesLivePairMetricsAndExportsCsv() {
   QVERIFY(text->toPlainText().contains("RMSE: N/A"));QVERIFY(!residual->residual().valid);QVERIFY(residual->image_for_export().isNull());
   lag->setValue(2);QTRY_VERIFY(residual->residual().valid);QCOMPARE(residual->residual().values[0],73.0);
   panel->findChild<QSlider*>("compareAnchorLayerSlider")->setValue(4);QTRY_COMPARE(b->layer_index(0),6);
+  QTRY_VERIFY(residual->residual().valid);
   QTRY_COMPARE(residual->residual().values[0],83.0);
   // Switching selected target preserves the earlier follower and its independent lag.
   target->setCurrentIndex(3);lag->setValue(-1);QTRY_COMPARE(c->layer_index(0),3);QCOMPARE(sync->followers().size(),size_t(2));
@@ -3569,12 +3647,13 @@ void DropTargetsTest::layerPlaybackSingleAndLinkedPlanes() {
   window.findChild<QAction*>("actionCompareMetrics")->trigger();auto *panel=window.findChild<ComparePanel*>();QVERIFY(panel);
   auto *lag=panel->findChild<QSpinBox*>("compareLagSpin");lag->setValue(1);
   auto *text=panel->findChild<QPlainTextEdit*>("compareMetricsText");
-  QTRY_COMPARE(b->layer_index(0),1);panel->findChild<QPushButton*>("compareResidualButton")->click();
+  QTRY_COMPARE(b->layer_index(0),1);QTRY_VERIFY(panel->findChild<QPushButton*>("compareResidualButton")->isEnabled());panel->findChild<QPushButton*>("compareResidualButton")->click();
   auto *residual=panel->findChild<ResidualView*>();QVERIFY(residual);QTRY_VERIFY(residual->residual().valid);
   QCOMPARE(residual->residual().values[0],10000.0);
   mdi->setActiveSubWindow(b_sub);click();QCOMPARE(player->target(),a);
   player->advance_frame();QCOMPARE(a->layer_index(0),1);QCOMPARE(b->layer_index(0),2);
   QTRY_VERIFY(text->toPlainText().contains("Anchor[1,0] <-> Target[2,0]"));
+  QTRY_VERIFY(residual->residual().valid);
   QCOMPARE(residual->residual().values[0],10000.0);
   mdi->setActiveSubWindow(a_sub);QCoreApplication::processEvents();QVERIFY(player->is_playing());
   mdi->setActiveSubWindow(b_sub);QCoreApplication::processEvents();QVERIFY(player->is_playing());

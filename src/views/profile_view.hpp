@@ -22,18 +22,21 @@ public:
   ProfileView(const QString &title,
               std::shared_ptr<const std::vector<double>> decoded_values,
               size_t rows, size_t cols,
-              std::vector<QPointF> control_points,
-              CurvePathMode path_mode = CurvePathMode::SmoothSpline,
-              QWidget *parent = nullptr);
+               std::vector<QPointF> control_points,
+               CurvePathMode path_mode = CurvePathMode::SmoothSpline,
+               QWidget *parent = nullptr,
+               std::shared_ptr<void> storage_lease = {});
 
   void update_data(std::shared_ptr<const std::vector<double>> decoded_values,
-                   size_t rows, size_t cols,
-                   std::vector<QPointF> control_points,
-                   CurvePathMode path_mode = CurvePathMode::SmoothSpline);
+                    size_t rows, size_t cols,
+                    std::vector<QPointF> control_points,
+                    CurvePathMode path_mode = CurvePathMode::SmoothSpline,
+                    std::shared_ptr<void> storage_lease = {});
 private:
   void recompute();
   void export_csv();
 
+  std::shared_ptr<void> m_storage_lease;
   std::shared_ptr<const std::vector<double>> m_values;
   size_t m_rows = 0;
   size_t m_cols = 0;
@@ -42,4 +45,5 @@ private:
   QComboBox *m_interp = nullptr;
   QLabel *m_summary = nullptr;
   ProfileCanvas *m_canvas = nullptr;
+  QAction *m_export_action = nullptr;
 };

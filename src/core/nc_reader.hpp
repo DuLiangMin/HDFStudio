@@ -5,6 +5,7 @@
 #include <netcdf.h>
 #include <vector>
 #include <string>
+#include <memory>
 #include "slice_types.hpp"
 
 struct NcPlane {
@@ -16,6 +17,8 @@ struct NcSliceResult {
   QString reader, error_code, error;
   bool precision_warning = false;
   QStringList diagnostics;
+  size_t missing_fields = 0;
+  std::shared_ptr<void> lease;
 };
 struct FormatProbe {
   QString kind;

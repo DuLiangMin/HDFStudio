@@ -9,6 +9,8 @@
 #include <QMdiArea>
 #include <QtDebug>
 #include <QFileDialog>
+#include <QDesktopServices>
+#include <QUrl>
 #include <QSaveFile>
 #include <QPainter>
 #include <string>
@@ -31,6 +33,10 @@
 #include "text_export.hpp"
 #include "vector_view.hpp"
 #include "mesh_view.hpp"
+#include "grib/grib_data.hpp"
+#include "data_read_controller.hpp"
+#include "grib_table_view.hpp"
+#include "slice_io.hpp"
 #ifdef _WIN32
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -75,15 +81,17 @@ QWidget *create_startup_splash()
   splash->setObjectName("startupSplash");
   splash->setAttribute(Qt::WA_ShowWithoutActivating);
   auto *splash_layout = new QVBoxLayout(splash);
-  splash_layout->setContentsMargins(28, 20, 28, 20);
-  splash_layout->setSpacing(6);
+  splash_layout->setContentsMargins(32, 22, 32, 22);
+  splash_layout->setSpacing(8);
   auto *splash_title = new QLabel(QStringLiteral("HDFStudio"), splash);
   QFont splash_font = splash_title->font();
   splash_font.setPointSize(splash_font.pointSize() + 9);
   splash_font.setBold(true);
   splash_title->setFont(splash_font);
-  auto *splash_line = new QLabel(QStringLiteral("Unleash Your NetCDF Power."), splash);
-  splash_line->setFont(QFontDatabase::systemFont(QFontDatabase::GeneralFont));
+  auto *splash_line = new QLabel(QStringLiteral("Unleash the Power of Your NetCDF and GRIB Data"), splash);
+  auto tagline_font = QFontDatabase::systemFont(QFontDatabase::GeneralFont);
+  tagline_font.setPointSize(tagline_font.pointSize() + 1);
+  splash_line->setFont(tagline_font);
   splash_layout->addWidget(splash_title);
   splash_layout->addWidget(splash_line);
   splash->setStyleSheet(QStringLiteral(
@@ -102,7 +110,7 @@ int main(int argc, char *argv[])
 {
   Q_INIT_RESOURCE(hdf_explorer);
   QApplication app(argc, argv);
-  QCoreApplication::setApplicationVersion("0.12.12");
+  QCoreApplication::setApplicationVersion("0.14.02");
   QCoreApplication::setApplicationName(app_name);
 #if QT_VERSION >= 0x050000
   QCommandLineParser parser;
@@ -142,6 +150,23 @@ int main(int argc, char *argv[])
       // views keep bounded asynchronous recoloring for larger planes.
       app.setProperty("synchronousRasterPreview",true);
       auto tree=window.findChild<FileTreeWidget*>();
+      if(GribData::is_grib(file_name)) {
+        if(!parser.isSet("png"))return 3;
+        const auto info=GribData::describe(file_name,parser.value("preview"));
+        if(!info.error.isEmpty()||!info.can_image)return 3;
+        RasterView view(file_name,parser.value("preview"),info);
+        bool valid=false;const int layer=parser.value("layer").toInt(&valid);
+        if(!valid||layer<0||layer>(view.layer_axis_count()?view.layer_count(0)-1:0))return 5;
+        if(view.layer_axis_count())view.set_layer_index(0,layer);
+        const auto image=view.image_for_export();if(image.isNull())return 7;
+        QFile png(parser.value("png"));if(!png.open(QIODevice::WriteOnly|QIODevice::NewOnly))return 7;
+        QFile json(parser.value("png")+".json");if(!json.open(QIODevice::WriteOnly|QIODevice::NewOnly)){png.remove();return 8;}
+        QJsonObject report;for(auto key:{"minimum","maximum","reader","decodeProfile"})report[key]=QJsonValue::fromVariant(view.property(key));
+        report["width"]=image.width();report["height"]=image.height();report["object"]=parser.value("preview");report["source_session_id"]=info.object.source_session_id;
+        const auto bytes=QJsonDocument(report).toJson();
+        if(!image.save(&png,"PNG")||!png.flush()||json.write(bytes)!=bytes.size()||!json.flush()){png.remove();json.remove();return 7;}
+        return 0;
+      }
       const auto entries=tree->findItems(parser.value("preview"),Qt::MatchExactly|Qt::MatchRecursive);
       if(entries.size()!=1 || !parser.isSet("png")) return 3;
       emit tree->itemDoubleClicked(entries.first(),0);
@@ -283,9 +308,28 @@ public:
   std::string m_item_nm; // (Root/Variable/Group/Attribute ) item name to display on tree
   ItemKind m_kind; // (Root/Variable/Group/Attribute) type of item 
   hdf_dataset_t *m_dataset; // (Variable) HDF variable to display
+  // GRIB objects keep their own descriptor; they never masquerade as an HDF dataset.
+  bool m_grib = false;
+  QString m_source_path, m_grib_details;
+  DataSource::ObjectRef m_object;
+  DataSource::ArrayInfo m_array;
+  std::unique_ptr<QObject> m_grib_session;
 };
 
 Q_DECLARE_METATYPE(ItemData*);
+
+static QString item_file(const ItemData *item)
+{
+  return item->m_grib ? item->m_source_path : QString::fromLocal8Bit(item->m_file_name.c_str());
+}
+
+class GribTreeSession : public QObject {
+public:
+  explicit GribTreeSession(QString path) : m_path(std::move(path)) {}
+  ~GribTreeSession() override { GribData::release(m_path); }
+private:
+  QString m_path;
+};
 
 static QIcon dataset_icon(size_t rank)
 {
@@ -687,6 +731,7 @@ MainWindow::MainWindow()
     m_action_layer_play->setIcon(QIcon(playing?":/images/pause_green.png":":/images/play_green.png"));
   });
   m_layer_playback->set_ready_check([this]{
+    if(auto *grid=qobject_cast<GribTableView*>(m_layer_playback->target()))return !grid->read_pending();
     if(auto *section=qobject_cast<HovmollerView*>(m_layer_playback->target()))return section->ready();
     auto *raster=qobject_cast<RasterView*>(m_layer_playback->target());
     if(!raster)return true;
@@ -757,6 +802,10 @@ MainWindow::MainWindow()
   m_menu_layer->addSeparator();m_menu_layer->addAction(m_action_layer_play);
 
   m_menu_windows = menuBar()->addMenu(tr("&Window"));
+  m_action_hide_infobar=new QAction(tr("Hide Infobar"),this);
+  m_action_hide_infobar->setObjectName("actionHideInfobar");
+  m_action_hide_infobar->setCheckable(true);
+  connect(m_action_hide_infobar,&QAction::toggled,info_panel,[info_panel](bool hidden){info_panel->setVisible(!hidden);});
   m_workspace_sync=new WorkspaceSyncController(this);
   connect(m_workspace_sync,&WorkspaceSyncController::sync_changed,this,[this]{m_layer_playback->stop();watch_current_view(nullptr);});
   m_action_compare=new QAction(tr("Compare & Metrics"),this);
@@ -767,6 +816,19 @@ MainWindow::MainWindow()
   update_window_menu();
 
   m_menu_help = menuBar()->addMenu(tr("&Help"));
+  auto *help_action = m_menu_help->addAction(tr("&Help"));
+  help_action->setObjectName("actionHelp");
+  help_action->setShortcut(QKeySequence::HelpContents);
+  help_action->setStatusTip(tr("Open the local user guide in your web browser"));
+  connect(help_action, &QAction::triggered, this, [this] {
+    const QString help_path = QDir(QCoreApplication::applicationDirPath()).filePath("doc/help.html");
+    if(!QFileInfo(help_path).isFile()) {
+      QMessageBox::warning(this, tr("Help"), tr("The local help page is missing:\n%1\nKeep the doc folder beside HDFStudio.exe.").arg(QDir::toNativeSeparators(help_path)));
+      return;
+    }
+    if(!QDesktopServices::openUrl(QUrl::fromLocalFile(help_path)))
+      QMessageBox::warning(this, tr("Help"), tr("Could not open your web browser. Open this file directly:\n%1").arg(QDir::toNativeSeparators(help_path)));
+  });
   m_menu_help->addAction(m_action_about);
   m_menu_help->addAction(tr("CF-1.8 Diagnostics..."),this,&MainWindow::show_cf_diagnostics);
 
@@ -909,7 +971,8 @@ void MainWindow::show_time_values() {
 
 void MainWindow::update_file_info(const QString &file_name) {
   const QFileInfo info(file_name);
-  const FormatProbe format=probe_data_format(info.absoluteFilePath());
+  const bool grib_source=GribData::is_grib(info.absoluteFilePath());
+  const FormatProbe format=grib_source ? FormatProbe{"GRIB","Native GRIB catalog",false} : probe_data_format(info.absoluteFilePath());
   const qint64 bytes=info.size();
   QString size;
   if(bytes<1024) size=tr("%1 bytes").arg(bytes);
@@ -926,6 +989,18 @@ void MainWindow::update_file_info(const QString &file_name) {
   };
   m_file_info_text->setToolTip(format.detail);
   m_file_info_text->setPlainText(lines.join('\n'));
+
+  if(grib_source) {
+    m_file_info_text->setPlainText(GribData::properties(file_name,"/")+"\n"+lines.mid(3).join('\n'));
+    m_file_info_text->setToolTip(tr("Native GRIB catalog; virtual arrays and physical messages"));
+    for(auto *page : {m_netcdf4_text,m_cf_check_text}) {
+      if(auto *job=page->findChild<QProcess*>()) {job->disconnect(page);job->kill();job->deleteLater();}
+      page->setProperty("reportFile",info.absoluteFilePath());page->setProperty("pending",false);
+    }
+    m_netcdf4_text->setPlainText(tr("GRIB native structure: Variables [virtual arrays] / Messages [physical order].\nNo Python dependency for browsing."));
+    m_cf_check_text->setPlainText(tr("CF check: not applicable to GRIB.\nFile structure, decoded values and geographical coordinates require separate verification."));
+    return;
+  }
 
   for(auto *page : {m_netcdf4_text,m_cf_check_text}) {
     // Discard stale results when the current file changes.
@@ -953,7 +1028,7 @@ void MainWindow::about()
 {
   QMessageBox::about(this,
     tr("About HDFStudio"),
-    tr("HDFStudio 0.12.12\nAuthor: DuLiangMin\n\n"
+    tr("HDFStudio 0.14.02\nAuthor: DuLiangMin\n\n"
        "Metadata convention target: CF-1.8\n"
        "Product libraries: netCDF-C 4.9.3, HDF5 1.8.20\n\n"
        "Reference environment: Python 3.12.10, netCDF4-python 1.7.5.1.post1\n"
@@ -967,12 +1042,12 @@ void MainWindow::about()
 void MainWindow::closeEvent(QCloseEvent *eve)
 {
   m_layer_playback->stop();
-  if(SliceJobController::any_busy()||SectionDates::any_busy()) {
-    eve->ignore();SliceJobController::cancel_all();SectionDates::cancel_all();
+  if(SliceJobController::any_busy()||SectionDates::any_busy()||DataReadController::any_busy()) {
+    eve->ignore();SliceJobController::cancel_all();SectionDates::cancel_all();DataReadController::cancel_all();
     if(!property("sectionShutdownPending").toBool()) {
       setProperty("sectionShutdownPending",true);setEnabled(false);
       auto *timer=new QTimer(this);timer->setInterval(20);
-      connect(timer,&QTimer::timeout,this,[this,timer]{if(!SliceJobController::any_busy()&&!SectionDates::any_busy()){timer->stop();timer->deleteLater();close();}});timer->start();
+      connect(timer,&QTimer::timeout,this,[this,timer]{if(!SliceJobController::any_busy()&&!SectionDates::any_busy()&&!DataReadController::any_busy()){timer->stop();timer->deleteLater();close();}});timer->start();
     }
     return;
   }
@@ -1058,7 +1133,7 @@ void MainWindow::open_file()
 {
   QString file_name = QFileDialog::getOpenFileName(this,
     tr("Open File"), ".",
-    tr("HDF5 and NetCDF-4 (*.h5 *.hdf5 *.he5 *.nc *.nc4);;All files (*.*)"));
+    tr("Scientific data (*.h5 *.hdf5 *.he5 *.nc *.nc4 *.grib *.grib2 *.grb *.grb2);;All files (*.*)"));
 
   if(file_name.isEmpty())
     return;
@@ -1081,7 +1156,7 @@ static void collect_item_data(QTreeWidgetItem *item, std::vector<ItemData*> &out
 void MainWindow::tag_view(QMdiSubWindow *sub, const ItemData *source)
 {
   sub->setProperty("sourceItem", QVariant::fromValue(reinterpret_cast<quintptr>(source)));
-  QStringList files;for(int i=0;i<m_tree->topLevelItemCount();++i)if(auto *item=get_item_data(m_tree->topLevelItem(i)))files.append(QString::fromLocal8Bit(item->m_file_name.c_str()));setProperty("openSourceFiles",files);
+  QStringList files;for(int i=0;i<m_tree->topLevelItemCount();++i)if(auto *item=get_item_data(m_tree->topLevelItem(i)))files.append(item_file(item));setProperty("openSourceFiles",files);
   if(m_compare_panel)QTimer::singleShot(0,this,&MainWindow::update_compare_views);
 }
 
@@ -1140,6 +1215,9 @@ void MainWindow::close_file_of(QTreeWidgetItem *item)
 
   delete m_tree->takeTopLevelItem(m_tree->indexOfTopLevelItem(root));
   for(ItemData *item_data : owned) delete item_data;
+  QStringList open_files;
+  for(int i=0;i<m_tree->topLevelItemCount();++i)if(auto *data=get_item_data(m_tree->topLevelItem(i)))open_files.append(item_file(data));
+  setProperty("openSourceFiles",open_files);
 
   if(m_tree->topLevelItemCount() == 0) {
     m_str_current_file.clear();
@@ -1155,7 +1233,7 @@ void MainWindow::close_file_of(QTreeWidgetItem *item)
     m_tree->setCurrentItem(last);
     const ItemData *last_data = get_item_data(last);
     if(last_data) {
-      m_str_current_file = QString::fromLocal8Bit(last_data->m_file_name.c_str());
+      m_str_current_file = item_file(last_data);
       update_file_info(m_str_current_file);
     }
     statusBar()->showMessage(tr("Closed %1").arg(closed_name));
@@ -1349,6 +1427,109 @@ QTreeWidgetItem *MainWindow::add_classic_tree(const QString &file_name, const st
 //MainWindow::read_file
 ///////////////////////////////////////////////////////////////////////////////////////
 
+QTreeWidgetItem *MainWindow::add_grib_tree(const QString &file_name)
+{
+  QPointer<MainWindow> window=this;
+  setProperty("gribIndexPending",true);
+  // The dialog and event loop stay valid even if a programmatic caller deletes the window.
+  QProgressDialog progress(tr("Indexing GRIB messages..."),tr("Cancel"),0,0);
+  progress.setObjectName("gribIndexProgress");progress.setWindowTitle(tr("Open GRIB"));
+  progress.setWindowModality(Qt::ApplicationModal);progress.setMinimumDuration(0);
+  auto *reader=new DataReadController;
+  QEventLoop loop;std::shared_ptr<const grib::Catalog> catalog;QString error;
+  bool started=false,cancelled=false;
+  connect(reader,&DataReadController::indexed,&loop,[&](auto result){catalog=std::move(result);loop.quit();});
+  connect(reader,&DataReadController::failed,&loop,[&](const QString &message){error=message;loop.quit();});
+  connect(reader,&DataReadController::drained,&loop,[&]{if(started)loop.quit();});
+  connect(&progress,&QProgressDialog::canceled,&loop,[&]{cancelled=true;reader->cancel();});
+  connect(this,&QObject::destroyed,&loop,[&]{cancelled=true;reader->cancel();});
+  QTimer::singleShot(0,&loop,[&]{if(cancelled){loop.quit();return;}reader->index(file_name);started=true;});
+  loop.exec();reader->disconnect(&loop);progress.disconnect(&loop);reader->dispose();progress.close();
+  if(window)window->setProperty("gribIndexPending",false);
+  if(!window||cancelled||!catalog) {
+    GribData::release(file_name);
+    if(window&&!cancelled&&!error.isEmpty())QMessageBox::warning(window,tr("Open GRIB"),error);
+    return nullptr;
+  }
+  try {
+    // Build off-tree: cancellation/invalid metadata cannot publish an incomplete source.
+    auto root=std::make_unique<QTreeWidgetItem>();
+    std::vector<std::unique_ptr<ItemData>> staged;
+    auto make_item=[&](QTreeWidgetItem *parent,const QString &label,const QString &object,DataSource::NodeKind kind){
+      auto *node=parent?new QTreeWidgetItem(parent):root.get();
+      const bool array=kind==DataSource::NodeKind::Array||kind==DataSource::NodeKind::Field;
+      auto data=std::make_unique<ItemData>(array?ItemData::Variable:ItemData::Group,std::string(),label.toUtf8().toStdString(),nullptr);
+      data->m_grib=true;data->m_source_path=file_name;data->m_object={catalog->session,object,kind};
+      if(array)data->m_array=GribData::describe(*catalog,object);
+      node->setText(0,label);node->setToolTip(0,object);
+      node->setData(0,Qt::UserRole,QVariant::fromValue(data.get()));
+      node->setData(0,Qt::UserRole+10,object);node->setData(0,Qt::UserRole+13,catalog->session);
+      node->setIcon(0,array?dataset_icon(data->m_array.shape.size()):m_icon_group);
+      staged.push_back(std::move(data));return node;
+    };
+    auto starts=std::make_shared<std::vector<size_t>>();
+    for(size_t i=0;i<catalog->fields.size();++i)if(!i||catalog->fields[i].offset!=catalog->fields[i-1].offset)starts->push_back(i);
+    const size_t message_count=starts->size();starts->push_back(catalog->fields.size());
+    make_item(nullptr,QFileInfo(file_name).fileName()+QString(" [%1; %2 messages / %3 fields]").arg(catalog->format).arg(message_count).arg(catalog->fields.size()),"/",DataSource::NodeKind::File);
+    auto *variables=make_item(root.get(),tr("Variables [virtual arrays]"),"/variables",DataSource::NodeKind::Group);
+    get_item_data(variables)->m_grib_details=tr("Virtual arrays group compatible source fields; these are not HDF groups.\n%1 arrays. Missing slots and duplicate fields remain explicit.").arg(catalog->cubes.size());
+    for(const auto &cube:catalog->cubes) {
+      auto *node=make_item(variables,cube.title,cube.id,DataSource::NodeKind::Array);
+      const auto &info=get_item_data(node)->m_array;QStringList shape;
+      for(const auto &axis:info.axes)shape<<QString("%1=%2").arg(axis.name).arg(axis.length);
+      node->setToolTip(0,cube.id+"\n("+shape.join(", ")+")\n"+info.disabled_reasons.value("image"));
+      auto *axes=make_item(node,tr("Axes [source labels, index0]"),cube.id,DataSource::NodeKind::Information);
+      QString details=tr("Axes describe the virtual array; labels retain source product identity.\n");
+      for(const auto &axis:info.axes) {
+        details+=QString("%1: length=%2; units=%3\n").arg(axis.name).arg(axis.length).arg(axis.units.isEmpty()?QString("unknown"):axis.units);
+        const int shown=qMin(axis.labels.size(),qsizetype(256));
+        for(int i=0;i<shown;++i)details+=QString("  [%1] %2\n").arg(i).arg(axis.labels[i]);
+        if(axis.labels.size()>shown)details+=tr("  Additional labels omitted from this bounded report.\n");
+      }
+      get_item_data(axes)->m_grib_details=details;
+    }
+    auto *messages=make_item(root.get(),tr("Messages [physical order, paged]"),"/messages",DataSource::NodeKind::Group);
+    get_item_data(messages)->m_grib_details=tr("%1 physical messages / %2 fields; pages contain at most 256 messages.\nOffsets, lengths and sub-field indices identify original source fields.").arg(message_count).arg(catalog->fields.size());
+    for(size_t begin=0;begin<message_count;begin+=256) {
+      const size_t end=std::min(begin+256,message_count);
+      auto *page=make_item(messages,QString("Messages %1-%2").arg(begin).arg(end-1),"/messages",DataSource::NodeKind::Group);
+      get_item_data(page)->m_grib_details=tr("Physical messages [%1, %2), zero-based; expand this page to load fields.").arg(begin).arg(end);
+      page->setData(0,Qt::UserRole+11,qulonglong(begin));page->setData(0,Qt::UserRole+12,qulonglong(end));
+      new QTreeWidgetItem(page,QStringList{tr("Expand to load")});
+    }
+    make_item(root.get(),tr("File information / diagnostics"),"/",DataSource::NodeKind::Information);
+    auto session=std::make_unique<GribTreeSession>(file_name);
+    connect(m_tree,&QTreeWidget::itemExpanded,session.get(),[this,catalog,starts,file_name](QTreeWidgetItem *page){
+      // Expansion from another file must never be interpreted using this source's catalog.
+      if(page->data(0,Qt::UserRole+13).toString()!=catalog->session||!page->data(0,Qt::UserRole+11).isValid())return;
+      const size_t begin=page->data(0,Qt::UserRole+11).toULongLong(),end=page->data(0,Qt::UserRole+12).toULongLong();
+      page->setData(0,Qt::UserRole+11,QVariant());qDeleteAll(page->takeChildren());
+      auto append=[&](QTreeWidgetItem *parent,const QString &label,const QString &object,DataSource::NodeKind kind){
+        auto *node=new QTreeWidgetItem(parent);auto *data=new ItemData(kind==DataSource::NodeKind::Field?ItemData::Variable:ItemData::Group,std::string(),label.toUtf8().toStdString(),nullptr);
+        data->m_grib=true;data->m_source_path=file_name;data->m_object={catalog->session,object,kind};
+        node->setText(0,label);node->setData(0,Qt::UserRole,QVariant::fromValue(data));
+        node->setData(0,Qt::UserRole+10,object);node->setData(0,Qt::UserRole+13,catalog->session);
+        node->setIcon(0,kind==DataSource::NodeKind::Field?dataset_icon(2):m_icon_group);return node;
+      };
+      for(size_t message=begin;message<end;++message) {
+        const auto &first=catalog->fields[starts->at(message)];
+        auto *physical=append(page,QString("Message %1 [offset=%2, length=%3]").arg(message).arg(first.offset).arg(first.length),"/messages",DataSource::NodeKind::Group);
+        get_item_data(physical)->m_grib_details=QString("Physical message %1\nOffset: %2\nLength: %3\nSub-fields: %4\n").arg(message).arg(first.offset).arg(first.length).arg(starts->at(message+1)-starts->at(message));
+        for(size_t i=starts->at(message);i<starts->at(message+1);++i) {
+          const auto &field=catalog->fields[i];auto *node=append(physical,QString("Field %1 [sub=%2] %3 %4").arg(i).arg(field.sub_field).arg(field.short_name,field.time_label),QString("/field/%1").arg(i),DataSource::NodeKind::Field);
+          // Shape/capabilities come from the immutable catalog when an analysis is implemented.
+          node->setToolTip(0,QString("/field/%1\noffset=%2 length=%3 sub_field=%4").arg(i).arg(field.offset).arg(field.length).arg(field.sub_field));
+        }
+      }
+    });
+    get_item_data(root.get())->m_grib_session=std::move(session);
+    m_tree->addTopLevelItem(root.get());for(auto &data:staged)data.release();
+    auto *published=root.release();published->setExpanded(true);variables->setExpanded(true);return published;
+  }catch(const grib::Error &failure) {
+    GribData::release(file_name);QMessageBox::warning(this,tr("Open GRIB"),failure.code+": "+failure.message);return nullptr;
+  }
+}
+
 int MainWindow::read_file(QString file_name)
 {
   if(property("sectionShutdownPending").toBool())return -1;
@@ -1362,6 +1543,16 @@ int MainWindow::read_file(QString file_name)
 
   //convert QString to char*
   file_name = QFileInfo(file_name).absoluteFilePath();
+  if(property("gribIndexPending").toBool())return -1;
+  if(GribData::is_grib(file_name)) {
+    for(int i=0;i<m_tree->topLevelItemCount();++i) {
+      auto *data=get_item_data(m_tree->topLevelItem(i));
+      if(data&&data->m_grib&&data->m_source_path==file_name) {m_tree->setCurrentItem(m_tree->topLevelItem(i));return 0;}
+    }
+    auto *root=add_grib_tree(file_name);if(!root)return -1;
+    auto files=property("openSourceFiles").toStringList();if(!files.contains(file_name))files.append(file_name);setProperty("openSourceFiles",files);
+    m_tree->setCurrentItem(root);set_current_file(file_name);update_file_info(file_name);update_close_actions();statusBar()->showMessage(file_name);return 0;
+  }
   ba = file_name.toLocal8Bit();
   if(QString::fromLocal8Bit(ba) != file_name) {
     QMessageBox::warning(this, tr("Open file"), tr("This HDF5 library cannot represent this path in the current Windows code page:\n%1").arg(file_name));
@@ -1869,6 +2060,7 @@ FileTreeWidget::FileTreeWidget(QWidget *parent) : QTreeWidget(parent)
   //double click
   connect(this, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem *item, int) {
     ItemData *data = get_item_data(item);
+    if(data&&data->m_grib) {setCurrentItem(item);show_item_properties();return;}
     if(!data || !data->m_dataset) return;
     if(data->m_kind == ItemData::Variable && data->m_dataset->m_dim.size() >= 2 &&
        (data->m_dataset->m_datatype_class == H5T_INTEGER || data->m_dataset->m_datatype_class == H5T_FLOAT))
@@ -1912,6 +2104,7 @@ void FileTreeWidget::load_item(QTreeWidgetItem  *item)
   hsize_t nbr_elements = 1;
 
   ItemData *item_data = get_item_data(item);
+  if(!item_data||!item_data->m_dataset)return;
   assert(item_data->m_kind == ItemData::Variable);
 
   //if not loaded, read buffer from file 
@@ -2218,6 +2411,24 @@ void FileTreeWidget::show_context_menu(const QPoint &p)
   if(!item) return;
   setCurrentItem(item);
   ItemData *item_data = get_item_data(item);
+  if(item_data&&item_data->m_grib) {
+    QMenu menu(this);
+    auto *properties=menu.addAction(tr("Properties..."));
+    connect(properties,&QAction::triggered,this,&FileTreeWidget::show_item_properties);
+    if(item_data->m_kind==ItemData::Variable) {
+      const auto info=GribData::describe(item_data->m_source_path,item_data->m_object.object_id);
+      auto *image=menu.addAction(tr("Image View"));image->setEnabled(info.error.isEmpty()&&info.can_image);image->setToolTip(info.disabled_reasons.value("image",info.error));connect(image,&QAction::triggered,this,[this,item_data]{m_main_window->add_image(item_data);});
+      auto *export_png=menu.addAction(tr("Export As Image..."));export_png->setEnabled(image->isEnabled());connect(export_png,&QAction::triggered,this,&FileTreeWidget::export_item_as_image);
+      auto *histogram=menu.addAction(tr("Histogram..."));histogram->setObjectName("actionGribHistogram");histogram->setEnabled(image->isEnabled());histogram->setToolTip(image->toolTip());connect(histogram,&QAction::triggered,this,[this,item_data]{m_main_window->add_histogram(item_data);});
+      auto *texture=menu.addAction(tr("Texture Entropy Image"));texture->setObjectName("actionGribTextureEntropy");texture->setEnabled(image->isEnabled());texture->setToolTip(image->toolTip());connect(texture,&QAction::triggered,this,[this,item_data]{m_main_window->add_texture_image(item_data);});
+      auto *decoded=menu.addAction(tr("Data Grid (decoded)..."));decoded->setToolTip(tr("ecCodes decoded values; no CF scale/offset applied"));connect(decoded,&QAction::triggered,this,&FileTreeWidget::add_grid);
+      auto *stored=menu.addAction(tr("Quantized X Grid (reconstructed)..."));stored->setToolTip(tr("Validated reconstruction of quantized integers; unavailable for unsupported packing"));connect(stored,&QAction::triggered,this,&FileTreeWidget::add_stored_grid);
+      auto *both=menu.addAction(tr("Decoded and Quantized X..."));connect(both,&QAction::triggered,this,&FileTreeWidget::add_both_grids);
+    }
+    auto *close=menu.addAction(tr("Close File"));
+    connect(close,&QAction::triggered,this,[this,item]{m_main_window->close_file_of(item);});
+    menu.exec(QCursor::pos());return;
+  }
   QMenu menu;
   const bool has_dataset = item_data && item_data->m_dataset;
   const bool numeric = has_dataset && (item_data->m_dataset->m_datatype_class == H5T_INTEGER ||
@@ -2391,6 +2602,11 @@ QString FileTreeWidget::item_properties_text(QTreeWidgetItem *item) const
 {
   ItemData *item_data = item ? get_item_data(item) : nullptr;
   if(!item_data) return QString();
+  if(item_data->m_grib) {
+    const QString target=item_data->m_object.object_id;
+    const QString details=item_data->m_grib_details.isEmpty() ? GribData::properties(item_data->m_source_path,target) : item_data->m_grib_details;
+    return QString("HDFStudio %1 Properties\nFile: %2\nObject: %3\nSession: %4\n\n").arg(QCoreApplication::applicationVersion(),item_data->m_source_path,target,item_data->m_object.source_session_id)+details;
+  }
 
   QString shape = tr("Scalar");
   quint64 elements = 1;
@@ -2536,7 +2752,7 @@ void FileTreeWidget::export_item_as_image()
 {
   QTreeWidgetItem *item = currentItem();
   ItemData *item_data = item ? get_item_data(item) : nullptr;
-  if(!item_data || item_data->m_kind != ItemData::Variable || !item_data->m_dataset) return;
+  if(!item_data || item_data->m_kind != ItemData::Variable || (!item_data->m_grib&&!item_data->m_dataset)) return;
   m_main_window->export_image(item_data, this);
 }
 
@@ -2575,6 +2791,7 @@ void FileTreeWidget::open_grid(GridValueMode mode)
   QTreeWidgetItem *item = static_cast <QTreeWidgetItem*> (currentItem());
   if(!item) return;
   ItemData *item_data = get_item_data(item);
+  if(item_data&&item_data->m_grib){if(item_data->m_kind==ItemData::Variable)m_main_window->add_table(item_data,int(mode));return;}
   if(!item_data || !item_data->m_dataset) return;
   if(item_data->m_dataset->m_datatype_class != H5T_INTEGER &&
     item_data->m_dataset->m_datatype_class != H5T_FLOAT)
@@ -3280,6 +3497,7 @@ void MainWindow::update_window_menu()
   m_menu_windows->addAction(m_action_tile);
   m_menu_windows->addAction(m_action_close_all);
   m_menu_windows->addAction(m_action_compare);
+  m_menu_windows->addAction(m_action_hide_infobar);
   const QList<QMdiSubWindow *> windows = m_mdi_area->subWindowList(QMdiArea::CreationOrder);
   m_action_cascade->setEnabled(!windows.isEmpty());
   m_action_tile->setEnabled(!windows.isEmpty());
@@ -3432,6 +3650,11 @@ void MainWindow::update_layer_controls()
 
 void MainWindow::add_table(ItemData *item_data, int mode)
 {
+  if(item_data&&item_data->m_grib) {
+    auto *view=new GribTableView(item_data->m_source_path,item_data->m_object.object_id,mode);
+    auto *sub=m_mdi_area->addSubWindow(view);sub->setAttribute(Qt::WA_DeleteOnClose);tag_view(sub,item_data);
+    const QSize available=m_mdi_area->viewport()->size();sub->resize(qMin(900,available.width()),qMin(580,available.height()));sub->show();return;
+  }
   ChildWindowTable *window = new ChildWindowTable(this, item_data, GridValueMode(mode));
   QMdiSubWindow *sub = m_mdi_area->addSubWindow(window);
   sub->setAttribute(Qt::WA_DeleteOnClose);
@@ -3447,6 +3670,12 @@ void MainWindow::add_table(ItemData *item_data, int mode)
 
 void MainWindow::add_image(ItemData *item)
 {
+  if(item&&item->m_grib&&item->m_kind==ItemData::Variable) {
+    const auto info=GribData::describe(item->m_source_path,item->m_object.object_id);
+    if(!info.error.isEmpty()||!info.can_image){statusBar()->showMessage(info.error.isEmpty()?info.disabled_reasons.value("image"):info.error);return;}
+    auto *view=new RasterView(item->m_source_path,item->m_object.object_id,info);auto *sub=m_mdi_area->addSubWindow(view);sub->setAttribute(Qt::WA_DeleteOnClose);tag_view(sub,item);
+    const auto available=m_mdi_area->viewport()->size();sub->resize(qMin(1100,available.width()),qMin(700,available.height()));sub->show();return;
+  }
   if(!item || !item->m_dataset || item->m_kind != ItemData::Variable || item->m_dataset->m_dim.size() < 2 ||
      (item->m_dataset->m_datatype_class != H5T_INTEGER && item->m_dataset->m_datatype_class != H5T_FLOAT)) return;
   auto view = new RasterView(item->m_file_name, item->m_dataset->m_path, item->m_dataset->m_dim);
@@ -3471,14 +3700,17 @@ void MainWindow::show_texture_entropy() {
 }
 
 void MainWindow::add_texture_image(ItemData *item) {
-  if(!item || !item->m_dataset || item->m_kind != ItemData::Variable || item->m_dataset->m_dim.size() < 2 ||
-     (item->m_dataset->m_datatype_class != H5T_INTEGER && item->m_dataset->m_datatype_class != H5T_FLOAT)) return;
+  if(!item||item->m_kind!=ItemData::Variable)return;
+  if(!item->m_grib&&(!item->m_dataset||item->m_dataset->m_dim.size()<2||
+      (item->m_dataset->m_datatype_class!=H5T_INTEGER&&item->m_dataset->m_datatype_class!=H5T_FLOAT)))return;
+  std::optional<DataSource::ArrayInfo> grib_info;
+  if(item->m_grib){grib_info=GribData::describe(item->m_source_path,item->m_object.object_id);if(!grib_info->error.isEmpty()||!grib_info->can_image){statusBar()->showMessage(grib_info->error.isEmpty()?grib_info->disabled_reasons.value("image"):grib_info->error);return;}}
   TextureEntropyView *view = nullptr;
   if(auto *sub = m_mdi_area->currentSubWindow()) {
     if(sub->property("sourceItem").value<quintptr>() == reinterpret_cast<quintptr>(item))
       if(auto *source = qobject_cast<RasterView*>(sub->widget())) view = new TextureEntropyView(source);
   }
-  if(!view) view = new TextureEntropyView(item->m_file_name, item->m_dataset->m_path, item->m_dataset->m_dim);
+  if(!view){if(grib_info)view=new TextureEntropyView(item->m_source_path,item->m_object.object_id,*grib_info);else view=new TextureEntropyView(item->m_file_name,item->m_dataset->m_path,item->m_dataset->m_dim);}
   connect(view, &TextureEntropyView::layer_changed, this, &MainWindow::update_layer_controls);
   auto *sub = m_mdi_area->addSubWindow(view); sub->setAttribute(Qt::WA_DeleteOnClose);
   tag_view(sub, item); sub->resize(820, 660); sub->show();
@@ -3500,7 +3732,16 @@ void MainWindow::add_space_time_section(ItemData *item) {
 
 void MainWindow::add_histogram(ItemData *item)
 {
-  auto view = new HistogramView(item->m_file_name, item->m_dataset->m_path, item->m_dataset->m_dim);
+  if(!item||item->m_kind!=ItemData::Variable)return;
+  HistogramView *view=nullptr;
+  if(item->m_grib) {
+    const auto info=GribData::describe(item->m_source_path,item->m_object.object_id);
+    if(!info.error.isEmpty()||!info.can_image){statusBar()->showMessage(info.error.isEmpty()?info.disabled_reasons.value("image"):info.error);return;}
+    view=new HistogramView(item->m_source_path,item->m_object.object_id,info);
+  }else {
+    if(!item->m_dataset)return;
+    view=new HistogramView(item->m_file_name,item->m_dataset->m_path,item->m_dataset->m_dim);
+  }
   auto sub = m_mdi_area->addSubWindow(view);
   sub->setAttribute(Qt::WA_DeleteOnClose);
   tag_view(sub, item);
@@ -3510,10 +3751,11 @@ void MainWindow::add_histogram(ItemData *item)
 
 void MainWindow::export_image(ItemData *item, QWidget *parent)
 {
-  if(!item || !item->m_dataset) return;
+  if(!item || (!item->m_grib&&!item->m_dataset)) return;
   const QString output = QFileDialog::getSaveFileName(parent, tr("Export As Image"),
       QString::fromStdString(item->m_item_nm) + QStringLiteral(".png"), tr("PNG images (*.png)"));
   if(output.isEmpty()) return;
+  if(item->m_grib)for(const auto &source:property("openSourceFiles").toStringList())if(slice_same_file(output,source)){QMessageBox::warning(parent,tr("Export As Image"),tr("Cannot overwrite an open source dataset."));return;}
 
   RasterView *view=nullptr;
   // Prefer this dataset's current image (layer, palette, Mask and orientation).
@@ -3524,7 +3766,11 @@ void MainWindow::export_image(ItemData *item, QWidget *parent)
       if(auto *raster=qobject_cast<RasterView*>(sub->widget())) {view=raster;break;}
   }
   std::unique_ptr<RasterView> temporary;
-  if(!view) {temporary=std::make_unique<RasterView>(item->m_file_name,item->m_dataset->m_path,item->m_dataset->m_dim);view=temporary.get();}
+  if(!view) {
+    if(item->m_grib)temporary=std::make_unique<RasterView>(item->m_source_path,item->m_object.object_id,GribData::describe(item->m_source_path,item->m_object.object_id));
+    else temporary=std::make_unique<RasterView>(item->m_file_name,item->m_dataset->m_path,item->m_dataset->m_dim);
+    view=temporary.get();
+  }
   const QImage image=view->image_for_export();
   QSaveFile destination(output);
   const bool saved=!image.isNull() && destination.open(QIODevice::WriteOnly) &&
