@@ -106,9 +106,20 @@ try{
   if($about -and $version){break};Start-Sleep -Milliseconds 100
  }while($timer.ElapsedMilliseconds -lt 5000)
  Check 'About displays 0.14.02' ($null -ne $version)
- Shot 'about-version'
- $about.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
- [HelpDesktop]::PostMessage([IntPtr]$window.Current.NativeWindowHandle,0x10,[IntPtr]::Zero,[IntPtr]::Zero)|Out-Null
+  Shot 'about-version'
+  $about.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+  # Invoke is asynchronous: wait for the modal dialog to close before WM_CLOSE.
+  $timer.Restart();$readyToClose=$false
+  do{
+   $candidates=$uia::RootElement.FindAll([Windows.Automation.TreeScope]::Children,[Windows.Automation.PropertyCondition]::new($uia::ProcessIdProperty,$process.Id))
+   foreach($candidate in $candidates){if((Named $candidate 'File Info') -and $candidate.Current.IsEnabled){$window=$candidate;$readyToClose=$true;break}}
+   if($readyToClose){break};Start-Sleep -Milliseconds 100
+  }while($timer.ElapsedMilliseconds -lt 5000)
+  Check 'Main window enabled after About closes' $readyToClose
+  $process.Refresh()
+  [pscustomobject]@{uia_handle=$window.Current.NativeWindowHandle;process_handle=$process.MainWindowHandle.ToInt64();pid=$process.Id}|ConvertTo-Json|Set-Content -Encoding UTF8 (Join-Path $log 'close-target.json')
+  Check 'Native main window available' ($process.MainWindowHandle -ne [IntPtr]::Zero)
+  Check 'Close requested normally' ($process.CloseMainWindow())
  Check 'Normal application exit' ($process.WaitForExit(10000))
  $process.Refresh();Check 'Exit code zero' ($process.ExitCode -eq 0)
  $completed=$true
