@@ -84,7 +84,8 @@ The `rgb` command validates without installing or copying the input.
 
 `resources/colormaps/manifest.json` lists the input/output hashes and license
 files. Each palette records source, authors, version, transformation and shape.
-Original sources are preserved in `resources/colormaps/source/`. Full license
-texts and attributions are in `licenses/colormaps/`, included in both source and
-binary packages. The export utility is documented in `tools/00_脚本说明.md`.
+Upstream cmap Python copies are omitted from public source; their provenance
+and hashes remain in the manifest. Full license texts and attributions are in
+`licenses/colormaps/`, included in both source and binary packages. Local export
+and maintenance scripts are not published.
 Runtime does not require Python, cmap or NCL.

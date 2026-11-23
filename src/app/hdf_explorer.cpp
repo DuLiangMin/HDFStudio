@@ -2060,7 +2060,14 @@ FileTreeWidget::FileTreeWidget(QWidget *parent) : QTreeWidget(parent)
   //double click
   connect(this, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem *item, int) {
     ItemData *data = get_item_data(item);
-    if(data&&data->m_grib) {setCurrentItem(item);show_item_properties();return;}
+    if(data&&data->m_grib) {
+      setCurrentItem(item);
+      if(data->m_kind==ItemData::Variable) {
+        const auto info=GribData::describe(data->m_source_path,data->m_object.object_id);
+        if(info.error.isEmpty()&&info.can_image){m_main_window->add_image(data);return;}
+      }
+      show_item_properties();return;
+    }
     if(!data || !data->m_dataset) return;
     if(data->m_kind == ItemData::Variable && data->m_dataset->m_dim.size() >= 2 &&
        (data->m_dataset->m_datatype_class == H5T_INTEGER || data->m_dataset->m_datatype_class == H5T_FLOAT))

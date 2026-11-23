@@ -22,6 +22,28 @@ class GribBrowserTest : public QObject {
     return nullptr;
   }
 private slots:
+  void doubleClickPrefersImageForGribArrays() {
+    MainWindow window;window.resize(1200,800);window.show();
+    QCOMPARE(window.read_file(fixture("mini_cube.grb2")),0);
+    auto *tree=window.findChild<FileTreeWidget*>();QVERIFY(tree);
+    auto *root=tree->topLevelItem(0);auto *variables=branch(root,"Variables");QVERIFY(variables);
+    auto *cube=variables->child(0);tree->setCurrentItem(cube);
+    emit tree->itemDoubleClicked(cube,0);
+    auto images=window.findChildren<RasterView*>();QCOMPARE(images.size(),1);
+    QVERIFY(!images.front()->image_for_export().isNull());
+    QVERIFY(!tree->findChild<QDialog*>("propertiesDialog"));
+    QCOMPARE(images.front()->layer_axis_count(),2);
+    auto *page=branch(root,"Messages")->child(0);page->setExpanded(true);
+    auto *field=page->child(0)->child(0);tree->setCurrentItem(field);
+    emit tree->itemDoubleClicked(field,0);
+    images=window.findChildren<RasterView*>();QCOMPARE(images.size(),2);
+    QVERIFY(!images.back()->image_for_export().isNull());
+    QVERIFY(!tree->findChild<QDialog*>("propertiesDialog"));
+    emit tree->itemDoubleClicked(variables,0);
+    auto *properties=tree->findChild<QDialog*>("propertiesDialog");QVERIFY(properties);delete properties;
+    QCOMPARE(window.findChildren<RasterView*>().size(),2);
+    window.close_all_files();QTRY_VERIFY_WITH_TIMEOUT(!DataReadController::any_busy(),10000);
+  }
   void virtualAndPhysicalProperties() {
     MainWindow window;QCOMPARE(window.read_file(fixture("mini_cube.grb2")),0);
     auto *tree=window.findChild<FileTreeWidget*>();QVERIFY(tree);QCOMPARE(tree->topLevelItemCount(),1);
@@ -101,7 +123,8 @@ private slots:
         if(mode!=0)QCOMPARE(model->data(model->index(row,mode==2?col*2+1:col)).toString().toDouble(),std::ldexp(double(row*4+col),20));
       }
       table->selectionModel()->select(QItemSelection(model->index(0,0),model->index(1,model->columnCount()-1)),QItemSelectionModel::ClearAndSelect);
-      QString error;const QString selected=table->selectionText(&error);QVERIFY(error.isEmpty());QCOMPARE(selected.count('\n'),1);table->copyAction()->trigger();QCOMPARE(QApplication::clipboard()->text(),selected);
+      QString error;const QString selected=table->selectionText(&error);QVERIFY(error.isEmpty());QCOMPARE(selected.count('\n'),1);
+      QTRY_VERIFY_WITH_TIMEOUT(([&]{table->copyAction()->trigger();return QApplication::clipboard()->text()==selected;})(),3000);
       const QString path=temporary.filePath(QString("mode-%1.csv").arg(mode));QVERIFY(view.export_csv(path).isEmpty());QVERIFY(!view.export_csv(path).isEmpty());QVERIFY(view.export_csv(path,true).isEmpty());QVERIFY(!view.export_csv(fixture("mini_simple.grb2"),true).isEmpty());
       QFile csv(path);QVERIFY(csv.open(QIODevice::ReadOnly));const auto lines=csv.readAll().split('\n');QVERIFY(lines[0].contains("grib_grid_schema=1"));QVERIFY(lines[1].contains("decode_profile"));
       QCOMPARE(lines[2].split(',').size(),model->columnCount());QCOMPARE(lines[2].split(',')[0].toDouble(),mode==1?0.:85000.);

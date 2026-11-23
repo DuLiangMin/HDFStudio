@@ -3,6 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="HDFStudio 中英文使用帮助：Windows NetCDF、HDF5、GRIB1/GRIB2 数据浏览、分析、导出与 LLM / AI Agent 工作流程。Bilingual user guide for scientific data inspection.">
+  <link rel="canonical" href="https://duliangmin.github.io/HDFStudio/doc/help.html">
   <title>HDFStudio Help / 使用帮助 — 0.14.02</title>
   <style>
     :root { color-scheme: light; --ink: #203440; --accent: #126c79; --line: #d8e4e8; }
@@ -53,7 +55,7 @@
     </section>
     <section id="zh-grib">
       <h3>2. 浏览 GRIB1 / GRIB2</h3>
-      <p>打开后等待索引完成。<strong>Variables</strong> 将兼容场组织为可逐层浏览的虚拟变量；<strong>Messages</strong> 分页保留原始消息与子场。右键变量或场，可打开表格、图像、直方图或纹理熵图；Properties 保留参数、层次、时间相关原始键与来源信息。</p>
+      <p>打开后等待索引完成。<strong>Variables</strong> 将兼容场组织为可逐层浏览的虚拟变量；<strong>Messages</strong> 分页保留原始消息与子场。双击支持矩形图像的变量或场，优先打开 <strong>Image View</strong>；结构节点或不支持图像的项目仍显示 Properties。右键变量或场，可打开表格、图像、直方图或纹理熵图；Properties 保留参数、层次、时间相关原始键与来源信息。</p>
       <p>矩形网格支持图像及相关分析。GRIB 表格提供解码值、<strong>Quantized X</strong> 及并排模式；Quantized X 是支持的打包方式下重建的量化整数，并非原始字节，不可用时明确显示。缺场会清空旧结果，未知名称/单位保留 <code>unknown</code>。</p>
       <p class="note">当前 GRIB 图像按源网格索引显示。比较与播放按整数索引推进，不自动匹配物理时间、转换单位或重采样。GRIB 任意两轴剖面已接入 CLI/worker；GUI 剖面、可靠地理坐标及 U/V 矢量入口尚未接通。CF 检查不适用于 GRIB。</p>
     </section>
@@ -139,7 +141,7 @@ hdf_cli props "data.nc" /temperature</code></pre>
     </section>
     <section id="en-grib">
       <h3>2. Browse GRIB1 / GRIB2</h3>
-      <p>Wait for indexing to finish. <strong>Variables</strong> groups compatible fields into virtual arrays with layer navigation. <strong>Messages</strong> preserves paged physical messages and sub-fields. Right-click a variable or field for tables, images, histograms or texture entropy. Properties retains parameter, level, raw time-related keys and provenance.</p>
+      <p>Wait for indexing to finish. <strong>Variables</strong> groups compatible fields into virtual arrays with layer navigation. <strong>Messages</strong> preserves paged physical messages and sub-fields. Double-click a variable or field supporting rectangular images to open <strong>Image View</strong> first; structural or unsupported entries still show Properties. Right-click a variable or field for tables, images, histograms or texture entropy. Properties retains parameter, level, raw time-related keys and provenance.</p>
       <p>Rectangular grids support images and related analyses. GRIB tables offer decoded values, <strong>Quantized X</strong> and paired modes. Quantized X is a reconstructed integer for supported packing, not a raw-byte dump; unsupported reconstruction is marked unavailable. Missing fields clear old results; unknown names/units stay <code>unknown</code>.</p>
       <p class="note">GRIB images currently use source-grid indices. Comparison and playback use integer indices without automatic physical-time matching, unit conversion or resampling. Arbitrary-axis GRIB sections are available through the CLI/worker; GUI sections, verified geographic coordinates and U/V vector integration remain pending. CF checks do not apply to GRIB.</p>
     </section>

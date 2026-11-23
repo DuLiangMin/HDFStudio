@@ -19,7 +19,7 @@ HDFStudio/
 ├── third_party/hdf_filters/ Build recipe, source URLs/hashes and local decoder sources
 ├── tests/                   QtTest, independent numeric and desktop verification
 ├── testdata/                Small generated fixtures; no business data
-├── tools/                   Dependency restore, source filtering and packaging
+├── tools/                   Local maintenance scripts; excluded from publication
 ├── ext/                     Local development dependencies; excluded from publication
 ├── build/                   Generated projects, executables and packages; local only
 └── logs/                    Timestamped verification evidence; local only
@@ -27,7 +27,7 @@ HDFStudio/
 
 **输入 / Inputs:** user-selected read-only scientific files; optional business-test paths come from `HDFSTUDIO_*` environment variables. Dependencies are configured by `CMakeLists.txt`, `cmake/Grib.cmake` and the pinned manifests. Do not put business files into source or release archives.
 
-**输出 / Outputs:** development executables and `doc/help.html` go to `build/output/<configuration>/`. Tests write to `logs/<feature>/`; exports go to explicit user-selected paths. `tools/package-windows.ps1` writes versioned binary/source archives to a separate package directory. Section workers use application-owned temporary directories, never the input directory.
+**输出 / Outputs:** development executables and `doc/help.html` go to `build/output/<configuration>/`. Tests write to `logs/<feature>/`; exports go to explicit user-selected paths. Release archives are staged separately by local maintenance scripts, which are not published. Section workers use application-owned temporary directories, never the input directory.
 
 ## 🧱 Responsibilities and data flow
 
@@ -76,8 +76,8 @@ The first implementation used `$<TARGET_FILE_DIR:hdf_explorer>` inside `hdf_help
 
 ## 📦 Public source and complete binaries
 
-The publication policy excludes third-party library source copies and upstream cmap Python copies from the public tree and source ZIP. `tools/public-source-excludes.txt` defines the filter. The packaging script checks the selected public source reference and refuses any remaining excluded files. Versions, URLs, hashes, licenses and integration/build recipes are retained. Local dependency files remain available for development, and adapted HDFStudio application code remains part of the project.
+The publication policy excludes the entire `tools/` directory, third-party library source copies and upstream cmap Python copies from the public tree and updated source ZIP. Versions, URLs, hashes, licenses and integration/build recipes are retained. Local maintenance scripts and dependency files remain available for development; adapted HDFStudio application code remains part of the project.
 
-Run `python tools/26NOV23_v01_restore_hdf_filters.py` to restore the pinned HDF filter sources before building a public checkout. It uses `third_party/hdf_filters/sources.json`, verifies SHA256 before writing and never overwrites a different existing file. Other development dependencies and optional color-source regeneration are described in [DEPENDENCIES.md](DEPENDENCIES.md).
+Before building a public checkout, download the pinned HDF filter files from the URLs in `third_party/hdf_filters/sources.json`, place them under the recorded relative paths and verify SHA256. Development dependency locations and optional palette provenance are described in [DEPENDENCIES.md](DEPENDENCIES.md).
 
 The Windows ZIP includes the GUI, matching CLI, Qt/platform plugins, netCDF/GRIB runtime libraries, embedded ecCodes definitions/samples, help, palettes and license texts. The recipe verifies the pinned GRIB DLL hashes and refuses to overwrite an existing package. End users need no compiler or Python for native browsing and analysis.

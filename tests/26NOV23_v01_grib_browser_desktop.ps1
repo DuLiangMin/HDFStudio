@@ -1,4 +1,4 @@
-# Focused real desktop acceptance for the GRIB tree/properties gate.
+# Focused real desktop acceptance for GRIB tree/context-menu properties.
 # Inputs: build/output/<Configuration>/HDFStudio.exe, read-only testdata/grib/mini_cube.grb2.
 # Output: logs/S4-GribIntegration/desktop-<stage>-<Configuration>-<timestamp>/.
 # Usage: powershell -NoProfile -File tests/26NOV23_v01_grib_browser_desktop.ps1 [-Grid] [-Image | -Histogram | -Texture | -Profile | -Compare | -Playback] [-ExternalGrib1 | -ExternalGrib2]
@@ -177,12 +177,15 @@ try {
   [GribBrowserMouse]::Click([int]($bounds.X+$bounds.Width/2),[int]($bounds.Y+$bounds.Height/2))
   Start-Sleep -Milliseconds ([Windows.Forms.SystemInformation]::DoubleClickTime+50)
   [GribBrowserMouse]::Front([IntPtr]$window.Current.NativeWindowHandle)
-  if([GribBrowserMouse]::GetForegroundWindow()-ne [IntPtr]$window.Current.NativeWindowHandle){throw 'Target window is not foreground before double-click'}
-  [GribBrowserMouse]::Click([int]($bounds.X+$bounds.Width/2),[int]($bounds.Y+$bounds.Height/2));Start-Sleep -Milliseconds 60
-  [GribBrowserMouse]::Click([int]($bounds.X+$bounds.Width/2),[int]($bounds.Y+$bounds.Height/2))
+  if([GribBrowserMouse]::GetForegroundWindow()-ne [IntPtr]$window.Current.NativeWindowHandle){throw 'Target window is not foreground before context menu'}
+  [GribBrowserMouse]::RightClick([int]($bounds.X+$bounds.Width/2),[int]($bounds.Y+$bounds.Height/2))
+  $propertiesMenu=$null;$clock.Restart()
+  do{$propertiesMenu=ProcessMenuItems|Where-Object {$_.Current.Name.Replace('&','').StartsWith('Properties')-and -not $_.Current.IsOffscreen}|Select-Object -First 1;if($propertiesMenu){break};Start-Sleep -Milliseconds 100}while($clock.ElapsedMilliseconds-lt 5000)
+  Check 'Properties remains available by right-click' ($null-ne $propertiesMenu)
+  $propertiesMenu.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
   $dialog=$null;$clock.Restart()
   do{$dialog=Named $window 'Properties - Field 0';if($dialog){break};Start-Sleep -Milliseconds 100}while($clock.ElapsedMilliseconds-lt 5000)
-  Check 'Double-click opened Properties' ($null-ne $dialog)
+  Check 'Right-click opened Properties' ($null-ne $dialog)
   $copy=Named $dialog 'Copy All';$pattern=$copy.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern);$pattern.Invoke()
   $clock.Restart();$text=''
   do{$text=[Windows.Forms.Clipboard]::GetText();if($text.Contains('Object: /field/0')-and $text.Contains('sub-field: 0; offset: 0; length:')){break};Start-Sleep -Milliseconds 100}while($clock.ElapsedMilliseconds-lt 3000)

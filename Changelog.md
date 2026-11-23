@@ -2,6 +2,8 @@
 
 ## 🌦️ 0.14.02 GRIB browsing and offline help - 2026-11-23
 
+- Documentation update: restore bilingual README keywords and the Downloads badge, link to rendered online help, and omit local `tools/` from the public tree and updated source snapshot.
+- Double-click a rectangular GRIB virtual variable or physical field to open Image View first; structural and unsupported entries retain Properties.
 - Ship a complete portable GRIB runtime and local help; make Download a direct Windows binary link in both READMEs. Public source excludes third-party code copies, retaining pinned restoration manifests and license texts.
 - Add native read-only GRIB1/GRIB2 browsing: virtual variables, physical messages, provenance, decoded/Quantized X grids, rectangular-field images, Mask and CSV/PNG export.
 - Reuse histograms, curve profiles, whole-plane and texture entropy, index-based comparison/residuals, synchronization and layer playback for GRIB. Unknown units and missing fields remain explicit.
@@ -53,7 +55,7 @@
 
 ## ▶️ 0.12.07 complete local build (unreleased) - 2026-11-21
 
-- Green bitmap Play/Pause button in the main toolbar and Layer menu, generated offline by `tools/26NOV21_v01_playback_icons.py`; frame interval 100–10,000 ms, default 500 ms. Single-view playback and joint Anchor/Target playback update existing metrics and residual views. Last frame stops; Play at the last frame restarts from the first.
+- Green bitmap Play/Pause button in the main toolbar and Layer menu, generated offline by a local maintenance script; frame interval 100–10,000 ms, default 500 ms. Single-view playback and joint Anchor/Target playback update existing metrics and residual views. Last frame stops; Play at the last frame restarts from the first.
 - Disabled for fewer than two frames on the selected playback axis, including empty and singleton axes. In comparison mode the Anchor determines availability. Pause holds position; changing source, axis or binding, closing the playback view or exiting stops the timer safely.
 - Fixed Next/Previous/First/Last, Go to Layer and main layer selection on an active synced Target: navigation now advances the Anchor while preserving each Target's lag. Unbound views and Targets with layer synchronization disabled retain independent navigation.
 - Visible **Compare & Metrics** entry in the main toolbar as well as the Window menu. Empty axes show **No frames on this axis** with disabled layer selection; comparison controls do not create a negative index range. Layer-signal connection handles preserve safe disconnection while a view is being destroyed.
@@ -172,7 +174,7 @@
 - Startup waiting box slogan changed to "HDFStudio / Unleash Your NetCDF Power."; the splash regression now compares the exact text.
 - Lessons from 0.10.23-0.10.24 (QSplashScreen wait, time decoding and reconciliation, local build pitfalls) recorded in `AGENTS.md`.
 - Validation: VS 2022 x64 Debug/Release, QtTest 28/28 and CTest 1/1 per configuration. Reports: `HDFStudio/logs/S4-UI-Slogan/`.
-- Release preparation: full GPL-3.0 text in `LICENSE`, `THIRD_PARTY_NOTICES.md` (Qt LGPL-3.0, netCDF-C, HDF5, zlib, VC++ runtime), Windows download and build notes in `README.md`, and `tools/package-windows.ps1` producing the `-win64.zip` and `-src.zip` release assets.
+- Release preparation: full GPL-3.0 text in `LICENSE`, `THIRD_PARTY_NOTICES.md` (Qt LGPL-3.0, netCDF-C, HDF5, zlib, VC++ runtime), Windows download and build notes in `README.md`, and local packaging scripts producing the `-win64.zip` and `-src.zip` release assets.
 - Public README rewritten in English (features, download, Python requirements, scope, credits to pedro-vicente/hdf_explorer_qt, search keywords).
 
 ## 0.10.24 - 2026-11-20

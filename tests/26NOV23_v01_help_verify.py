@@ -29,7 +29,7 @@ class HelpParser(HTMLParser):
             self.ids.append(d_attributes['id'])
         if s_tag == 'a':
             self.links.append(d_attributes.get('href', ''))
-        if s_tag in ('script', 'img', 'iframe', 'link'):
+        if s_tag in ('script', 'img', 'iframe') or (s_tag == 'link' and d_attributes.get('rel') != 'canonical'):
             self.external_resources.append(d_attributes)
 
 
@@ -45,7 +45,7 @@ def main():
     d_env = os.environ.copy()
     d_env['QT_LOGGING_TO_CONSOLE'] = '1'
     d_report = {'status': 'RUNNING', 'sources': {}, 'documentation': {}, 'configurations': {}}
-    l_inputs = [p_root / s_path for s_path in ['CMakeLists.txt', 'doc/help.html', 'README.md', 'README_CN.md', 'src/app/hdf_explorer.cpp', 'tests/drop_targets_test.cpp', 'tools/package-windows.ps1']]
+    l_inputs = [p_root / s_path for s_path in ['CMakeLists.txt', 'doc/help.html', 'README.md', 'README_CN.md', 'src/app/hdf_explorer.cpp', 'tests/drop_targets_test.cpp', 'tests/grib_browser_test.cpp', 'tools/package-windows.ps1']]
     l_inputs.extend(sorted((p_root / 'src/core').rglob('*.cpp')))
     d_report['sources'] = {str(p_file.relative_to(p_root)): digest(p_file) for p_file in l_inputs}
 

@@ -1,7 +1,0 @@
-# Third-party code copies stay local; licenses/manifests/build recipes stay public.
-third_party/hdf_filters/bitshuffle/*.c
-third_party/hdf_filters/bitshuffle/*.h
-third_party/hdf_filters/lz4/*.c
-third_party/hdf_filters/lz4/*.h
-third_party/hdf_filters/zstd/lib/*
-resources/colormaps/source/cmap/*.py
