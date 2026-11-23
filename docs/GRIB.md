@@ -37,14 +37,28 @@ meanings are never guessed.
 ## 🪜 Delivery sequence
 
 G1 backend and CLI → G2 tree/table/image → G3 shared analyses → G4 sections/vectors →
-G5 mixed-format regression and portable deployment. The local 0.14.02 checkpoint includes
-G1–G3 and the G4 CLI/worker section reader, plus offline help. GRIB GUI sections,
-verified geographic coordinates, vector integration and G5 remain separate gates.
+G5 mixed-format regression and portable deployment. The local 0.14.04 development version includes
+G1–G3, the G4 CLI/worker section reader and independent GUI sections, plus offline help.
+Verified geographic coordinates, vector integration and G5 remain separate gates.
 The pre-merge local checkpoint is
 `4cb279731971a2adbeff3cc47af87047f6420b26`.
 
 Each stage records its actual checks and limitations in the workspace design ledger.
 No GitHub publication is part of this integration task.
+
+### 📈 GUI section display
+
+Rectangular variables and fields expose **Space-Time Section (Hovmöller)** in View and
+the context menu. Reads use the same isolated CLI worker with schema 2 / GribDecodedV1;
+the application reserves output, coordinate and source-decoding working memory before
+launching the worker. Any ordered axis pair is supported; fixed axes retain navigation,
+latest-request cancellation and playback. Missing slots stay NaN.
+
+Grid Y–Time index / Time index–Grid X presets use the catalog's reference-plus-step axis
+and retain its complete original labels in probes, fixed-axis labels and export metadata.
+These are index-space sections; they do not infer verified elapsed-time or geographical
+coordinates. Fit stretches display axes independently with smooth image interpolation.
+Numeric snapshots, probes, CSV and native-resolution PNG preserve source samples.
 
 ### 🧪 Small-step gate
 

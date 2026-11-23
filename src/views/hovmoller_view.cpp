@@ -1,5 +1,6 @@
 #include "hovmoller_view.hpp"
 #include "raster_budget.hpp"
+#include "grib/grib_data.hpp"
 #include <QThreadPool>
 #include <QJsonDocument>
 #include <QJsonArray>
@@ -31,6 +32,7 @@ QString write_csv(const QString &path,const std::shared_ptr<const SectionSnapsho
 }
 }
 HovmollerView::HovmollerView(QString file,QString variable,QWidget *parent):QWidget(parent),m_file(QFileInfo(file).absoluteFilePath()),m_variable(variable) {
+  m_grib=GribData::is_grib(m_file);
   setObjectName("hovmollerView");setWindowTitle(tr("Space-Time Section (Hovmöller) — %1").arg(variable));
   m_stamp=slice_stamp(m_file);m_jobs=new SliceJobController;m_dates=new SectionDates;
   m_date_debounce.setSingleShot(true);m_date_debounce.setInterval(150);connect(&m_date_debounce,&QTimer::timeout,this,&HovmollerView::start_dates);
@@ -43,7 +45,7 @@ HovmollerView::HovmollerView(QString file,QString variable,QWidget *parent):QWid
   auto *scroll=new QScrollArea;scroll->setWidgetResizable(true);scroll->setMaximumHeight(125);m_fixed_widget=new QWidget;m_fixed_layout=new QGridLayout(m_fixed_widget);scroll->setWidget(m_fixed_widget);layout->addWidget(scroll);
   auto *colors=new QHBoxLayout;m_palette=new QComboBox;m_palette->setObjectName("hovmollerPalette");m_palette->setAccessibleName(tr("Color map"));QString palette_error;m_palettes=HdfColorMap::load_registry(palette_error);
   for(const auto &palette:m_palettes)m_palette->addItem(color_map_icon(palette),palette.name,palette.id);
-  const int viridis=m_palette->findData("bids:viridis");if(viridis>=0)m_palette->setCurrentIndex(viridis);
+  const int default_palette=m_palette->findData(HdfColorMap::default_palette_id);if(default_palette>=0)m_palette->setCurrentIndex(default_palette);
   m_reverse=new QCheckBox(tr("Reverse"));m_reverse->setObjectName("hovmollerReverse");
   m_range_mode=new QComboBox;m_range_mode->setObjectName("hovmollerRangeMode");m_range_mode->addItems({"Auto","Fixed"});m_range_mode->setToolTip(tr("Use Fixed for comparable colors when sweeping fixed positions"));
   auto field=[&](const QString &name,const QString &placeholder){auto *edit=new QLineEdit;edit->setObjectName(name);edit->setAccessibleName(placeholder);edit->setPlaceholderText(placeholder);edit->setMaximumWidth(110);return edit;};
@@ -70,6 +72,7 @@ HovmollerView::HovmollerView(QString file,QString variable,QWidget *parent):QWid
   for(auto *edit:{m_min,m_max,m_center,m_mask_start,m_mask_end})connect(edit,&QLineEdit::editingFinished,this,rerender);
   for(auto *combo:{m_palette,m_range_mode,m_normalization})connect(combo,&QComboBox::activated,this,rerender);
   connect(m_reverse,&QCheckBox::toggled,this,rerender);
+  fit->setToolTip(tr("Fill the plot width and height with smooth display interpolation; original samples are unchanged"));
   connect(fit,&QPushButton::clicked,m_canvas,&SectionCanvas::fit);connect(plus,&QPushButton::clicked,this,[this]{m_canvas->zoom(1.25);});connect(minus,&QPushButton::clicked,this,[this]{m_canvas->zoom(.8);});
   for(auto *flip:{m_flip_h,m_flip_v})connect(flip,&QCheckBox::toggled,this,[this]{if(!m_snapshot)return;auto snapshot=std::make_shared<SectionSnapshot>(*m_snapshot);snapshot->flip_h=m_flip_h->isChecked();snapshot->flip_v=m_flip_v->isChecked();snapshot->metadata["flip_h"]=snapshot->flip_h;snapshot->metadata["flip_v"]=snapshot->flip_v;m_snapshot=snapshot;m_canvas->set_flips(snapshot->flip_h,snapshot->flip_v);});
   connect(cancel_button,&QPushButton::clicked,this,&HovmollerView::cancel);
@@ -87,6 +90,7 @@ void HovmollerView::set_state(const QString &state,const QString &error) {
 }
 QJsonObject HovmollerView::request(const QString &operation) const {
   QJsonObject object{{"schema",1},{"operation",operation},{"file",m_file},{"variable",m_variable},{"source_stamp",m_stamp},{"request_id",QString::number(m_request_id)},{"source_revision",QString::number(m_source_revision)}};
+  if(m_grib){object["schema"]=2;object["source_kind"]="grib";object["decode_profile"]="GribDecodedV1";}
   if(operation=="read") {
     const auto metadata=slice_metadata(m_file,m_variable,m_info,m_spec);object["expected_shape"]=metadata["shape"];object["spec"]=metadata["spec"];
     QJsonArray coordinates;for(size_t axis=0;axis<m_info.shape.size();++axis)if(axis==m_spec.row_axis||axis==m_spec.col_axis||m_info.shape[axis]<=1048576)coordinates.append(int(axis));object["coordinate_axes"]=coordinates;
@@ -102,7 +106,9 @@ void HovmollerView::received(std::shared_ptr<SliceWorkerData> result,std::shared
   if(result->info.shape!=m_info.shape||result->spec.row_axis!=m_spec.row_axis||result->spec.col_axis!=m_spec.col_axis||result->spec.fixed_indices!=m_spec.fixed_indices){set_state("Error","ProtocolError: result does not match requested slice");return;}
   auto data=std::make_shared<SectionSnapshot>();data->file=m_file;data->variable=m_variable;data->info=result->info;data->spec=result->spec;data->coordinates=std::make_shared<const std::map<size_t,std::vector<double>>>(std::move(result->coordinates));data->lease=std::move(lease);
   data->decoded=std::make_shared<const std::vector<double>>(std::move(result->plane.values));data->metadata=slice_metadata(m_file,m_variable,result->info,m_spec);data->metadata["source_stamp"]=m_stamp;data->metadata["source_revision"]=QString::number(m_source_revision);
-  for(const char *key:{"fixed_coordinates","precision_warning","diagnostics","reader","timing_ms"})data->metadata[key]=result->metadata[key];data->request_id=m_request_id;data->metadata["request_id"]=QString::number(m_request_id);
+  for(const char *key:{"fixed_coordinates","precision_warning","diagnostics","reader","timing_ms"})data->metadata[key]=result->metadata[key];
+  if(m_grib)data->metadata["missing_fields"]=result->metadata["missing_fields"];
+  data->request_id=m_request_id;data->metadata["request_id"]=QString::number(m_request_id);
   m_info=result->info;m_data=std::move(data);refresh_fixed();presets();render();
 }
 void HovmollerView::build_axes() {
@@ -111,6 +117,15 @@ void HovmollerView::build_axes() {
   m_spec.row_axis=0;m_spec.col_axis=1;m_row->setCurrentIndex(0);m_col->setCurrentIndex(1);
 }
 void HovmollerView::presets(bool choose_default) {
+  if(m_grib){
+    size_t time=no_axis;for(const auto &axis:m_info.axes)if(axis.dimension_name=="time (reference + step)"&&!axis.source_labels.empty())time=axis.dimension_index;
+    const bool available=time!=no_axis&&m_info.shape.size()>2;
+    m_lat_time->setText(tr("Grid Y–Time index"));m_lon_time->setText(tr("Time index–Grid X"));
+    for(auto *button:{m_lat_time,m_lon_time}){button->setEnabled(available);button->setAccessibleName(button->text());button->setToolTip(tr("GRIB source-grid indices and original reference/step labels; no geographic or elapsed-time resampling"));}
+    if(choose_default){m_spec.row_axis=m_info.shape.size()-2;m_spec.col_axis=available?time:0;if(m_spec.row_axis==m_spec.col_axis)m_spec.col_axis=m_info.shape.size()-1;
+      QSignalBlocker r(m_row),c(m_col);m_row->setCurrentIndex(int(m_spec.row_axis));m_col->setCurrentIndex(int(m_spec.col_axis));}
+    return;
+  }
   auto unique=[&](SliceAxisRole role){size_t found=no_axis;for(const auto &axis:m_info.axes)if(axis.role==role){if(found!=no_axis)return no_axis;found=axis.dimension_index;}return found;};
   size_t time=unique(SliceAxisRole::Time),lat=unique(SliceAxisRole::Latitude),lon=unique(SliceAxisRole::Longitude);
   auto coordinates_valid=[&](size_t axis){if(!m_data)return true;const auto found=m_data->coordinates->find(axis);if(found==m_data->coordinates->end())return false;for(double value:found->second)if(!std::isfinite(value)||(axis==lat&&(value< -90||value>90)))return false;return true;};
@@ -121,6 +136,8 @@ void HovmollerView::presets(bool choose_default) {
 }
 void HovmollerView::apply_preset(bool latitude) {
   if(!(latitude?m_lat_time:m_lon_time)->isEnabled())return;size_t time=0,space=0;
+  if(m_grib){for(const auto &axis:m_info.axes)if(axis.dimension_name=="time (reference + step)")time=axis.dimension_index;
+    set_axes(latitude?m_info.shape.size()-2:time,latitude?time:m_info.shape.size()-1);return;}
   for(const auto &axis:m_info.axes){if(axis.role==SliceAxisRole::Time)time=axis.dimension_index;if(axis.role==(latitude?SliceAxisRole::Latitude:SliceAxisRole::Longitude))space=axis.dimension_index;}
   set_axes(latitude?space:time,latitude?time:space);
 }
@@ -147,7 +164,8 @@ void HovmollerView::rebuild_fixed() {
 void HovmollerView::refresh_fixed(){
   for(auto axis:m_fixed_axes) {
     m_index_edits[axis]->setText(QString::number(m_spec.fixed_indices[axis]));QString value="coordinate unavailable";bool enabled=false;
-    if(m_data){auto found=m_data->coordinates->find(axis);if(found!=m_data->coordinates->end()){if(m_spec.fixed_indices[axis]<found->second.size())value=value_text(found->second[m_spec.fixed_indices[axis]]);size_t index=0;enabled=!found->second.empty()&&slice_nearest(found->second,found->second.front(),index).isEmpty();if(m_info.axes[axis].role==SliceAxisRole::Latitude)for(double v:found->second)if(v< -90||v>90)enabled=false;}
+    if(m_data){const auto &labels=m_info.axes[axis].source_labels;if(m_spec.fixed_indices[axis]<size_t(labels.size()))value=labels[int(m_spec.fixed_indices[axis])];
+      auto found=m_data->coordinates->find(axis);if(found!=m_data->coordinates->end()){if(m_spec.fixed_indices[axis]<found->second.size())value=value_text(found->second[m_spec.fixed_indices[axis]]);size_t index=0;enabled=!found->second.empty()&&slice_nearest(found->second,found->second.front(),index).isEmpty();if(m_info.axes[axis].role==SliceAxisRole::Latitude)for(double v:found->second)if(v< -90||v>90)enabled=false;}
       else for(const auto &fixed:m_data->metadata["fixed_coordinates"].toArray()){const auto object=fixed.toObject();if(object["dimension_index"].toInt()==int(axis))value=object["value"].isDouble()?value_text(object["value"].toDouble()):"coordinate missing";}}
     m_fixed_labels[axis]->setText(value+" "+m_info.axes[axis].units+(m_info.shape[axis]>INT_MAX?" — toolbar int limit":""));m_coordinate_buttons[axis]->setEnabled(enabled);
   }
@@ -167,7 +185,9 @@ void HovmollerView::request_plane() {
   const auto validation=slice_validate(std::vector<size_t>(m_info.shape.begin(),m_info.shape.end()),m_spec);if(!validation.isEmpty()){m_jobs->cancel();set_state("Error",validation);return;}
   quint64 fixed=0;for(auto axis:m_fixed_axes)if(m_info.shape[axis]<=1048576)fixed+=m_info.shape[axis];
   const quint64 pixels=m_info.shape[m_spec.row_axis]*m_info.shape[m_spec.col_axis];const quint64 base=64*pixels+16*fixed+16*1024*1024;
-  if(m_info.chunk_bytes>(std::numeric_limits<quint64>::max()-base)/2){set_state("Error","MemoryBudgetExceeded: chunk size overflow");return;}const quint64 bytes=base+2*m_info.chunk_bytes;
+  if(m_info.chunk_bytes>(std::numeric_limits<quint64>::max()-base)/2){set_state("Error","MemoryBudgetExceeded: chunk size overflow");return;}quint64 bytes=base+2*m_info.chunk_bytes;
+  if(m_info.source_working_bytes>std::numeric_limits<quint64>::max()-bytes){set_state("Error","MemoryBudgetExceeded: source size overflow");return;}bytes+=m_info.source_working_bytes;
+  if(m_grib&&bytes>512ull*1024*1024){m_jobs->cancel();set_state("Error","MemoryBudgetExceeded: section and GRIB source exceed 512 MiB");return;}
   ++m_reads;m_jobs->submit(request("read"),bytes);update_summary();
 }
 void HovmollerView::cancel(){emit stop_playback_requested();++m_request_id;++m_render_revision;m_render_pending=false;m_jobs->cancel();cancel_dates();m_data.reset();set_state("Cancelled");}
@@ -214,6 +234,7 @@ void HovmollerView::pump_render(){
 void HovmollerView::update_summary(){
   QStringList fixed;for(auto axis:m_fixed_axes){QString value=m_fixed_labels.count(axis)?m_fixed_labels[axis]->text():QString();fixed<<QString("%1 index0=%2 %3").arg(m_info.axes[axis].dimension_name).arg(m_spec.fixed_indices[axis]).arg(value);}
   QString description="Generic axis slice — coordinate semantics unverified";if(m_lat_time->isEnabled()||m_lon_time->isEnabled())description="Space-Time Section — source-index spacing";
+  if(m_grib)description="GRIB section — source-grid / reference + step index spacing; original labels; smooth display interpolation";
   QString detail=QString("%1\n%2 — %3 [%4]\nY=%5 / X=%6; %7; shape=(%8,%9)").arg(description,QFileInfo(m_file).fileName(),m_variable,m_info.units,m_info.axes[m_spec.row_axis].dimension_name,m_info.axes[m_spec.col_axis].dimension_name,fixed.join("; ")).arg(m_info.shape[m_spec.row_axis]).arg(m_info.shape[m_spec.col_axis]);
   QStringList diagnostics;for(size_t axis:{m_spec.row_axis,m_spec.col_axis}){const auto &descriptor=m_info.axes[axis];if(!descriptor.diagnostic.isEmpty())diagnostics<<descriptor.dimension_name+": "+descriptor.diagnostic;if(!descriptor.calendar.isEmpty())diagnostics<<"calendar="+descriptor.calendar+" ("+descriptor.calendar_source+")";}if(!diagnostics.isEmpty())detail+="\n"+diagnostics.join("; ");
   if(m_snapshot){detail+=QString("\nValid=%1, missing=%2, masked=%3").arg(m_snapshot->valid).arg(m_snapshot->missing).arg(m_snapshot->masked);if(m_snapshot->metadata["precision_warning"].toBool())detail+="; float64 integer precision warning";}

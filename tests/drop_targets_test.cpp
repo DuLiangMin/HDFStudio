@@ -83,7 +83,9 @@ private slots:
   void colorMapResourcesMatchGoldenValuesAndLicenses();
   void colorMapRgbAndMappingHandleBoundaries();
   void colorMapUiUsesCachedDecodedPlane();
+  void rasterColorbarStaysCompact();
   void colorMapLatestAsyncRenderWins();
+  void netcdfFramePresentationIsCoherent();
   void colorMapMissingCategoriesColorbarAndBudget();
   void invalidFractionsAreClamped();
   void automaticAndFixedRangesAreValidated();
@@ -169,7 +171,7 @@ void DropTargetsTest::localHelpOpensBesideExecutableRegardlessOfWorkingDirectory
   QFile help(expected);
   QVERIFY(help.open(QIODevice::ReadOnly));
   const auto content = help.readAll();
-  QVERIFY(content.contains("0.14.02"));
+  QVERIFY(content.contains("0.14.04"));
   QVERIFY(content.contains("id=\"zh-ai\""));
   QVERIFY(content.contains("id=\"en-ai\""));
 }
@@ -243,9 +245,9 @@ void DropTargetsTest::colorMapResourcesMatchGoldenValuesAndLicenses() {
   using namespace HdfColorMap;
   QStandardPaths::setTestModeEnabled(true);
   QString error;const auto palettes=load_registry(error);QVERIFY2(error.isEmpty(),qPrintable(error));
-  QVERIFY(palettes.size()>=18);
+  QVERIFY(palettes.size()>=20);
   QFile golden(":/colormaps/golden.json");QVERIFY(golden.open(QIODevice::ReadOnly));
-  const auto references=QJsonDocument::fromJson(golden.readAll()).array();QCOMPARE(references.size(),13);
+  const auto references=QJsonDocument::fromJson(golden.readAll()).array();QCOMPARE(references.size(),15);
   for(const auto &reference:references) {
     const auto object=reference.toObject();
     auto found=std::find_if(palettes.begin(),palettes.end(),[&](const Palette &palette){return palette.id==object["id"].toString();});
@@ -260,6 +262,11 @@ void DropTargetsTest::colorMapResourcesMatchGoldenValuesAndLicenses() {
   }
   const std::vector<size_t> counts={256,256,256,512,256,512,256,256,12,13,20,18,254};
   for(size_t index=0;index<counts.size();++index) QCOMPARE(palettes[index+5].colors.size(),counts[index]);
+  const auto jet=std::find_if(palettes.begin(),palettes.end(),[](const Palette &palette){return palette.id=="matplotlib:jet";});
+  const auto rainbow=std::find_if(palettes.begin(),palettes.end(),[](const Palette &palette){return palette.id=="matplotlib:rainbow";});
+  QVERIFY(jet!=palettes.end());QVERIFY(rainbow!=palettes.end());QCOMPARE(jet->colors.size(),size_t(12));QCOMPARE(rainbow->colors.size(),size_t(256));
+  QCOMPARE(sample(*jet,0),qRgb(0,0,128));QCOMPARE(sample(*jet,1),qRgb(128,0,0));QCOMPARE(sample(*jet,.5),qRgb(123,255,123));
+  QCOMPARE(sample(*rainbow,0),qRgb(128,0,255));QCOMPARE(sample(*rainbow,1),qRgb(255,0,0));
   for(int index=0;index<5;++index) for(double position:{0.,.13,.37,.5,1.})
     QCOMPARE(sample(palettes[size_t(index)],position),RasterColorMap::color(RasterColorMap::Palette(index),position,false).rgba());
   QFile manifest(":/colormaps/manifest.json");QVERIFY(manifest.open(QIODevice::ReadOnly));
@@ -589,6 +596,8 @@ void DropTargetsTest::colorMapUiUsesCachedDecodedPlane() {
   auto *canvas=view.findChild<QGraphicsView*>();QVERIFY(canvas);
   QGraphicsPixmapItem *image=nullptr;for(auto *item:canvas->scene()->items()) if(item->type()==QGraphicsPixmapItem::Type) image=static_cast<QGraphicsPixmapItem*>(item);
   QVERIFY(image);const QTransform transform=canvas->transform();
+  QCOMPARE(selector->currentData().toString(),HdfColorMap::default_palette_id);
+  QCOMPARE(view.color_state().palette.id,HdfColorMap::default_palette_id);
   auto *flip=view.findChild<QAction*>("flipHorizontalAction");flip->setChecked(true);
   const auto flipped=canvas->transform();
   selector->setCurrentIndex(selector->findData("bids:viridis"));
@@ -639,6 +648,30 @@ void DropTargetsTest::colorMapUiUsesCachedDecodedPlane() {
   Q_UNUSED(transform);
 }
 
+void DropTargetsTest::rasterColorbarStaysCompact() {
+  QTemporaryDir directory;const auto filename=directory.filePath("compact-colorbar.nc");
+  int file=-1,y=-1,x=-1,variable=-1;QCOMPARE(nc_create(nc_path_bytes(filename).constData(),NC_CLOBBER,&file),NC_NOERR);
+  nc_def_dim(file,"y",20,&y);nc_def_dim(file,"x",40,&x);int dims[]={y,x};nc_def_var(file,"field",NC_DOUBLE,2,dims,&variable);nc_put_att_text(file,variable,"units",1,"K");nc_enddef(file);
+  std::vector<double> values(800);std::iota(values.begin(),values.end(),0.);nc_put_var_double(file,variable,values.data());nc_close(file);
+  RasterView view(filename.toLocal8Bit().toStdString(),"/field",{20,40});view.resize(1100,750);view.show();QVERIFY(QTest::qWaitForWindowExposed(&view));
+  QTRY_VERIFY(view.plane_snapshot().values);const auto original=view.image_for_export();const auto reads=view.property("planeReadCount");
+  auto *bar=view.findChild<ColorBar*>();auto *canvas=view.findChild<QGraphicsView*>();QVERIFY(bar);QVERIFY(canvas);
+  for(const QSize size:{QSize(640,480),QSize(1000,700),QSize(1400,900)}){
+    view.resize(size);QTest::qWait(60);view.findChild<QAction*>("fitImageAction")->trigger();
+    QTRY_VERIFY(bar->width()<=640&&bar->width()<canvas->viewport()->width());
+    QVERIFY(bar->height()<=2*bar->fontMetrics().lineSpacing()+24);QVERIFY(canvas->height()>bar->height()*3);
+    QTRY_VERIFY(std::abs(bar->geometry().center().x()-canvas->geometry().center().x())<=10);
+    const auto settings=view.color_state();const auto image=bar->grab().toImage();const qreal ratio=image.devicePixelRatio();
+    for(double fraction:{.1,.5,.9}){
+      const int pixel=36+qRound(fraction*(bar->width()-72));
+      const auto actual=image.pixel(qRound(pixel*ratio),qRound((bar->fontMetrics().lineSpacing()+8)*ratio));
+      QCOMPARE(actual,HdfColorMap::map_value(settings.palette,settings.mapping,HdfColorMap::value_at(double(pixel-36)/(bar->width()-72),settings.mapping)));
+    }
+    const auto folder=qEnvironmentVariable("HDFSTUDIO_TEST_LOG_DIR");if(!folder.isEmpty())QVERIFY(view.grab().save(folder+QString("/compact-colorbar-%1x%2.png").arg(size.width()).arg(size.height())));
+  }
+  QCOMPARE(view.image_for_export(),original);QCOMPARE(view.property("planeReadCount"),reads);
+}
+
 void DropTargetsTest::colorMapLatestAsyncRenderWins() {
   QTemporaryDir directory;const QString filename=directory.filePath("async.nc");
   int file=-1,row=-1,col=-1,variable=-1;QCOMPARE(nc_create(nc_path_bytes(filename).constData(),NC_CLOBBER,&file),NC_NOERR);
@@ -646,7 +679,7 @@ void DropTargetsTest::colorMapLatestAsyncRenderWins() {
   std::vector<double> values(90000);std::iota(values.begin(),values.end(),0.);nc_put_var_double(file,variable,values.data());nc_close(file);
   RasterView view(filename.toLocal8Bit().toStdString(),"/field",{300,300});view.resize(900,650);view.show();QVERIFY(QTest::qWaitForWindowExposed(&view));
   QTRY_VERIFY(view.property("planeReadCount").isValid());
-  auto *selector=view.findChild<QComboBox*>("colorMapSelector");for(int iteration=0;iteration<40;++iteration) selector->setCurrentIndex(iteration%18);
+  auto *selector=view.findChild<QComboBox*>("colorMapSelector");for(int iteration=0;iteration<40;++iteration) selector->setCurrentIndex(iteration%20);
   selector->setCurrentIndex(selector->findData("bids:viridis"));
   auto *canvas=view.findChild<QGraphicsView*>();QGraphicsPixmapItem *item=nullptr;
   for(auto *candidate:canvas->scene()->items()) if(candidate->type()==QGraphicsPixmapItem::Type) item=static_cast<QGraphicsPixmapItem*>(candidate);
@@ -664,8 +697,37 @@ void DropTargetsTest::colorMapLatestAsyncRenderWins() {
               {"--preview","field","--png",output,filename});
   QVERIFY(batch.waitForFinished(30000));QCOMPARE(batch.exitCode(),0);
   const QImage exported(output);QCOMPARE(exported.size(),QSize(300,300));
-  QCOMPARE(exported.pixel(0,0),RasterColorMap::color(RasterColorMap::Palette::Viridis,0,false).rgba());
-  QCOMPARE(exported.pixel(299,299),RasterColorMap::color(RasterColorMap::Palette::Viridis,1,false).rgba());
+  QCOMPARE(exported.pixel(0,0),qRgb(0,0,128));
+  QCOMPARE(exported.pixel(299,299),qRgb(128,0,0));
+}
+
+void DropTargetsTest::netcdfFramePresentationIsCoherent() {
+  QTemporaryDir directory;const auto filename=directory.filePath("presentation.nc");
+  int file=-1,time=-1,row=-1,col=-1,variable=-1;
+  QCOMPARE(nc_create(nc_path_bytes(filename).constData(),NC_CLOBBER,&file),NC_NOERR);
+  QCOMPARE(nc_def_dim(file,"time",3,&time),NC_NOERR);QCOMPARE(nc_def_dim(file,"y",300,&row),NC_NOERR);QCOMPARE(nc_def_dim(file,"x",300,&col),NC_NOERR);
+  const int dimensions[]={time,row,col};QCOMPARE(nc_def_var(file,"field",NC_DOUBLE,3,dimensions,&variable),NC_NOERR);QCOMPARE(nc_enddef(file),NC_NOERR);
+  std::vector<double> values(270000);std::iota(values.begin(),values.end(),0.);
+  QCOMPARE(nc_put_var_double(file,variable,values.data()),NC_NOERR);QCOMPARE(nc_close(file),NC_NOERR);
+  RasterView view(filename.toLocal8Bit().toStdString(),"/field",{3,300,300});QVERIFY(!view.image_for_export().isNull());
+  auto *canvas=view.findChild<QGraphicsView*>();QGraphicsPixmapItem *image=nullptr;
+  for(auto *item:canvas->scene()->items())if(item->type()==QGraphicsPixmapItem::Type)image=static_cast<QGraphicsPixmapItem*>(item);
+  QVERIFY(image);const auto initial=image->pixmap().toImage();const auto initial_revision=view.property("renderedRevision");
+  auto *bar=view.findChild<ColorBar*>();bar->resize(700,94);const auto initial_bar=bar->grab().toImage();
+  view.set_layer_index(0,1);QVERIFY(view.render_pending());QVERIFY(!view.plane_snapshot().values);
+  QCOMPARE(image->pixmap().toImage(),initial);QCOMPARE(view.property("renderedRevision"),initial_revision);QCOMPARE(bar->grab().toImage(),initial_bar);
+  QVERIFY(view.findChild<QLabel*>("rasterLegend")->text().contains("previous image"));QVERIFY(!view.property("minimum").isValid());
+  for(int index=0;index<20;++index)view.set_layer_index(0,index%3);
+  view.set_layer_index(0,2);QTRY_VERIFY_WITH_TIMEOUT(!view.render_pending(),10000);
+  const auto snapshot=view.plane_snapshot();QVERIFY(snapshot.values);QCOMPARE(snapshot.leading_indices,std::vector<size_t>{2});
+  for(size_t position=0;position<90000;++position)QCOMPARE(snapshot.values->at(position),180000.+double(position));
+  QCOMPARE(view.property("minimum").toDouble(),180000.);QCOMPARE(view.property("maximum").toDouble(),269999.);
+  const auto exported=view.image_for_export();const auto colors=view.color_state();
+  for(int r=0;r<300;++r)for(int c=0;c<300;++c)
+    QCOMPARE(exported.pixel(c,r),HdfColorMap::map_value(colors.palette,colors.mapping,180000.+r*300+c,false));
+  view.set_sync_out_of_range(true,"missing follower");QVERIFY(image->pixmap().isNull());QVERIFY(!view.plane_snapshot().values);
+  view.set_sync_out_of_range(false,{});QVERIFY(!view.image_for_export().isNull());
+  QVERIFY(QFile::remove(filename));view.set_layer_index(0,0);QVERIFY(image->pixmap().isNull());QVERIFY(!view.plane_snapshot().values);QVERIFY(view.image_for_export().isNull());
 }
 
 void DropTargetsTest::colorMapMissingCategoriesColorbarAndBudget() {
@@ -683,6 +745,7 @@ void DropTargetsTest::colorMapMissingCategoriesColorbarAndBudget() {
   double values[]={4,4,4,4,4,4,fill,fill,fill,fill,fill,fill,10,2,10,2,10,2};
   QCOMPARE(nc_put_var_double(file,variable,values),NC_NOERR);QCOMPARE(nc_close(file),NC_NOERR);
   RasterView view(filename.toLocal8Bit().toStdString(),"/field",{3,2,3});view.resize(1100,700);view.show();
+  view.findChild<QComboBox*>("colorMapSelector")->setCurrentIndex(0);
   QVERIFY(QTest::qWaitForWindowExposed(&view));QTRY_COMPARE(view.property("planeReadCount").toULongLong(),qulonglong(1));
   auto *canvas=view.findChild<QGraphicsView*>();QGraphicsPixmapItem *image=nullptr;
   for(auto *item:canvas->scene()->items()) if(item->type()==QGraphicsPixmapItem::Type) image=static_cast<QGraphicsPixmapItem*>(item);
@@ -3017,8 +3080,8 @@ void DropTargetsTest::regressionAsyncLayersMasksAndRecovery() {
   QTRY_VERIFY(item->pixmap().toImage().convertToFormat(QImage::Format_RGB32)==expected);
   QCOMPARE(view.layer_index(0),1);QCOMPARE(view.property("masked").toULongLong(),qulonglong(100));
   auto *bar=view.findChild<ColorBar*>();const auto bar_image=bar->grab().toImage().convertToFormat(QImage::Format_RGB32);
-  const int bar_x=bar->width()/2;const double bar_fraction=double(bar_x-44)/(bar->width()-88);
-  QCOMPARE(bar_image.pixel(qRound(bar_x*bar_image.devicePixelRatio()),qRound(32*bar_image.devicePixelRatio())),map_value(*found,settings,value_at(bar_fraction,settings)));
+  const int bar_x=bar->width()/2;const double bar_fraction=double(bar_x-36)/(bar->width()-72);
+  QCOMPARE(bar_image.pixel(qRound(bar_x*bar_image.devicePixelRatio()),qRound((bar->fontMetrics().lineSpacing()+8)*bar_image.devicePixelRatio())),map_value(*found,settings,value_at(bar_fraction,settings)));
   const auto read_count=view.property("planeReadCount");
   const QPoint probe=canvas->mapFromScene(QPointF(.5,.5));
   QMouseEvent hover(QEvent::MouseMove,QPointF(probe),QPointF(canvas->viewport()->mapToGlobal(probe)),Qt::NoButton,Qt::NoButton,Qt::NoModifier);
@@ -3135,7 +3198,7 @@ void DropTargetsTest::textureEntropyViewIsIndependent2DImage() {
   const auto &entropy = view->entropy_plane();
   QCOMPARE(entropy.block_entropy[0], 0.); QCOMPARE(entropy.block_entropy[3], 4.);
   QString error; const auto palettes = HdfColorMap::load_registry(error);
-  const auto palette = std::find_if(palettes.begin(), palettes.end(), [](const HdfColorMap::Palette &value) { return value.id == "bids:viridis"; });
+  const auto palette = std::find_if(palettes.begin(), palettes.end(), [](const HdfColorMap::Palette &value) { return value.id == HdfColorMap::default_palette_id; });
   QVERIFY(palette != palettes.end()); HdfColorMap::Mapping mapping; mapping.minimum = 0; mapping.maximum = 4;
   const auto image = view->image_for_export().convertToFormat(QImage::Format_RGB32);
   for(size_t row = 0; row < entropy.rows; ++row) for(size_t col = 0; col < entropy.cols; ++col)
@@ -3559,7 +3622,9 @@ void DropTargetsTest::forecastPairResidualMatchesEveryDecodedPixel() {
   ResidualView view;view.show();
   for(int index:{1,91,180}) {
     a.set_layer_index(0,index);QCOMPARE(b.layer_index(0),index-1);QVERIFY(!b.plane_snapshot().out_of_range);
+    QTRY_VERIFY_WITH_TIMEOUT(!a.render_pending() && !b.render_pending() && a.plane_snapshot().values && b.plane_snapshot().values,10000);
     const auto ap=a.plane_snapshot(),bp=b.plane_snapshot();
+    QCOMPARE(ap.leading_indices,std::vector<size_t>{size_t(index)});QCOMPARE(bp.leading_indices,std::vector<size_t>{size_t(index-1)});
     QCOMPARE(ap.units,QString("K"));QCOMPARE(bp.units,QString("K"));
     view.update_planes(ap,bp,QString("Anchor[%1] Target[%2] lag -1").arg(index).arg(index-1));
     QVERIFY(view.residual().valid);QCOMPARE(view.residual().values.size(),size_t(190*384));

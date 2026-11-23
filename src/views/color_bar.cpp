@@ -15,6 +15,11 @@ ColorBar::ColorBar(QWidget *parent):QWidget(parent) {
   setObjectName("colorBar"); setAccessibleName(tr("Colorbar"));
   setMinimumHeight(94); setSizePolicy(QSizePolicy::Expanding,QSizePolicy::Fixed);
 }
+void ColorBar::set_compact(bool enabled) {
+  compact=enabled;
+  setFixedHeight(compact?2*fontMetrics().lineSpacing()+24:94);
+  updateGeometry();update();
+}
 void ColorBar::clear() {ready=false;setToolTip({});update();}
 void ColorBar::set_mapping(const HdfColorMap::Palette &palette,const HdfColorMap::Mapping &settings,
                           const QString &unit_text,const QStringList &labels,bool range_available) {
@@ -33,9 +38,17 @@ void ColorBar::paintEvent(QPaintEvent *) {
   if(!ready||width()<100) return;
   QPainter painter(this); const auto text_color=palette().color(QPalette::WindowText);
   const QFontMetrics metrics(font());
-  const int left=44, right=width()-44, top=24, bar_height=16;
+  const int left=compact?36:44, right=width()-(compact?36:44), top=compact?metrics.lineSpacing()+4:24, bar_height=compact?9:16;
   const QString title=colors.name+"  |  "+(units.isEmpty()?tr("units unspecified"):units);
-  painter.setPen(text_color); painter.drawText(QRect(8,0,width()-16,22),Qt::AlignLeft|Qt::AlignVCenter,metrics.elidedText(title,Qt::ElideRight,width()-16));
+  const int key_width=metrics.horizontalAdvance(combined_missing_mask?tr("Missing / Mask"):tr("Missing"))+metrics.horizontalAdvance(tr("Mask"))+36;
+  const bool inline_keys=compact;
+  const int title_width=width()-16-(inline_keys?key_width+12:0);
+  painter.setPen(text_color); painter.drawText(QRect(8,0,title_width,compact?metrics.lineSpacing():22),Qt::AlignLeft|Qt::AlignVCenter,metrics.elidedText(title,Qt::ElideRight,title_width));
+  if(inline_keys){
+    const int baseline=metrics.ascent(),start=width()-key_width;
+    painter.fillRect(start,baseline-8,8,8,QColor::fromRgba(HdfColorMap::missing_color));painter.drawRect(start,baseline-8,8,8);painter.drawText(start+12,baseline,combined_missing_mask?tr("Missing / Mask"):tr("Missing"));
+    if(!combined_missing_mask){const int next=start+metrics.horizontalAdvance(tr("Missing"))+23;painter.fillRect(next,baseline-8,8,8,Qt::white);painter.drawRect(next,baseline-8,8,8);painter.drawText(next+12,baseline,tr("Mask"));}
+  }
   if(valid_range) for(int column=left;column<=right;++column) {
     const double position=double(column-left)/(right-left);
     uint32_t color;
@@ -47,7 +60,7 @@ void ColorBar::paintEvent(QPaintEvent *) {
   }
   painter.setPen(text_color);
   if(valid_range) painter.drawRect(left,top,right-left,bar_height);
-  else painter.drawText(left,top+bar_height,tr("No finite values — no numeric color range"));
+  else painter.drawText(QRect(8,top,width()-16,metrics.height()),Qt::AlignCenter,metrics.elidedText(tr("No finite values — no numeric color range"),Qt::ElideRight,width()-16));
   int ticks=std::max(2,std::min(5,(right-left)/110+1));
   if(categories.empty()&&mapping.minimum==mapping.maximum) ticks=1;
   if(!categories.empty()) ticks=std::min(ticks,int(categories.size()));
@@ -86,6 +99,7 @@ void ColorBar::paintEvent(QPaintEvent *) {
     }
     painter.setBrush(Qt::NoBrush);
   }
+  if(compact)return;
   // Source missing and user mask are different states even if a palette contains white.
   const int baseline=height()-8;
   painter.fillRect(10,baseline-11,11,11,QColor::fromRgba(HdfColorMap::missing_color));

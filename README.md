@@ -2,17 +2,17 @@
 
 **Unleash the Power of Your NetCDF and GRIB Data**
 
-**English** | [简体中文](README_CN.md) · **Version 0.14.02**
+**English** | [简体中文](README_CN.md) · **Version 0.14.04**
 
 ## ⬇️ Download
 
 [![Release](https://img.shields.io/github/v/release/DuLiangMin/HDFStudio?label=release&color=3d99a4)](https://github.com/DuLiangMin/HDFStudio/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/DuLiangMin/HDFStudio/total?color=3d99a4)](https://github.com/DuLiangMin/HDFStudio/releases)
 [![License: GPL v3](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-lightgrey)](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.02/HDFStudio-0.14.02-update-20261123-win64.zip)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-lightgrey)](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.04/HDFStudio-0.14.04-win64.zip)
 [![Qt](https://img.shields.io/badge/Qt-6.8-41cd52)](https://www.qt.io/)
 
-**[Download](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.02/HDFStudio-0.14.02-update-20261123-win64.zip)** — **0.14.02 Windows x64 portable binary ZIP** · [All releases](https://github.com/DuLiangMin/HDFStudio/releases)
+**[Download](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.04/HDFStudio-0.14.04-win64.zip)** — **0.14.04 Windows x64 portable binary ZIP** · [All releases](https://github.com/DuLiangMin/HDFStudio/releases)
 
 Includes the application, CLI, GRIB decoder and definitions, runtime libraries and offline help. Unzip and run; no separate dependency download is needed for native browsing.
 
@@ -37,7 +37,7 @@ Keep the executable, matching `hdf_cli.exe`, dependency folders and `doc` togeth
 - **Browse GRIB1 and GRIB2 directly:** virtual **Variables** group compatible fields; paged **Messages** preserve physical messages and sub-fields, metadata and provenance.
 - **Inspect and visualize:** double-click rectangular variables/fields for **Image View**; decoded, reconstructed **Quantized X** and paired grids, scientific palettes, decoded-value Mask and CSV/PNG export. Quantized X is available only for supported packing and is not a raw-byte dump.
 - **Analyze and play:** histograms, curve profiles, whole-plane and 2D texture entropy, comparison metrics, residual maps, integer-index synchronization and layer playback.
-- **CLI sections:** arbitrary ordered axis pairs for rectangular GRIB arrays, with missing slots recorded explicitly. GRIB GUI sections, verified geographic-coordinate integration and U/V vectors remain pending.
+- **Space-Time Section (Hovmöller):** independent GUI and CLI sections for rectangular GRIB arrays, arbitrary ordered axes, original reference/step labels, fixed-axis navigation, Mask and PNG/CSV export. Missing slots remain explicit. Verified geographic-coordinate integration and U/V vectors remain pending.
 
 Unknown names/units remain unknown; missing or out-of-range fields clear prior results. GRIB images currently use source-grid indices. Comparisons require identical plane shapes and align by integer index, without automatic unit conversion, time matching, reprojection or resampling. CF checks do not apply to GRIB.
 
@@ -46,14 +46,16 @@ Unknown names/units remain unknown; missing or out-of-range fields clear prior r
 | Task | Feature |
 |---|---|
 | Inspect values | Copyable Properties; decoded/stored/paired NetCDF/HDF5 grids; automatic column widths, cell selection and Ctrl+C |
-| View images | Scientific color maps, zoom/pan, flips, decoded-value Mask and full-resolution PNG |
+| View images | Jet spectrum colors by default, selectable Rainbow and scientific palettes, zoom/pan, flips, decoded-value Mask and full-resolution PNG |
 | Inspect distributions | Sampled or full-plane histograms, curve CSV and texture entropy images |
 | Compare fields | Pearson r, RMSE, MAE, Bias, `Target − Anchor` residuals and per-target integer lag |
 | Browse sequences | Layer controls and Play/Pause; linked views wait for the current data |
-| Slice NetCDF/HDF5 | Independent **Space-Time Section (Hovmöller)** with any two axes, fixed-axis navigation and PNG/CSV |
+| Slice NetCDF/HDF5/GRIB | Independent **Space-Time Section (Hovmöller)** with any two axes, fixed-axis navigation and PNG/CSV |
 | Arrange the workspace | **Window → Tile / Cascade / Hide Infobar** |
 
 NetCDF/HDF5 sections retain source-index cell spacing and verified coordinate labels. Generic HDF5 stays in index space. CF diagnostics are advisory; unsupported encodings and memory limits are reported explicitly. Details are in the [help guide](https://duliangmin.github.io/HDFStudio/doc/help.html#en).
+
+**Fit** fills the section plot width and height with smooth display interpolation, including short or single-column sections. Probes, CSV and native-resolution PNG retain the original samples; this display stretch does not interpolate physical coordinates.
 
 ## ⌨️ Command-line inspection
 
@@ -71,7 +73,7 @@ Use the variable/object ID reported for your file. `hdf_cli` shares the applicat
 
 Windows development uses Visual Studio 2022 x64, CMake, Qt 6.8, HDF5, netCDF-C and ecCodes. Dependency locations and targets are defined in `CMakeLists.txt` and `cmake/Grib.cmake`; ecCodes defaults to `ext/eccodes` and can be set with `HDFSTUDIO_ECCODES_ROOT`. Code lives in `src/app`, `src/core`, `src/views` and `src/cli`; tests are in `tests/`. Builds copy the offline guide to `build/output/<configuration>/doc/help.html`.
 
-The public source omits `tools/` and third-party code copies. Use the [updated source ZIP](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.02/HDFStudio-0.14.02-update-20261123-src.zip), [Dependencies](docs/DEPENDENCIES.md) and the [project structure](docs/PROJECT_STRUCTURE.md); exact dependency URLs and hashes remain in the manifests. Runtime libraries and license texts remain in the binary ZIP.
+The public source omits `tools/` and third-party code copies. Use the [source ZIP](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.04/HDFStudio-0.14.04-src.zip), [Dependencies](docs/DEPENDENCIES.md) and the [project structure](docs/PROJECT_STRUCTURE.md); exact dependency URLs and hashes remain in the manifests. Runtime libraries and license texts remain in the binary ZIP.
 
 Report reproducible problems in [Issues](https://github.com/DuLiangMin/HDFStudio/issues), with the format, object ID, shape and relevant `probe`/`info`/`props` output. Release history is in [Changelog.md](Changelog.md).
 
@@ -87,4 +89,5 @@ atmospheric science, oceanography, earth science, climate model output, CMIP, re
 CF Conventions, CF-1.8 compliance checker, netCDF4-python, num2date, time decoding, noleap calendar,
 latitude longitude grid, Qt6 desktop application, free open source, alternative to Panoply, ncview, HDFView.
 
-GRIB viewer, GRIB1 viewer, GRIB2 viewer Windows, weather forecast data, LLM data inspection, AI agent data tools.
+GRIB viewer, GRIB1 viewer, GRIB2 viewer Windows, weather forecast data, LLM data inspection, AI agent data tools,
+gray-level entropy, 灰度熵, Space-Time Section (Hovmöller).

@@ -2,6 +2,7 @@
   "schema_version": 1,
   "generator": "cmap==0.8.0",
   "ncl_commit": "8f9e9476281cc6f6d9d12eaa78729c7003ca24b7",
+  "matplotlib_version": "3.10.7",
   "palettes": [
     {
       "id": "bids:viridis",
@@ -80,6 +81,18 @@
       "file": "palettes/ncl_BlueWhiteOrangeRed.json",
       "sha256": "7080deacca8d1f4c8a645340e4ce42ab4694fee638061eee93c9dc8d54e945c8",
       "count": 254
+    },
+    {
+      "id": "matplotlib:jet",
+      "file": "palettes/matplotlib_jet.json",
+      "sha256": "be995045c7968f5d4957f85527583b35f520a8f0fa2d5d16ec7c0138c79d053a",
+      "count": 12
+    },
+    {
+      "id": "matplotlib:rainbow",
+      "file": "palettes/matplotlib_rainbow.json",
+      "sha256": "1de7af98f887f0487432661a1c361e11d63fe8f1f4e9256857a2e29a4337accc",
+      "count": 256
     }
   ],
   "licenses": [
@@ -89,7 +102,7 @@
     },
     {
       "file": "ATTRIBUTION.txt",
-      "sha256": "6aef663b0b5f8533aa158f24227f88cd1297ec6eb42776e61eca3e8570b4f027"
+      "sha256": "e39843fd6d66ca6d8196ac4693cc7542735f9f7b31cbe726ec4e1d331894c363"
     },
     {
       "file": "BSD-3-Clause.txt",
@@ -102,6 +115,10 @@
     {
       "file": "cmap-REUSE.toml",
       "sha256": "87932d77eab37ffe410f5611e5dc53ce6d380353dfff51580d3103572d0bce55"
+    },
+    {
+      "file": "Matplotlib-LICENSE.txt",
+      "sha256": "5a1a81ea301728c8bba2933da832c0cd62229daf20893a024ab3d53244468dbc"
     },
     {
       "file": "MIT.txt",

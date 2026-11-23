@@ -12,6 +12,7 @@ public:
   void set_mapping(const HdfColorMap::Palette &palette,const HdfColorMap::Mapping &mapping,
                    const QString &units, const QStringList &categories={},bool valid_range=true);
   void clear();
+  void set_compact(bool enabled);
   void set_combined_missing_mask(bool combined) { combined_missing_mask = combined; update(); }
 protected:
   void paintEvent(QPaintEvent *) override;
@@ -23,4 +24,5 @@ private:
   bool ready=false;
   bool valid_range=true;
   bool combined_missing_mask=false;
+  bool compact=false;
 };

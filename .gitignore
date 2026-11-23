@@ -6,6 +6,7 @@
 /testdata/*.h5
 /testdata/*.hdf5
 /logs/
+/resources/colormaps/source/matplotlib/
 /tests/__pycache__/
 CMakeFiles/
 CMakeCache.txt

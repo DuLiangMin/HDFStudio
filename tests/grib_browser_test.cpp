@@ -12,6 +12,7 @@
 #include "analysis_table_view.hpp"
 #include "raster_view.hpp"
 #include "color_bar.hpp"
+#include "hovmoller_view.hpp"
 #include "netcdf.h"
 
 class GribBrowserTest : public QObject {
@@ -22,6 +23,46 @@ class GribBrowserTest : public QObject {
     return nullptr;
   }
 private slots:
+  void sectionTreePresetsAndExports() {
+    MainWindow window;window.resize(1200,850);window.show();QCOMPARE(window.read_file(fixture("mini_cube.grb2")),0);
+    auto *tree=window.findChild<FileTreeWidget*>();auto *root=tree->topLevelItem(0);auto *target=branch(root,"Variables")->child(0);tree->setCurrentItem(target);
+    auto *action=window.findChild<QAction*>("actionSpaceTimeSection");QVERIFY(action);
+    auto *menu=qobject_cast<QMenu*>(action->parent());QVERIFY(menu);QVERIFY(QMetaObject::invokeMethod(menu,"aboutToShow",Qt::DirectConnection));QVERIFY(action->isEnabled());action->trigger();
+    auto *view=window.findChild<HovmollerView*>();QVERIFY(view);QTRY_VERIFY_WITH_TIMEOUT(view->ready()||view->state()=="Error",15000);QVERIFY2(view->ready(),qPrintable(view->error()));
+    auto snapshot=view->snapshot();QCOMPARE(snapshot->info.source_kind,QString("grib"));QCOMPARE(snapshot->metadata["schema"].toInt(),2);QCOMPARE(snapshot->metadata["decode_profile"].toString(),QString("GribDecodedV1"));
+    QCOMPARE(snapshot->spec.row_axis,size_t(2));QCOMPARE(snapshot->spec.col_axis,size_t(0));QCOMPARE(snapshot->image.size(),QSize(2,3));
+    for(size_t y=0;y<3;++y)for(size_t t=0;t<2;++t)QCOMPARE((*snapshot->decoded)[y*2+t],50000.+600.*t+4.*y);
+    auto *lat=view->findChild<QPushButton*>("hovmollerLatTime"),*lon=view->findChild<QPushButton*>("hovmollerLonTime");QVERIFY(lat->isEnabled());QVERIFY(lon->isEnabled());QVERIFY(lat->text().contains("index"));
+    const auto graphics=view->findChild<SectionCanvas*>()->view();const auto rect=graphics->mapFromScene(QRectF(0,0,2,3)).boundingRect();QVERIFY(std::abs(rect.width()-graphics->viewport()->width())<=6);
+    auto *axis_labels=view->findChild<QWidget*>("hovmollerXAxisLabels");QVERIFY(axis_labels);QVERIFY(axis_labels->height()>=4*view->fontMetrics().lineSpacing()+48);QVERIFY(!axis_labels->grab().isNull());QVERIFY(axis_labels->accessibleName().contains("[ref "));QVERIFY(axis_labels->accessibleName().contains("step "));
+    QSignalSpy probe(view->findChild<SectionCanvas*>(),&SectionCanvas::probe_changed);const auto local=graphics->mapFromScene(QPointF(1.5,.5));QMouseEvent move(QEvent::MouseMove,local,graphics->viewport()->mapToGlobal(local),Qt::NoButton,Qt::NoButton,Qt::NoModifier);QCoreApplication::sendEvent(graphics->viewport(),&move);QVERIFY(!probe.isEmpty());QVERIFY(probe.last()[2].toString().contains("[ref "));
+    QTemporaryDir folder;QVERIFY(view->export_csv(folder.path()+"/section.csv").isEmpty());QVERIFY(view->export_png(folder.path()+"/section.png").isEmpty());QCOMPARE(QImage(folder.path()+"/section.png").size(),QSize(2,3));
+    QFile csv(folder.path()+"/section.csv");QVERIFY(csv.open(QIODevice::ReadOnly));const auto bytes=csv.readAll();QVERIFY(bytes.contains("GribDecodedV1"));QVERIFY(bytes.contains("source_labels"));QVERIFY(bytes.contains("[ref "));QVERIFY(!view->export_csv(fixture("mini_cube.grb2"),true).isEmpty());
+    lon->click();QTRY_VERIFY_WITH_TIMEOUT(view->ready(),10000);QCOMPARE(view->snapshot()->image.size(),QSize(4,2));
+    view->set_fixed_index(2,1);QTRY_VERIFY_WITH_TIMEOUT(view->ready(),10000);QCOMPARE((*view->snapshot()->decoded)[1*4+3],50607.);
+    view->set_axes(2,0);QTRY_VERIFY_WITH_TIMEOUT(view->ready(),10000);view->set_fixed_index(1,1);QTRY_VERIFY_WITH_TIMEOUT(view->ready(),10000);QCOMPARE((*view->snapshot()->decoded)[2*2+1],85608.);
+    if(const auto evidence=qEnvironmentVariable("HDFSTUDIO_GRIB_EVIDENCE");!evidence.isEmpty()){QVERIFY(view->export_csv(evidence+"/grib-gui-section.csv",true).isEmpty());QVERIFY(view->grab().save(evidence+"/grib-gui-section.png"));}
+    window.close_all_files();QTRY_VERIFY_WITH_TIMEOUT(!SliceJobController::any_busy(),5000);QVERIFY(window.findChildren<HovmollerView*>().empty());
+  }
+  void sectionMissingLatestCancelAndSourceChange() {
+    const auto file=fixture("mini_missing_slice.grb2");HovmollerView view(file,GribData::open(file)->cubes.front().id);
+    QTRY_VERIFY_WITH_TIMEOUT(view.ready(),10000);QCOMPARE(view.snapshot()->missing,size_t(3));QCOMPARE(view.snapshot()->metadata["missing_fields"].toString(),QString("1"));
+    view.set_axes(0,1);QTRY_VERIFY_WITH_TIMEOUT(view.ready(),10000);view.set_fixed_index(2,2);view.set_fixed_index(3,3);QTRY_VERIFY_WITH_TIMEOUT(view.ready(),10000);QCOMPARE((*view.snapshot()->decoded)[0],50011.);QVERIFY(std::isnan((*view.snapshot()->decoded)[2]));
+    view.set_axes(2,0);for(int i=0;i<8;++i)view.set_fixed_index(3,size_t(i%4));view.set_fixed_index(3,1);QTRY_VERIFY_WITH_TIMEOUT(view.ready(),10000);QCOMPARE(view.snapshot()->spec.fixed_indices[3],size_t(1));
+    view.set_fixed_index(3,2);view.cancel();QCOMPARE(view.state(),QString("Cancelled"));QVERIFY(!view.snapshot());QTRY_VERIFY_WITH_TIMEOUT(!SliceJobController::any_busy(),5000);
+    QTemporaryDir folder;const auto source=folder.path()+"/changed.grb2";QVERIFY(QFile::copy(fixture("mini_cube.grb2"),source));auto release=qScopeGuard([&]{GribData::release(source);});
+    HovmollerView changed(source,GribData::open(source)->cubes.front().id);QTRY_VERIFY_WITH_TIMEOUT(changed.ready(),10000);{QFile modify(source);QVERIFY(modify.open(QIODevice::Append));modify.write("x");}
+    changed.set_fixed_index(3,1);QCOMPARE(changed.state(),QString("Error"));QVERIFY(changed.error().contains("SourceChanged"));QVERIFY(!changed.snapshot());
+    HovmollerView unsupported(fixture("mini_simple.grb2"),"/field/999999");QTRY_VERIFY_WITH_TIMEOUT(unsupported.state()=="Error",10000);QVERIFY(!unsupported.snapshot());
+  }
+  void sectionCfsBusinessValues() {
+    const auto file=qEnvironmentVariable("HDFSTUDIO_GRIB_CFS_SAMPLE");QVERIFY2(!file.isEmpty(),"Set HDFSTUDIO_GRIB_CFS_SAMPLE");const auto catalog=GribData::open(file);
+    QString target;for(const auto &cube:catalog->cubes)if(catalog->fields[size_t(cube.representative)].short_name=="prate")target=cube.id;QVERIFY(!target.isEmpty());
+    HovmollerView view(file,target);view.resize(1200,850);view.show();QTRY_VERIFY_WITH_TIMEOUT(view.ready()||view.state()=="Error",120000);QVERIFY2(view.ready(),qPrintable(view.error()));
+    const auto snapshot=view.snapshot();QCOMPARE(snapshot->image.size(),QSize(480,190));
+    for(int t:{0,1,2,17,479}){const auto plane=GribData::read(*catalog,target,{size_t(t)});QVERIFY(plane.error.isEmpty());for(size_t y=0;y<190;++y)QCOMPARE((*snapshot->decoded)[y*480+size_t(t)],plane.values[y*384]);}
+    const auto evidence=qEnvironmentVariable("HDFSTUDIO_GRIB_EVIDENCE");if(!evidence.isEmpty()){QVERIFY(view.export_csv(evidence+"/cfs-gui-section.csv").isEmpty());QVERIFY(view.export_png(evidence+"/cfs-gui-section.png").isEmpty());QVERIFY(view.grab().save(evidence+"/cfs-gui-window.png"));}
+  }
   void doubleClickPrefersImageForGribArrays() {
     MainWindow window;window.resize(1200,800);window.show();
     QCOMPARE(window.read_file(fixture("mini_cube.grb2")),0);
@@ -225,6 +266,44 @@ private slots:
     view->set_layer_index(0,0);QTRY_VERIFY_WITH_TIMEOUT(view->plane_snapshot().values!=nullptr,10000);
     view->set_layer_index(1,1);for(int i=0;i<20;++i)view->set_layer_index(0,i%2);view->set_layer_index(0,0);QTRY_VERIFY_WITH_TIMEOUT(!view->render_pending(),10000);QVERIFY(view->plane_snapshot().values);QCOMPARE(view->plane_snapshot().values->at(0),85000.);
     delete view;QVERIFY(!lease.expired());old={};QTRY_VERIFY(lease.expired());QTRY_VERIFY_WITH_TIMEOUT(!DataReadController::any_busy(),10000);
+  }
+  void imageHoldsPresentedFrameDuringPendingRead() {
+    const auto source=fixture("mini_cube.grb2");const auto catalog=GribData::open(source);const auto target=catalog->cubes.front().id;
+    RasterView view(source,target,GribData::describe(*catalog,target));QVERIFY(!view.image_for_export().isNull());
+    auto *canvas=view.findChild<QGraphicsView*>();QVERIFY(canvas);QGraphicsPixmapItem *image=nullptr;
+    for(auto *item:canvas->scene()->items())if(item->type()==QGraphicsPixmapItem::Type)image=static_cast<QGraphicsPixmapItem*>(item);
+    QVERIFY(image);const auto before=image->pixmap().toImage();const auto before_revision=view.property("renderedRevision");
+    auto *bar=view.findChild<ColorBar*>();bar->resize(700,94);const auto before_bar=bar->grab().toImage();
+    auto *scheduler=ReadScheduler::instance();QVERIFY(scheduler->acquire());QVERIFY(scheduler->acquire());
+    auto release=qScopeGuard([&]{scheduler->release();scheduler->release();});
+    view.set_layer_index(0,1);QVERIFY(view.render_pending());QVERIFY(!view.plane_snapshot().values);
+    QCOMPARE(image->pixmap().toImage(),before);QCOMPARE(view.property("renderedRevision"),before_revision);
+    QCOMPARE(bar->grab().toImage(),before_bar);QVERIFY(view.findChild<QLabel*>("rasterLegend")->text().contains("previous image"));
+    QVERIFY(!view.property("minimum").isValid());QVERIFY(!view.findChild<QAction*>("showProfileAction")->isEnabled());
+    for(int index=0;index<30;++index)view.set_layer_index(0,index%2);
+    view.set_layer_index(0,1);QCOMPARE(image->pixmap().toImage(),before);QVERIFY(!view.plane_snapshot().values);
+    release.dismiss();scheduler->release();scheduler->release();
+    QTRY_VERIFY_WITH_TIMEOUT(!view.render_pending(),10000);QVERIFY(view.plane_snapshot().values);
+    const auto expected=GribData::read(*catalog,target,{1,0},false,false);QVERIFY(expected.error.isEmpty());
+    QCOMPARE(*view.plane_snapshot().values,expected.values);QVERIFY(view.property("renderedRevision")!=before_revision);
+    QVERIFY(!view.findChild<QLabel*>("rasterLegend")->text().contains("previous image"));
+    view.set_sync_out_of_range(true,"test range");QVERIFY(image->pixmap().isNull());QVERIFY(!view.plane_snapshot().values);
+    view.set_sync_out_of_range(false,{});QTRY_VERIFY(view.plane_snapshot().values);QVERIFY(!view.image_for_export().isNull());
+  }
+  void imageCfsPlaybackFramesMatchDecodedValues() {
+    const auto source=qEnvironmentVariable("HDFSTUDIO_GRIB_CFS_SAMPLE");
+    if(source.isEmpty())QSKIP("Optional CFS business sample");
+    const auto catalog=GribData::open(source);QVERIFY(!catalog->cubes.empty());const auto target=catalog->cubes.front().id;
+    RasterView view(source,target,GribData::describe(*catalog,target));QVERIFY(!view.image_for_export().isNull());
+    QCOMPARE(view.layer_count(0),480);QCOMPARE(view.plane_snapshot().rows,size_t(190));QCOMPARE(view.plane_snapshot().cols,size_t(384));
+    for(int frame:{1,2,17,479,0}) {
+      view.set_layer_index(0,frame);QVERIFY(!view.plane_snapshot().values);
+      QTRY_VERIFY_WITH_TIMEOUT(!view.render_pending(),10000);const auto snapshot=view.plane_snapshot();QVERIFY(snapshot.values);
+      const auto expected=GribData::read(*catalog,target,{size_t(frame)},false,false);QVERIFY(expected.error.isEmpty());QCOMPARE(*snapshot.values,expected.values);
+      const auto image=view.image_for_export();const auto colors=view.color_state();
+      for(int row=0;row<image.height();++row)for(int col=0;col<image.width();++col)
+        QCOMPARE(image.pixel(col,row),HdfColorMap::map_value(colors.palette,colors.mapping,expected.values[size_t(row)*expected.cols+size_t(col)],false));
+    }
   }
   void imageTreeCloseAndSourceChange() {
     auto *window=new MainWindow;QCOMPARE(window->read_file(fixture("mini_cube.grb2")),0);auto *tree=window->findChild<FileTreeWidget*>();auto *root=tree->topLevelItem(0);tree->setCurrentItem(branch(root,"Variables")->child(0));

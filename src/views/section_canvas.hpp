@@ -35,7 +35,7 @@ private:
   QLabel *m_probe;
   std::shared_ptr<const SectionSnapshot> m_snapshot;
   QMap<QString,QString> m_dates;
-  bool m_h=false,m_v=false,m_fit=true;
+  bool m_h=false,m_v=false,m_fit=true,m_fitting=false;
   bool m_probe_valid=false;
   size_t m_probe_row=0,m_probe_col=0;
 };

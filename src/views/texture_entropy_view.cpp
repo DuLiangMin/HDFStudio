@@ -220,7 +220,7 @@ void TextureEntropyView::refresh() {
   if(!m_entropy.valid) { const QString error = m_entropy.error; clear_result(error); return; }
   QString error;
   const auto palettes = HdfColorMap::load_registry(error);
-  const auto selected = std::find_if(palettes.begin(), palettes.end(), [](const HdfColorMap::Palette &palette) { return palette.id == "bids:viridis"; });
+  const auto selected = std::find_if(palettes.begin(), palettes.end(), [](const HdfColorMap::Palette &palette) { return palette.id == HdfColorMap::default_palette_id; });
   if(selected == palettes.end()) { clear_result(tr("Texture entropy color map unavailable")); return; }
   HdfColorMap::Mapping mapping; mapping.minimum = 0; mapping.maximum = 4;
   QImage image(int(m_entropy.cols), int(m_entropy.rows), QImage::Format_RGB32);

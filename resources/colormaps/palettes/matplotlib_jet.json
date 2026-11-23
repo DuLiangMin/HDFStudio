@@ -1,0 +1,105 @@
+{
+  "id": "matplotlib:jet",
+  "name": "Jet",
+  "group": "Spectrum",
+  "kind": "spectral",
+  "stepped": false,
+  "colors": [
+    [
+      0.0,
+      0.0,
+      0.5,
+      1.0
+    ],
+    [
+      0.0,
+      0.0,
+      1.0,
+      1.0
+    ],
+    [
+      0.0,
+      0.0,
+      1.0,
+      1.0
+    ],
+    [
+      0.0,
+      0.8600000000000001,
+      1.0,
+      1.0
+    ],
+    [
+      0.0,
+      0.8999999999999999,
+      0.9677419354838711,
+      1.0
+    ],
+    [
+      0.08064516129032263,
+      1.0,
+      0.8870967741935485,
+      1.0
+    ],
+    [
+      0.9354838709677419,
+      1.0,
+      0.032258064516129004,
+      1.0
+    ],
+    [
+      0.9677419354838709,
+      0.9629629629629629,
+      0.0,
+      1.0
+    ],
+    [
+      1.0,
+      0.9259259259259258,
+      0.0,
+      1.0
+    ],
+    [
+      1.0,
+      0.07407407407407418,
+      0.0,
+      1.0
+    ],
+    [
+      0.909090909090909,
+      0.0,
+      0.0,
+      1.0
+    ],
+    [
+      0.5,
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "positions": [
+    0.0,
+    0.11,
+    0.125,
+    0.34,
+    0.35,
+    0.375,
+    0.64,
+    0.65,
+    0.66,
+    0.89,
+    0.91,
+    1.0
+  ],
+  "source": "https://github.com/matplotlib/matplotlib/blob/v3.10.7/lib/matplotlib/_cm.py",
+  "authors": [
+    "Matplotlib Development Team"
+  ],
+  "license": "Matplotlib",
+  "revision": "matplotlib==3.10.7",
+  "source_file": "source/matplotlib/_cm.py",
+  "source_sha256": "3ee608024529cf8bb86a2523bdd5799e321f1b427f31063da4cd98cf78f7297b",
+  "modification": "Jet channel breakpoints merged without decimation; Rainbow functions sampled at 256 positions; sRGB RGBA JSON, alpha 1",
+  "schema_version": 1
+}

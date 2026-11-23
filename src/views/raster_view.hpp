@@ -84,6 +84,7 @@ private:
   void choose_color_mapping();
   void choose_rgb_file();
   void clear_plane(const QString &error);
+  void hold_presented_frame(const QString &message);
   void start_pending_render();
   void notify_viewport_changed();
   std::string file, path;
@@ -91,7 +92,7 @@ private:
   QString grib_file;
   class DataReadController *grib_reader=nullptr;
   std::shared_ptr<const DataSource::PlaneData> grib_plane;
-  bool grib_read_pending=false,grib_first_fit=true;
+  bool grib_read_pending=false,first_frame_fit=true;
   std::vector<size_t> grib_requested_indices;
   std::vector<hsize_t> dims;
   std::vector<QSpinBox*> layers;
@@ -107,7 +108,7 @@ private:
   QString sync_range_message;
   bool applying_viewport = false;
   std::optional<std::pair<double,double>> synced_color_range;
-  ColorBar *color_bar;
+  ColorBar *color_bar=nullptr;
   std::vector<HdfColorMap::Palette> color_maps;
   HdfColorMap::Mapping color_mapping;
   quint64 render_revision = 0;
@@ -123,6 +124,8 @@ private:
   std::vector<double> declared_categories;
   std::shared_ptr<const std::vector<double>> decoded_values;
   std::shared_ptr<void> raster_reservation;
+  // Keep the displayed pixmap charged until its replacement is presented or cleared.
+  std::shared_ptr<void> presented_reservation;
   bool mask_valid = false;
   size_t masked_count = 0;
   double data_low = 0, data_high = 0;

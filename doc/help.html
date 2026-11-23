@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="HDFStudio 中英文使用帮助：Windows NetCDF、HDF5、GRIB1/GRIB2 数据浏览、分析、导出与 LLM / AI Agent 工作流程。Bilingual user guide for scientific data inspection.">
   <link rel="canonical" href="https://duliangmin.github.io/HDFStudio/doc/help.html">
-  <title>HDFStudio Help / 使用帮助 — 0.14.02</title>
+  <title>HDFStudio Help / 使用帮助 — 0.14.04</title>
   <style>
     :root { color-scheme: light; --ink: #203440; --accent: #126c79; --line: #d8e4e8; }
     * { box-sizing: border-box; }
@@ -39,7 +39,7 @@
 <body>
 <header id="top">
   <h1>HDFStudio Help / 使用帮助</h1>
-  <p class="version">0.14.02 · NetCDF / HDF5 / GRIB · Windows</p>
+  <p class="version">0.14.04 · NetCDF / HDF5 / GRIB · Windows</p>
   <p>Unleash the Power of Your NetCDF and GRIB Data</p>
   <nav aria-label="Language / 语言"><a href="#zh">简体中文</a><a href="#en" lang="en">English</a></nav>
 </header>
@@ -57,7 +57,7 @@
       <h3>2. 浏览 GRIB1 / GRIB2</h3>
       <p>打开后等待索引完成。<strong>Variables</strong> 将兼容场组织为可逐层浏览的虚拟变量；<strong>Messages</strong> 分页保留原始消息与子场。双击支持矩形图像的变量或场，优先打开 <strong>Image View</strong>；结构节点或不支持图像的项目仍显示 Properties。右键变量或场，可打开表格、图像、直方图或纹理熵图；Properties 保留参数、层次、时间相关原始键与来源信息。</p>
       <p>矩形网格支持图像及相关分析。GRIB 表格提供解码值、<strong>Quantized X</strong> 及并排模式；Quantized X 是支持的打包方式下重建的量化整数，并非原始字节，不可用时明确显示。缺场会清空旧结果，未知名称/单位保留 <code>unknown</code>。</p>
-      <p class="note">当前 GRIB 图像按源网格索引显示。比较与播放按整数索引推进，不自动匹配物理时间、转换单位或重采样。GRIB 任意两轴剖面已接入 CLI/worker；GUI 剖面、可靠地理坐标及 U/V 矢量入口尚未接通。CF 检查不适用于 GRIB。</p>
+      <p class="note">当前 GRIB 图像按源网格索引显示。比较与播放按整数索引推进，不自动匹配物理时间、转换单位或重采样。GRIB 任意两轴剖面已接入 GUI 和 CLI/worker；可靠地理坐标及 U/V 矢量入口尚未接通。CF 检查不适用于 GRIB。</p>
     </section>
     <section id="zh-grid">
       <h3>3. 数值表格</h3>
@@ -66,6 +66,7 @@
     </section>
     <section id="zh-image">
       <h3>4. 图像、色表与 Mask</h3>
+      <p>新图像、时空剖面和纹理熵图缺省使用 <strong>Jet</strong> 光谱配色；<strong>CMaps</strong> 中也可选择 <strong>Rainbow</strong>、Viridis 等原有色表。残差图保留以零为中心的发散色表。</p>
       <p>右键变量选择 <strong>Image View</strong>，用 <strong>CMaps</strong> 切换科学色表。滚轮或放大/缩小按钮调整视图；<strong>Fit</strong> 显示完整图像，<strong>Reset</strong> 恢复初始方向和适配大小。色表和显示范围的变化复用当前解码数据。</p>
       <p><strong>Mask Range</strong> 按解码后的数值排除闭区间：起点或终点留空代表无下限或无上限。Mask 影响图像及跟随它的分析。未声明的特殊数字不会自动当作缺测，使用前请确认数据含义。</p>
     </section>
@@ -89,9 +90,10 @@
       <p>联动播放先在 Compare &amp; Metrics 选择 Anchor/Target 并启用 <strong>Sync layer indices</strong>，再设各 Target 的 lag。目标索引为 Anchor 索引加 lag；缺场或越界时清空结果，恢复有效索引后重新计算。</p>
     </section>
     <section id="zh-section">
-      <h3>7. NetCDF / HDF5 时空剖面</h3>
+      <h3>7. NetCDF / HDF5 / GRIB 时空剖面</h3>
       <p>选择数值变量后用 <strong>View → Space-Time Section (Hovmöller)</strong>，选两条显示轴并固定其他维度。支持交换轴、翻转、Mask、PNG/CSV 导出；剩余固定轴有多层时可播放。可信一维坐标存在时提供 Lat–Time/Lon–Time 预设；通用 HDF5 保持索引含义。</p>
-      <p>剖面按源索引等宽显示，不对不均匀坐标插值。请保留同目录的 <code>hdf_cli.exe</code>，它承担独立进程读取。</p>
+      <p>GRIB 通过相同菜单或变量右键入口打开。Grid Y–Time index / Time index–Grid X 预设保留源网格索引与原始起报/时效标签，不推断经纬度或经过时长；可选择任意有序两轴，缺场保留缺测。</p>
+      <p><strong>Fit</strong> 将两条显示轴独立拉伸并平滑插值，短剖面也铺满绘图区。探针、CSV 与原分辨率 PNG 保留原采样；不重采样不均匀物理坐标。请保留同目录的 <code>hdf_cli.exe</code>，它承担独立进程读取。</p>
     </section>
     <section id="zh-export">
       <h3>8. 导出与常见提示</h3>
@@ -143,7 +145,7 @@ hdf_cli props "data.nc" /temperature</code></pre>
       <h3>2. Browse GRIB1 / GRIB2</h3>
       <p>Wait for indexing to finish. <strong>Variables</strong> groups compatible fields into virtual arrays with layer navigation. <strong>Messages</strong> preserves paged physical messages and sub-fields. Double-click a variable or field supporting rectangular images to open <strong>Image View</strong> first; structural or unsupported entries still show Properties. Right-click a variable or field for tables, images, histograms or texture entropy. Properties retains parameter, level, raw time-related keys and provenance.</p>
       <p>Rectangular grids support images and related analyses. GRIB tables offer decoded values, <strong>Quantized X</strong> and paired modes. Quantized X is a reconstructed integer for supported packing, not a raw-byte dump; unsupported reconstruction is marked unavailable. Missing fields clear old results; unknown names/units stay <code>unknown</code>.</p>
-      <p class="note">GRIB images currently use source-grid indices. Comparison and playback use integer indices without automatic physical-time matching, unit conversion or resampling. Arbitrary-axis GRIB sections are available through the CLI/worker; GUI sections, verified geographic coordinates and U/V vector integration remain pending. CF checks do not apply to GRIB.</p>
+      <p class="note">GRIB images currently use source-grid indices. Comparison and playback use integer indices without automatic physical-time matching, unit conversion or resampling. Arbitrary-axis GRIB sections are available through the GUI and CLI/worker; verified geographic coordinates and U/V vector integration remain pending. CF checks do not apply to GRIB.</p>
     </section>
     <section id="en-grid">
       <h3>3. Read and copy table values</h3>
@@ -152,6 +154,7 @@ hdf_cli props "data.nc" /temperature</code></pre>
     </section>
     <section id="en-image">
       <h3>4. Images, colors and Mask</h3>
+      <p>New images, Space-Time Sections and texture entropy images default to the <strong>Jet</strong> spectrum palette. <strong>CMaps</strong> also offers <strong>Rainbow</strong> and the existing scientific palettes. Residuals retain a zero-centered diverging palette.</p>
       <p>Right-click a variable for <strong>Image View</strong>. Choose a scientific palette in <strong>CMaps</strong>. Zoom with the wheel or zoom buttons; <strong>Fit</strong> shows the full image and <strong>Reset</strong> restores orientation and fit. Color and range changes reuse the decoded plane.</p>
       <p><strong>Mask Range</strong> excludes an inclusive interval of decoded values. A blank start or end means no lower or upper bound. Mask affects the image and analyses following it. Undeclared special values are not inferred as missing; confirm their meaning first.</p>
     </section>
@@ -175,9 +178,10 @@ hdf_cli props "data.nc" /temperature</code></pre>
       <p>For linked playback, select Anchor/Target in Compare &amp; Metrics, enable <strong>Sync layer indices</strong> and set each Target's lag. Target index equals Anchor index plus lag. Missing or out-of-range fields clear results; valid indices restore calculations.</p>
     </section>
     <section id="en-section">
-      <h3>7. NetCDF / HDF5 space-time sections</h3>
+      <h3>7. NetCDF / HDF5 / GRIB space-time sections</h3>
       <p>Select a numeric variable and choose <strong>View → Space-Time Section (Hovmöller)</strong>. Select two display axes and fix the others. Swap axes, flip, Mask and export PNG/CSV; play a remaining fixed axis with multiple layers. Trusted 1D coordinates enable Lat–Time/Lon–Time presets; generic HDF5 retains index semantics.</p>
-      <p>Cells have equal source-index widths; nonuniform coordinates are not interpolated. Keep the matching <code>hdf_cli.exe</code> beside the application for separate-process reads.</p>
+      <p>For GRIB, use the same menu or right-click entry. Grid Y–Time index and Time index–Grid X retain source-grid spacing and original reference/step labels, without inferring latitude, longitude or elapsed time. Any ordered pair of axes is available; missing fields remain missing.</p>
+      <p><strong>Fit</strong> stretches each display axis independently to fill the plot with smooth interpolation, including short sections. Probes, CSV and native-resolution PNG retain the original samples. Nonuniform physical coordinates are not resampled. Keep the matching <code>hdf_cli.exe</code> beside the application for separate-process reads.</p>
     </section>
     <section id="en-export">
       <h3>8. Export and common tips</h3>
@@ -216,6 +220,6 @@ Use the reported dimension and missing-value semantics in code, with checks for 
     <p><a href="#top">Back to top</a> · <a href="#zh">简体中文</a></p>
   </section>
 </main>
-<footer>HDFStudio 0.14.02 · Offline user guide / 离线使用帮助</footer>
+<footer>HDFStudio 0.14.04 · Offline user guide / 离线使用帮助</footer>
 </body>
 </html>

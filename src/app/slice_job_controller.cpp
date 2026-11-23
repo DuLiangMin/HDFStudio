@@ -68,6 +68,7 @@ void SliceJobController::finished(bool normal,int code) {
     auto data=std::make_shared<SliceWorkerData>();
     try{*data=slice_load_result(directory->path(),request_id);}catch(const std::exception &exception){data->error=QString("Result load failed: %1").arg(exception.what());}
     if(data->error.isEmpty()&&(data->metadata["source_revision"]!=request["source_revision"]||((request["operation"]=="read")!=data->metadata.contains("data_file"))))data->error="ProtocolError: operation or source revision mismatch";
+    if(data->error.isEmpty()&&(data->metadata["schema"]!=request["schema"]||(request["schema"].toInt()==2&&(data->metadata["source_kind"]!=request["source_kind"]||data->metadata["decode_profile"]!=request["decode_profile"]))))data->error="ProtocolError: source kind or decode profile mismatch";
     auto timing=data->metadata["timing_ms"].toObject();timing["process_total"]=double(process_ms);timing["load"]=double(timer.elapsed());data->metadata["timing_ms"]=timing;
     QMetaObject::invokeMethod(QCoreApplication::instance(),[self,data,lease,generation]{if(!self)return;
       if(generation==self->m_generation){if(data->error.isEmpty())emit self->completed(data,lease);else {self->log_failure(data->error);emit self->failed(data->error);}}self->released();},Qt::QueuedConnection);

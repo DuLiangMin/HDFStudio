@@ -12,11 +12,14 @@
 <file alias="palettes/ncl_temp_19lev.json">colormaps/palettes/ncl_temp_19lev.json</file>
 <file alias="palettes/ncl_wind_17lev.json">colormaps/palettes/ncl_wind_17lev.json</file>
 <file alias="palettes/ncl_BlueWhiteOrangeRed.json">colormaps/palettes/ncl_BlueWhiteOrangeRed.json</file>
+<file alias="palettes/matplotlib_jet.json">colormaps/palettes/matplotlib_jet.json</file>
+<file alias="palettes/matplotlib_rainbow.json">colormaps/palettes/matplotlib_rainbow.json</file>
 <file alias="licenses/Apache-2.0.txt">../licenses/colormaps/Apache-2.0.txt</file>
 <file alias="licenses/ATTRIBUTION.txt">../licenses/colormaps/ATTRIBUTION.txt</file>
 <file alias="licenses/BSD-3-Clause.txt">../licenses/colormaps/BSD-3-Clause.txt</file>
 <file alias="licenses/CC0-1.0.txt">../licenses/colormaps/CC0-1.0.txt</file>
 <file alias="licenses/cmap-REUSE.toml">../licenses/colormaps/cmap-REUSE.toml</file>
+<file alias="licenses/Matplotlib-LICENSE.txt">../licenses/colormaps/Matplotlib-LICENSE.txt</file>
 <file alias="licenses/MIT.txt">../licenses/colormaps/MIT.txt</file>
 <file alias="licenses/NCL-COPYRIGHT.txt">../licenses/colormaps/NCL-COPYRIGHT.txt</file>
 <file alias="manifest.json">colormaps/manifest.json</file>

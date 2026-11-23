@@ -110,7 +110,7 @@ int main(int argc, char *argv[])
 {
   Q_INIT_RESOURCE(hdf_explorer);
   QApplication app(argc, argv);
-  QCoreApplication::setApplicationVersion("0.14.02");
+  QCoreApplication::setApplicationVersion("0.14.04");
   QCoreApplication::setApplicationName(app_name);
 #if QT_VERSION >= 0x050000
   QCommandLineParser parser;
@@ -786,8 +786,10 @@ MainWindow::MainWindow()
     const auto *item = m_tree->currentItem() ? get_item_data(m_tree->currentItem()) : nullptr;
     const bool numeric_plane = item && item->m_kind == ItemData::Variable && item->m_dataset &&
       item->m_dataset->m_dim.size() >= 2 && (item->m_dataset->m_datatype_class == H5T_INTEGER || item->m_dataset->m_datatype_class == H5T_FLOAT);
-    image_action->setEnabled(numeric_plane);
-    section_action->setEnabled(numeric_plane);
+    const bool grib_variable=item&&item->m_grib&&item->m_kind==ItemData::Variable;
+    const auto grib_info=grib_variable?GribData::describe(item->m_source_path,item->m_object.object_id):DataSource::ArrayInfo{};
+    image_action->setEnabled(numeric_plane||(grib_variable&&grib_info.error.isEmpty()&&grib_info.can_image));
+    section_action->setEnabled(numeric_plane||(grib_variable&&grib_info.error.isEmpty()&&grib_info.can_section));
     auto *sub = m_mdi_area->currentSubWindow();
     texture_action->setEnabled(numeric_plane || (sub && qobject_cast<RasterView*>(sub->widget())));
   });
@@ -1028,7 +1030,7 @@ void MainWindow::about()
 {
   QMessageBox::about(this,
     tr("About HDFStudio"),
-    tr("HDFStudio 0.14.02\nAuthor: DuLiangMin\n\n"
+    tr("HDFStudio 0.14.04\nAuthor: DuLiangMin\n\n"
        "Metadata convention target: CF-1.8\n"
        "Product libraries: netCDF-C 4.9.3, HDF5 1.8.20\n\n"
        "Reference environment: Python 3.12.10, netCDF4-python 1.7.5.1.post1\n"
@@ -2428,6 +2430,7 @@ void FileTreeWidget::show_context_menu(const QPoint &p)
       auto *export_png=menu.addAction(tr("Export As Image..."));export_png->setEnabled(image->isEnabled());connect(export_png,&QAction::triggered,this,&FileTreeWidget::export_item_as_image);
       auto *histogram=menu.addAction(tr("Histogram..."));histogram->setObjectName("actionGribHistogram");histogram->setEnabled(image->isEnabled());histogram->setToolTip(image->toolTip());connect(histogram,&QAction::triggered,this,[this,item_data]{m_main_window->add_histogram(item_data);});
       auto *texture=menu.addAction(tr("Texture Entropy Image"));texture->setObjectName("actionGribTextureEntropy");texture->setEnabled(image->isEnabled());texture->setToolTip(image->toolTip());connect(texture,&QAction::triggered,this,[this,item_data]{m_main_window->add_texture_image(item_data);});
+      auto *section=menu.addAction(tr("Space-Time Section (Hovmöller)..."));section->setObjectName("actionSpaceTimeSectionContext");section->setEnabled(info.error.isEmpty()&&info.can_section);section->setToolTip(tr("Any two source axes; time labels retain reference cycle and step; no coordinate resampling"));connect(section,&QAction::triggered,this,[this,item_data]{m_main_window->add_space_time_section(item_data);});
       auto *decoded=menu.addAction(tr("Data Grid (decoded)..."));decoded->setToolTip(tr("ecCodes decoded values; no CF scale/offset applied"));connect(decoded,&QAction::triggered,this,&FileTreeWidget::add_grid);
       auto *stored=menu.addAction(tr("Quantized X Grid (reconstructed)..."));stored->setToolTip(tr("Validated reconstruction of quantized integers; unavailable for unsupported packing"));connect(stored,&QAction::triggered,this,&FileTreeWidget::add_stored_grid);
       auto *both=menu.addAction(tr("Decoded and Quantized X..."));connect(both,&QAction::triggered,this,&FileTreeWidget::add_both_grids);
@@ -3724,9 +3727,10 @@ void MainWindow::add_texture_image(ItemData *item) {
 }
 
 void MainWindow::add_space_time_section(ItemData *item) {
-  if(property("sectionShutdownPending").toBool()||!item||item->m_kind!=ItemData::Variable||!item->m_dataset||item->m_dataset->m_dim.size()<2||
-      (item->m_dataset->m_datatype_class!=H5T_INTEGER&&item->m_dataset->m_datatype_class!=H5T_FLOAT))return;
-  auto *view=new HovmollerView(QString::fromLocal8Bit(item->m_file_name.c_str()),QString::fromStdString(item->m_dataset->m_path));
+  if(property("sectionShutdownPending").toBool()||!item||item->m_kind!=ItemData::Variable)return;
+  if(item->m_grib){const auto info=GribData::describe(item->m_source_path,item->m_object.object_id);if(!info.error.isEmpty()||!info.can_section){statusBar()->showMessage(info.error.isEmpty()?tr("Sections require a rectangular source grid"):info.error);return;}}
+  else if(!item->m_dataset||item->m_dataset->m_dim.size()<2||(item->m_dataset->m_datatype_class!=H5T_INTEGER&&item->m_dataset->m_datatype_class!=H5T_FLOAT))return;
+  auto *view=new HovmollerView(item->m_grib?item->m_source_path:QString::fromLocal8Bit(item->m_file_name.c_str()),item->m_grib?item->m_object.object_id:QString::fromStdString(item->m_dataset->m_path));
   connect(view,&HovmollerView::stop_playback_requested,m_layer_playback,&LayerPlayback::stop);
   auto *sub=m_mdi_area->addSubWindow(view);sub->setAttribute(Qt::WA_DeleteOnClose);tag_view(sub,item);
   const auto available=m_mdi_area->viewport()->size();sub->resize(std::min(1100,available.width()),std::min(800,available.height()));sub->showMaximized();

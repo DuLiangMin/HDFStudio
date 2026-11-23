@@ -39,6 +39,7 @@ and the NCL runtime are not needed to use these color maps.
 | Crameri batlow | 2021 Fabio Crameri | MIT |
 | NCL precip_11lev, precip_diff_12lev, temp_19lev, wind_17lev, BlueWhiteOrangeRed | 2019 UCAR; first four files also credit MeteoSwiss NCL library | Apache-2.0, per the locked NCL repository LICENSE |
 | cmap development-time export tool | 2022 Talley Lambert | BSD-3-Clause |
+| Jet / Rainbow, Matplotlib 3.10.7 | Matplotlib Development Team; Rainbow functions credit Thomas Williams and Colin Kelley | Matplotlib license, full text in `licenses/colormaps/Matplotlib-LICENSE.txt` |
 
 Full license texts, upstream REUSE copyright assignments, NCL copyright and
 modification/legacy-color notices are in `licenses/colormaps/`. Source inputs,

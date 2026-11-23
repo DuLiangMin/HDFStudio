@@ -32,6 +32,7 @@ private slots:
   void datesAndNumericFallback();
   void largeFixedAxisAndSourceChange();
   void missingMaskAndProbe();
+  void canvasFillsShortSections();
   void heartbeatAndCancel();
   void corruptProtocolRejected();
   void largeToolbarAndMissingPlane();
@@ -131,6 +132,7 @@ void HovmollerTest::viewAxesMaskExport(){
   QTRY_VERIFY_WITH_TIMEOUT(view.ready()||view.state()=="Error",10000);QVERIFY2(view.ready(),qPrintable(view.error()));
   auto snapshot=view.snapshot();QCOMPARE(snapshot->spec.row_axis,size_t(1));QCOMPARE(snapshot->spec.col_axis,size_t(0));QCOMPARE(snapshot->info.units,QString("K"));QCOMPARE(snapshot->image.size(),QSize(3,4));QCOMPARE(snapshot->missing,size_t(1));
   QCOMPARE(view.layer_axis_count(),1);QCOMPARE(view.layer_count(0),5);QCOMPARE(snapshot->image.pixel(0,0),QRgb(HdfColorMap::missing_color));
+  QCOMPARE(snapshot->palette.id,HdfColorMap::default_palette_id);
   for(size_t row=0;row<4;++row)for(size_t col=0;col<3;++col)if(row||col)QCOMPARE((*snapshot->decoded)[row*3+col],double(100*col+10*row));
   const quint64 reads=view.read_count();auto *start=view.findChild<QLineEdit*>("hovmollerMaskStart"),*end=view.findChild<QLineEdit*>("hovmollerMaskEnd");start->setText("10");end->setText("120");view.findChild<QPushButton*>("hovmollerApply")->click();
   QTRY_VERIFY_WITH_TIMEOUT(view.ready(),10000);snapshot=view.snapshot();QCOMPARE(view.read_count(),reads);QCOMPARE(snapshot->missing+snapshot->masked+snapshot->valid,size_t(12));QVERIFY(snapshot->masked>0);QCOMPARE(snapshot->image.pixel(0,1),QRgb(HdfColorMap::masked_color));
@@ -194,10 +196,40 @@ void HovmollerTest::missingMaskAndProbe(){
   auto *graphics=view.findChild<QGraphicsView*>("hovmollerCanvas");auto *canvas=view.findChild<SectionCanvas*>();QSignalSpy probe(canvas,&SectionCanvas::probe_changed);
   auto move=[&](QPointF scene){const QPointF local=graphics->mapFromScene(scene);QMouseEvent event(QEvent::MouseMove,local,graphics->viewport()->mapToGlobal(local.toPoint()),Qt::NoButton,Qt::NoButton,Qt::NoModifier);QCoreApplication::sendEvent(graphics->viewport(),&event);};
   move(QPointF(1.5,2.5));QVERIFY(!probe.isEmpty());QCOMPARE(probe.last()[0].value<size_t>(),size_t(2));QCOMPARE(probe.last()[1].value<size_t>(),size_t(1));
+  const auto probe_label=view.findChild<QLabel*>("hovmollerProbe");QCOMPARE(probe_label->accessibleName(),probe_label->text());
   view.findChild<QCheckBox*>("hovmollerFlipH")->setChecked(true);move(QPointF(.5,2.5));QCOMPARE(probe.last()[1].value<size_t>(),size_t(2));
   canvas->set_date_labels({{"0:2","2000-01-03 00:00:00"}});QVERIFY(view.findChild<QLabel*>("hovmollerProbe")->text().contains("2000-01-03"));const auto all=canvas->visible_indices(0);QVERIFY(!all.empty());canvas->zoom(3);move(QPointF(.5,2.5));QCOMPARE(probe.last()[1].value<size_t>(),size_t(2));
   const auto reads=view.read_count();view.findChild<QLineEdit*>("hovmollerMaskStart")->setText("-100000");view.findChild<QLineEdit*>("hovmollerMaskEnd")->setText("100000");view.findChild<QPushButton*>("hovmollerApply")->click();QTRY_VERIFY_WITH_TIMEOUT(view.ready(),10000);QCOMPARE(view.snapshot()->valid,size_t(0));QCOMPARE(view.snapshot()->masked,size_t(11));QCOMPARE(view.snapshot()->missing,size_t(1));QVERIFY(!view.snapshot()->has_range);QCOMPARE(view.read_count(),reads);
   auto *range=view.findChild<QComboBox*>("hovmollerRangeMode");range->setCurrentIndex(1);view.findChild<QLineEdit*>("hovmollerMinimum")->setText("1e-12");view.findChild<QLineEdit*>("hovmollerMaximum")->setText("2e-12");view.findChild<QPushButton*>("hovmollerApply")->click();QTRY_VERIFY_WITH_TIMEOUT(view.ready(),10000);QCOMPARE(view.snapshot()->mapping.minimum,1e-12);
+}
+void HovmollerTest::canvasFillsShortSections(){
+  QTemporaryDir folder;
+  for(const auto &shape:std::vector<std::vector<size_t>>{{40,2},{2,40},{40,1},{1,40}}){
+    const auto file=fixture(folder.path(),NC_NETCDF4,shape);
+    if(shape==std::vector<size_t>{40,2}){int id,variable;QCOMPARE(nc_open(nc_path_bytes(file).constData(),NC_WRITE,&id),NC_NOERR);nc_inq_varid(id,"field",&variable);std::vector<double> contrast(80);for(size_t i=0;i<contrast.size();++i)contrast[i]=i%2?100.:0.;nc_put_var_double(id,variable,contrast.data());nc_close(id);}
+    HovmollerView view(file,"/field");view.resize(1100,800);view.show();
+    QTRY_VERIFY_WITH_TIMEOUT(view.ready(),10000);const auto original=view.snapshot();const auto values=*original->decoded;const auto reads=view.read_count();
+    auto *canvas=view.findChild<SectionCanvas*>();auto *graphics=canvas->view();
+    auto filled=[&]{const auto rect=graphics->mapFromScene(QRectF(0,0,shape[1],shape[0])).boundingRect();return std::abs(rect.width()-graphics->viewport()->width())<=6&&std::abs(rect.height()-graphics->viewport()->height())<=6;};
+    QTRY_VERIFY(filled());QVERIFY(graphics->transform().m11()!=graphics->transform().m22());
+    QTest::qWait(150);QVERIFY(graphics->viewport()->hasMouseTracking());
+    QGraphicsPixmapItem *item=nullptr;for(auto *entry:graphics->scene()->items())if(auto *pixmap=qgraphicsitem_cast<QGraphicsPixmapItem*>(entry))item=pixmap;
+    QVERIFY(item);QCOMPARE(item->transformationMode(),Qt::SmoothTransformation);
+    view.resize(1300,900);QTRY_VERIFY(filled());view.resize(950,700);QTRY_VERIFY(filled());
+    canvas->zoom(2);QVERIFY(!filled());view.findChild<QPushButton*>("hovmollerFit")->click();QTRY_VERIFY(filled());
+    QSignalSpy probe(canvas,&SectionCanvas::probe_changed);const auto local=graphics->mapFromScene(QPointF(shape[1]-.5,shape[0]-.5));
+    QMouseEvent event(QEvent::MouseMove,local,graphics->viewport()->mapToGlobal(local),Qt::NoButton,Qt::NoButton,Qt::NoModifier);QCoreApplication::sendEvent(graphics->viewport(),&event);
+    QVERIFY(!probe.isEmpty());QCOMPARE(probe.last()[0].value<size_t>(),shape[0]-1);QCOMPARE(probe.last()[1].value<size_t>(),shape[1]-1);
+    QCOMPARE(*view.snapshot()->decoded,values);QCOMPARE(view.read_count(),reads);QCOMPARE(view.snapshot()->image,original->image);
+    const auto path=folder.path()+"/native-"+QString::number(shape[0])+"-"+QString::number(shape[1])+".png";QVERIFY(view.export_png(path).isEmpty());QCOMPARE(QImage(path).size(),QSize(int(shape[1]),int(shape[0])));
+    // 数值仍在原网格；屏幕两端之间出现平滑过渡色，而非两块放大的像素。
+    if(shape==std::vector<size_t>{40,2}){
+      const auto screenshot=graphics->viewport()->grab().toImage();const auto position=graphics->mapFromScene(QPointF(1.,10.5));
+      const auto pixel=screenshot.pixelColor(position);const auto left=original->image.pixelColor(0,10),right=original->image.pixelColor(1,10);
+      QVERIFY(pixel!=left&&pixel!=right);
+    }
+    if(const auto evidence=qEnvironmentVariable("HDFSTUDIO_GRIB_EVIDENCE");!evidence.isEmpty())QVERIFY(view.grab().save(evidence+QString("/short-%1x%2.png").arg(shape[0]).arg(shape[1])));
+  }
 }
 void HovmollerTest::heartbeatAndCancel(){
   QTemporaryDir folder;const auto file=fixture(folder.path(),NC_NETCDF4,{2,1000,1000});

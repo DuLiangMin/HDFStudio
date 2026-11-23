@@ -1,5 +1,15 @@
 # Changelog
 
+## 📈 0.14.04 GRIB sections and full-width display - 2026-11-23
+
+- Add GRIB variable/field **Space-Time Section (Hovmöller)** entries to View and the context menu, using the shared isolated CLI worker, schema 2 / GribDecodedV1, source working-set reservation and cancellation.
+- Offer Grid Y–Time index / Time index–Grid X presets and original reference/step labels. Preserve index spacing, missing slots, Mask, flips, fixed-axis navigation and native PNG/CSV exports; geographic/time-coordinate resampling remains separate.
+- Fit section images independently to the plot width and height with smooth display interpolation. Refit on viewport resize; preserve zoom/pan and source values for probes and exports.
+- Retain the presented GRIB/NetCDF image during read/render and publish the new image, colorbar and numeric snapshot together. Invalidate numeric interaction during handover; errors and out-of-range selections clear results.
+- Synchronize application/About/help and bilingual READMEs at 0.14.04; update portable/source download links, preserve all five README badges and existing keywords, and add gray-level entropy / 灰度熵 and Space-Time Section (Hovmöller).
+- Add Jet and Rainbow spectrum palettes with pinned provenance and license. Default new raster, section and texture entropy images to Jet; preserve the legacy choices and zero-centered residual palette.
+- Keep Image View's colorbar compact and centered, with a thinner strip and width proportional to the displayed image; retain numeric ticks, units and missing/mask keys while giving the image more space.
+
 ## 🌦️ 0.14.02 GRIB browsing and offline help - 2026-11-23
 
 - Documentation update: restore bilingual README keywords and the Downloads badge, link to rendered online help, and omit local `tools/` from the public tree and updated source snapshot.

@@ -168,6 +168,10 @@ public:
     zoom_at(std::pow(1.25,std::clamp(steps,-128.0,128.0)),event->position(),false);
     event->accept();
   }
+  void resizeEvent(QResizeEvent *event) override {
+    QGraphicsView::resizeEvent(event);
+    if(viewport_changed_callback) viewport_changed_callback();
+  }
 private:
   void zoom_at(double factor,const QPointF &position,bool around_center) {
     // The scale magnitude changes, but the signs still encode Flip H / Flip V.
@@ -231,6 +235,8 @@ RasterView::RasterView(std::string filename,std::string varpath,std::vector<hsiz
   QString palette_error;
   color_maps=HdfColorMap::load_registry(palette_error);
   fill_palette_selector();
+  const int default_palette=palette_selector->findData(HdfColorMap::default_palette_id);
+  if(default_palette>=0)palette_selector->setCurrentIndex(default_palette);
   if(!palette_error.isEmpty()) QTimer::singleShot(0,this,[this,palette_error]{QMessageBox::warning(this,tr("Color map resources"),palette_error);});
   palette_selector->setToolTip(tr("Continuous raster color palette"));
   auto *palette_label = new QLabel(tr("CMaps"), tools);
@@ -461,7 +467,8 @@ RasterView::RasterView(std::string filename,std::string varpath,std::vector<hsiz
   legend->setObjectName("rasterLegend");
   legend->setWordWrap(true);
   color_bar=new ColorBar(this);
-  layout->addWidget(color_bar);
+  color_bar->set_compact(true);
+  layout->addWidget(color_bar,0,Qt::AlignHCenter);
   layout->addWidget(legend);
   entropy_summary=new QLabel(this);
   entropy_summary->setObjectName("rasterEntropySummary");
@@ -483,17 +490,16 @@ RasterView::RasterView(std::string filename,std::string varpath,std::vector<hsiz
       setProperty("reader",data->reader);setProperty("decodeProfile",data->decode_profile);
       setProperty("planeReadCount",property("planeReadCount").toULongLong()+1);
       refresh();
-      if(grib_first_fit&&display_valid){canvas->fitInView(scene->sceneRect(),Qt::KeepAspectRatio);grib_first_fit=false;notify_viewport_changed();}
     });
     connect(grib_reader,&DataReadController::failed,this,[this](const QString &error){grib_read_pending=false;clear_plane(error);});
   }
-  QTimer::singleShot(0, this, [this]{ refresh(); canvas->fitInView(scene->sceneRect(), Qt::KeepAspectRatio);notify_viewport_changed(); });
+  QTimer::singleShot(0, this, [this]{ refresh(); });
 }
 
 bool RasterView::eventFilter(QObject *watched,QEvent *event) {
   if(watched==canvas->viewport() && event->type()==QEvent::Resize)
     QTimer::singleShot(0,this,[this]{notify_viewport_changed();});
-  if(watched==canvas->viewport() && profile_mode_action && profile_mode_action->isChecked()) {
+  if(watched==canvas->viewport() && display_valid && profile_mode_action && profile_mode_action->isChecked()) {
     auto nearest_point_index = [this](const QPoint &view_pos) -> int {
       int best = -1;
       double best_dist = 12.0;   // 12 px hit radius in viewport coordinates
@@ -599,7 +605,7 @@ void RasterView::refresh() {
   std::vector<size_t> indices;for(auto *spin:layers) indices.push_back(size_t(spin->value()));
   if(grib_info&&(!reading_valid||indices!=cached_indices)) {
     if(grib_read_pending&&indices==grib_requested_indices)return;
-    clear_plane(tr("Reading GRIB plane..."));reading_valid=false;mask_valid=false;
+    hold_presented_frame(tr("Reading GRIB plane... (previous image; values unavailable)"));reading_valid=false;mask_valid=false;
     decoded_values.reset();last_values.reset();grib_plane.reset();raster_reservation.reset();
     grib_requested_indices=indices;grib_read_pending=true;
     if(!grib_info->can_image){grib_read_pending=false;clear_plane(grib_info->disabled_reasons.value("image",tr("Unsupported GRIB image grid")));return;}
@@ -653,16 +659,15 @@ void RasterView::refresh() {
     data_low=INFINITY;data_high=-INFINITY;
     for(double value:*last_values) if(std::isfinite(value)){data_low=std::min(data_low,value);data_high=std::max(data_high,value);}
   }
-  if(values_changed&&profile_window) if(auto *view=qobject_cast<ProfileView*>(profile_window.data()))
-    view->update_data(last_values, last_rows, last_cols, profile_points, CurvePathMode::SmoothSpline, raster_reservation);
-  if(values_changed || !snapshot_available) {
+  const bool publish_snapshot=values_changed || !snapshot_available;
+  QString entropy_text=entropy_summary->text();
+  QVariant entropy_bits=property("entropyBits");
+  if(publish_snapshot) {
     const auto entropy=nc_gray_entropy(*last_values);
-    entropy_summary->setText(entropy.valid
+    entropy_text=entropy.valid
       ? tr("Whole-plane histogram entropy (256 bins): %1 bits   Normalized: %2").arg(entropy.entropy_bits,0,'f',4).arg(entropy.normalized_entropy,0,'g',9)
-      : tr("Whole-plane histogram entropy (256 bins): N/A"));
-    setProperty("entropyBits",entropy.valid ? QVariant(entropy.entropy_bits) : QVariant());
-    snapshot_available=true;
-    emit plane_snapshot_changed(++snapshot_revision);
+      : tr("Whole-plane histogram entropy (256 bins): N/A");
+    entropy_bits=entropy.valid ? QVariant(entropy.entropy_bits) : QVariant();
   }
   setProperty("masked",qulonglong(masked_count));
   double low=data_low,high=data_high;
@@ -730,15 +735,52 @@ void RasterView::refresh() {
   };
   const QStringList bar_labels=discrete_mode?category_labels:QStringList();
   const QString unit_text=cached_units;
-  auto apply_image=[this,request,selected,settings,unit_text,bar_labels,no_auto_range,reservation](const QImage &image) {
+  QString frame_legend=discrete_mode
+    ? tr("%1 x %2   Categories: %3   Unknown: magenta   Missing: grey").arg(cols).arg(rows).arg(category_labels.join("; "))
+    : tr("%1 x %2   Min %3   Max %4   Missing: grey%5")
+      .arg(cols).arg(rows).arg(low,0,'g',9).arg(high,0,'g',9)
+      .arg(!color_mapping.boundaries.empty()?tr(" (custom boundaries)"):
+        automatic ? tr(" (automatic)") : tr(" (fixed)"));
+  if(no_auto_range) frame_legend=tr("%1 x %2   No valid values; missing: grey; Mask: white").arg(cols).arg(rows);
+  if(masking) {
+    auto bound=[](double value) { return std::isinf(value) ? (value<0 ? QString("-inf") : QString("+inf")) : QString::number(value,'g',9); };
+    frame_legend+=tr("   Masked [%1, %2] (decoded): %3, white")
+      .arg(bound(mask_from),bound(mask_to)).arg(masked_count);
+  }
+  if(geographic && geo_grid.valid)
+    frame_legend+=tr("   Geographic lookup: %1 / %2").arg(QString::fromUtf8(geo_grid.latitudePath.c_str()),QString::fromUtf8(geo_grid.longitudePath.c_str()));
+  const bool asynchronous=rows*cols>65536&&!qApp->property("synchronousRasterPreview").toBool();
+  if(asynchronous) hold_presented_frame(tr("Rendering requested layer... (previous image; values unavailable)"));
+  auto apply_image=[this,request,selected,settings,unit_text,bar_labels,no_auto_range,reservation,
+                    frame_legend,entropy_text,entropy_bits,publish_snapshot,low,high,cols,rows](const QImage &image) {
     if(request!=render_revision) return;
     if(image.isNull()){clear_plane(tr("Cannot allocate image."));return;}
     image_item->setPixmap(QPixmap::fromImage(image));setProperty("renderedRevision",request);
+    presented_reservation=reservation;
     color_bar->set_mapping(selected,settings,unit_text,bar_labels,!no_auto_range);
+    legend->setText(frame_legend);
+    entropy_summary->setText(entropy_text);setProperty("entropyBits",entropy_bits);
+    display_valid=true;
+    show_profile_action->setEnabled(profile_points.size()>=2);
+    setProperty("minimum",no_auto_range?QVariant():QVariant(low));
+    setProperty("maximum",no_auto_range?QVariant():QVariant(high));
+    scene->setSceneRect(0,0,double(cols),double(rows));
+    if(first_frame_fit) {
+      first_frame_fit=false;
+      canvas->fitInView(scene->sceneRect(),Qt::KeepAspectRatio);
+      notify_viewport_changed();
+    }
+    if(profile_window) if(auto *view=qobject_cast<ProfileView*>(profile_window.data()))
+      view->update_data(last_values,last_rows,last_cols,profile_points,CurvePathMode::SmoothSpline,raster_reservation);
+    if(publish_snapshot || !snapshot_available) {
+      snapshot_available=true;
+      emit plane_snapshot_changed(++snapshot_revision);
+    }
+    emit color_mapping_changed();
   };
   // Small deterministic fixtures stay synchronous; larger recoloring runs off the GUI thread.
   pending_render={};pending_apply={};
-  if(rows*cols<=65536||qApp->property("synchronousRasterPreview").toBool()) {
+  if(!asynchronous) {
     const QImage image=render();
     if(image.isNull()) {clear_plane(tr("Cannot allocate image."));return;}
     apply_image(image);
@@ -746,34 +788,28 @@ void RasterView::refresh() {
   else {
     pending_render=render;pending_apply=apply_image;pending_revision=request;start_pending_render();
   }
-  display_valid=true;
-  show_profile_action->setEnabled(profile_points.size()>=2);
-  setProperty("minimum",no_auto_range?QVariant():QVariant(low));
-  setProperty("maximum",no_auto_range?QVariant():QVariant(high));
-  scene->setSceneRect(0,0,double(cols),double(rows));
-  QString coordinate_note=geographic && geo_grid.valid
-    ? tr("   Geographic lookup: %1 / %2").arg(QString::fromUtf8(geo_grid.latitudePath.c_str()),QString::fromUtf8(geo_grid.longitudePath.c_str()))
-    : QString();
-  legend->setText(discrete_mode
-    ? tr("%1 x %2   Categories: %3   Unknown: magenta   Missing: grey").arg(cols).arg(rows).arg(category_labels.join("; "))
-    : tr("%1 x %2   Min %3   Max %4   Missing: grey%5")
-    .arg(cols).arg(rows).arg(low,0,'g',9).arg(high,0,'g',9)
-    .arg(!color_mapping.boundaries.empty()?tr(" (custom boundaries)"):
-      automatic ? tr(" (automatic)") : tr(" (fixed)")));
-  if(no_auto_range) legend->setText(tr("%1 x %2   No valid values; missing: grey; Mask: white").arg(cols).arg(rows));
-  if(masking) {
-    auto bound=[](double value) { return std::isinf(value) ? (value<0 ? QString("-inf") : QString("+inf")) : QString::number(value,'g',9); };
-    legend->setText(legend->text()+tr("   Masked [%1, %2] (decoded): %3, white")
-        .arg(bound(mask_from),bound(mask_to)).arg(masked_count));
+}
+
+void RasterView::hold_presented_frame(const QString &message) {
+  // 请求与呈现分离：仅保留上一张位图/色条；旧数值不参与新层分析或探针。
+  display_valid=false;show_profile_action->setEnabled(false);
+  canvas->viewport()->setToolTip({});legend->setToolTip({});color_bar->setToolTip({});
+  legend->setText(message);
+  entropy_summary->setText(tr("Whole-plane histogram entropy (256 bins): N/A"));setProperty("entropyBits",QVariant());
+  setProperty("minimum",QVariant());setProperty("maximum",QVariant());
+  if(profile_window) if(auto *view=qobject_cast<ProfileView*>(profile_window.data()))
+    view->update_data({},0,0,{},CurvePathMode::SmoothSpline);
+  if(snapshot_available) {
+    snapshot_available=false;
+    emit plane_snapshot_changed(++snapshot_revision);
   }
-  if(!coordinate_note.isEmpty()) legend->setText(legend->text()+coordinate_note);
-  emit color_mapping_changed();
 }
 
 void RasterView::clear_plane(const QString &error) {
   ++render_revision;render_generation->store(render_revision);pending_render={};pending_apply={};
   display_valid=false;mask_valid=false;show_profile_action->setEnabled(false);
   image_item->setPixmap(QPixmap());color_bar->clear();legend->setText(error);
+  presented_reservation.reset();
   canvas->viewport()->setToolTip({});legend->setToolTip({});
   snapshot_available=false;
   entropy_summary->setText(tr("Whole-plane histogram entropy (256 bins): N/A"));setProperty("entropyBits",QVariant());
@@ -782,7 +818,14 @@ void RasterView::clear_plane(const QString &error) {
   if(profile_window) if(auto *view=qobject_cast<ProfileView*>(profile_window.data()))
     view->update_data({},0,0,{},CurvePathMode::SmoothSpline);
 }
-RasterView::~RasterView() {if(grib_reader){grib_reader->disconnect(this);grib_reader->dispose();}render_generation->fetch_add(1);pending_render={};}
+RasterView::~RasterView() {
+  // QWidget析构会调整子画布尺寸；停止回调，避免通知已析构的派生成员。
+  static_cast<Canvas*>(canvas)->viewport_changed_callback={};
+  canvas->horizontalScrollBar()->disconnect(this);canvas->verticalScrollBar()->disconnect(this);
+  color_bar=nullptr;
+  if(grib_reader){grib_reader->disconnect(this);grib_reader->dispose();}
+  render_generation->fetch_add(1);pending_render={};
+}
 bool RasterView::render_pending() const {return grib_read_pending||render_running || bool(pending_render);}
 PlaneSnapshot RasterView::plane_snapshot() const {
   PlaneSnapshot snapshot;
@@ -803,6 +846,13 @@ PlaneSnapshot RasterView::plane_snapshot() const {
 }
 
 void RasterView::notify_viewport_changed() {
+  if(color_bar){
+    // 色标辅助读图：跟随可见图像宽度，避免铺满窗口挤占主体。
+    const int available=std::max(100,canvas->viewport()->width()-16);
+    const int image_width=image_item->pixmap().isNull()?available:std::min(available,canvas->mapFromScene(image_item->boundingRect()).boundingRect().width());
+    const int target=std::min(available,std::clamp(qRound(.75*image_width),240,640));
+    if(color_bar->width()!=target)color_bar->setFixedWidth(target);
+  }
   if(!applying_viewport) emit viewport_changed();
 }
 
@@ -833,7 +883,7 @@ void RasterView::apply_viewport_state(const ViewportState &state) {
     set_ratio(canvas->horizontalScrollBar(),state.h_ratio);set_ratio(canvas->verticalScrollBar(),state.v_ratio);
   }
   applying_viewport=false;
-  emit viewport_changed();
+  notify_viewport_changed();
 }
 
 RasterColorState RasterView::color_state() const {

@@ -40,5 +40,15 @@ map by Anton Mikhailov, Apache-2.0 (see upstream CMap REUSE Google namespace).
 The legacy algorithms are HDFStudio application code, under the project's GPL-3.0.
 
 No endorsement by the original authors or institutions is claimed.
+Jet and Rainbow added by HDFStudio on 2026-11-23 from Matplotlib 3.10.7
+lib/matplotlib/_cm.py, Copyright the Matplotlib Development Team.
+Copyright (c) 2012- Matplotlib Development Team; All Rights Reserved.
+Rainbow uses the gnuplot palette functions credited upstream to Thomas Williams
+and Colin Kelley. The complete Matplotlib license is Matplotlib-LICENSE.txt.
+Transformation: Jet retains the union of every RGB-channel breakpoint with
+linear sRGB interpolation; Rainbow evaluates its clipped RGB functions at
+256 evenly spaced positions; both serialize to RGBA JSON with alpha 1.
+The pinned source and license hashes are recorded by the palette resources.
+
 User-imported color maps are stored locally and are not included in official
 resources by this importer; their licensing is not asserted by HDFStudio.

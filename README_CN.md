@@ -2,17 +2,17 @@
 
 **Unleash the Power of Your NetCDF and GRIB Data**
 
-[English](README.md) | **简体中文** · **版本 0.14.02**
+[English](README.md) | **简体中文** · **版本 0.14.04**
 
 ## ⬇️ Download
 
 [![Release](https://img.shields.io/github/v/release/DuLiangMin/HDFStudio?label=release&color=3d99a4)](https://github.com/DuLiangMin/HDFStudio/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/DuLiangMin/HDFStudio/total?color=3d99a4)](https://github.com/DuLiangMin/HDFStudio/releases)
 [![License: GPL v3](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-lightgrey)](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.02/HDFStudio-0.14.02-update-20261123-win64.zip)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-lightgrey)](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.04/HDFStudio-0.14.04-win64.zip)
 [![Qt](https://img.shields.io/badge/Qt-6.8-41cd52)](https://www.qt.io/)
 
-**[Download](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.02/HDFStudio-0.14.02-update-20261123-win64.zip)** — **0.14.02 Windows x64 绿色二进制 ZIP** · [全部版本](https://github.com/DuLiangMin/HDFStudio/releases)
+**[Download](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.04/HDFStudio-0.14.04-win64.zip)** — **0.14.04 Windows x64 绿色二进制 ZIP** · [全部版本](https://github.com/DuLiangMin/HDFStudio/releases)
 
 包含程序、CLI、GRIB 解码器与定义资源、运行库和离线帮助。解压即可运行，基本浏览无需另行下载依赖。
 
@@ -37,7 +37,7 @@ HDFStudio 是面向气象、气候与科研数据的免费开源 Windows 工具�
 - **直接浏览 GRIB1 / GRIB2：** 虚拟 **Variables** 组织兼容场；分页 **Messages** 保留物理消息、子场、元信息与来源。
 - **查看数值与图像：** 双击矩形变量/场优先打开 **Image View**；支持解码值、重建的 **Quantized X** 和并排表格、科学色表、解码值 Mask，以及 CSV/PNG 导出。Quantized X 仅适用于支持的打包方式，不是原始字节转储。
 - **分析与播放：** 直方图、曲线剖面、全平面灰度熵、二维纹理熵、比较指标、残差图、整数索引同步与逐层播放。
-- **CLI 剖面：** 矩形 GRIB 数组支持任意有序两轴剖面，缺槽显式记录。GRIB GUI 剖面、可靠地理坐标接入和 U/V 矢量仍待后续完成。
+- **Space-Time Section (Hovmöller)：** 矩形 GRIB 数组支持独立 GUI/CLI 剖面、任意有序两轴、原始起报/时效标签、固定维导航、Mask 和 PNG/CSV 导出；缺槽显式记录。可靠地理坐标接入和 U/V 矢量仍待后续完成。
 
 未知名称/单位保持未知；缺场或越界会清空旧结果。当前 GRIB 图像采用源网格索引。比较要求平面形状一致，按整数索引对齐，不自动转换单位、匹配物理时间、投影或重采样。CF 检查不适用于 GRIB。
 
@@ -46,14 +46,16 @@ HDFStudio 是面向气象、气候与科研数据的免费开源 Windows 工具�
 | 任务 | 功能 |
 |---|---|
 | 检查数值 | 可复制 Properties；NetCDF/HDF5 解码/存储/并排表格；自动列宽、单元格选择与 Ctrl+C |
-| 查看图像 | 科学色表、缩放/平移、翻转、解码值 Mask、原分辨率 PNG |
+| 查看图像 | 缺省 Jet 光谱配色，可选 Rainbow 与科学色表，缩放/平移、翻转、解码值 Mask、原分辨率 PNG |
 | 分析分布 | 抽样或全平面直方图、曲线 CSV、纹理熵图 |
 | 比较数据 | Pearson r、RMSE、MAE、Bias、`Target − Anchor` 残差、各目标独立整数 lag |
 | 浏览序列 | 层号控件、Play/Pause；联动视图等待当前数据就绪 |
-| NetCDF/HDF5 剖面 | 独立 **Space-Time Section (Hovmöller)**，任意两轴、固定维度切换及 PNG/CSV |
+| NetCDF/HDF5/GRIB 剖面 | 独立 **Space-Time Section (Hovmöller)**，任意两轴、固定维度切换及 PNG/CSV |
 | 整理工作区 | **Window → Tile / Cascade / Hide Infobar** |
 
 NetCDF/HDF5 剖面保留源索引等宽显示和已验证坐标标签；通用 HDF5 使用索引含义。CF 诊断仅供参考，不支持的编码与内存限制会明确提示。细节见[使用帮助](https://duliangmin.github.io/HDFStudio/doc/help.html#zh)。
+
+**Fit** 通过平滑显示插值铺满剖面绘图区的宽度和高度，短剖面或单列剖面也能展开。探针、CSV 与原始分辨率 PNG 保留原采样，不插值物理坐标。
 
 ## ⌨️ 命令行提取信息
 
@@ -71,7 +73,7 @@ hdf_cli props data.nc /temperature
 
 Windows 开发使用 Visual Studio 2022 x64、CMake、Qt 6.8、HDF5、netCDF-C 和 ecCodes。依赖位置与目标见 `CMakeLists.txt`、`cmake/Grib.cmake`；ecCodes 默认位于 `ext/eccodes`，可用 `HDFSTUDIO_ECCODES_ROOT` 配置。源码位于 `src/app`、`src/core`、`src/views`、`src/cli`，测试位于 `tests/`。构建会把帮助页复制到 `build/output/<配置>/doc/help.html`。
 
-公开源码不附 `tools/` 和第三方代码副本。请使用[更新后的源码 ZIP](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.02/HDFStudio-0.14.02-update-20261123-src.zip)，构建依赖见[依赖说明](docs/DEPENDENCIES.md)和[项目结构树](docs/PROJECT_STRUCTURE.md)；清单保留精确下载来源与哈希。二进制 ZIP 保留完整运行库与许可证。
+公开源码不附 `tools/` 和第三方代码副本。请使用[源码 ZIP](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.04/HDFStudio-0.14.04-src.zip)，构建依赖见[依赖说明](docs/DEPENDENCIES.md)和[项目结构树](docs/PROJECT_STRUCTURE.md)；清单保留精确下载来源与哈希。二进制 ZIP 保留完整运行库与许可证。
 
 问题请提交至 [Issues](https://github.com/DuLiangMin/HDFStudio/issues)，附格式、对象 ID、shape 和相关 `probe`/`info`/`props` 输出。历史更新见 [Changelog.md](Changelog.md)。
 
@@ -83,4 +85,5 @@ Windows 开发使用 Visual Studio 2022 x64、CMake、Qt 6.8、HDF5、netCDF-C �
 
 NetCDF 查看器, NetCDF 浏览器, NetCDF4 viewer Windows, nc 文件查看, 打开 nc 文件, HDF5 查看器, HDF5 浏览器, HDF 查看器, 科学数据查看, 气象数据, 气候数据, 大气科学, 海洋学, 地球科学, 模式输出, CMIP, 再分析, GRIB2 转 NetCDF, CF 规范, CF-1.8 检查, netCDF4-python, num2date, 时间解码, noleap 日历, 经纬度网格, Qt6 桌面程序, 免费开源, Panoply 替代, ncview 替代, HDFView 替代。
 
-GRIB 查看器, GRIB1 查看器, GRIB2 viewer Windows, 天气预报数据, LLM 数据检查, AI Agent 数据工具。
+GRIB 查看器, GRIB1 查看器, GRIB2 viewer Windows, 天气预报数据, LLM 数据检查, AI Agent 数据工具,
+灰度熵, gray-level entropy, Space-Time Section (Hovmöller)。

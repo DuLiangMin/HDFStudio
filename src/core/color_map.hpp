@@ -30,6 +30,7 @@ struct Mapping {
 };
 constexpr uint32_t missing_color = 0xff6e6e6eu;
 constexpr uint32_t masked_color = 0xffffffffu;
+inline const QString default_palette_id = QStringLiteral("matplotlib:jet");
 QString validate(const Palette &palette);
 QString validate(const Palette &palette, const Mapping &mapping);
 QString parse_json(const QByteArray &data, Palette &out);

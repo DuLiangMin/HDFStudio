@@ -62,7 +62,7 @@ private:
   SectionDates *m_dates=nullptr;
   std::shared_ptr<SectionSnapshot> m_data;
   std::shared_ptr<const SectionSnapshot> m_snapshot;
-  bool m_render_running=false,m_render_pending=false,m_closing=false,m_exporting=false;
+  bool m_render_running=false,m_render_pending=false,m_closing=false,m_exporting=false,m_grib=false;
   std::vector<HdfColorMap::Palette> m_palettes;
   QComboBox *m_row,*m_col,*m_palette,*m_range_mode,*m_normalization;
   QPushButton *m_lat_time,*m_lon_time,*m_export_png,*m_export_csv;

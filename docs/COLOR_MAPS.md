@@ -6,12 +6,15 @@ controls verified latitude/longitude readout, not projection conversion.
 ## 🌈 Palettes and mapping
 
 The original five palettes remain at the start of the selector as **legacy**
-compatibility options. The default remains legacy Viridis to keep old images
-visually stable. Select **Viridis** for the full 256-node scientific palette.
+compatibility options. **Jet** is the default spectrum palette for new raster
+images, Space-Time Sections and texture entropy images. **Rainbow** is also
+available in CMaps. Select **Viridis** for the full 256-node scientific palette.
+Residual maps retain a zero-centered diverging palette.
 
 | Group | Additional maps |
 |---|---|
 | General | Viridis, Batlow |
+| Spectrum | Jet (default), Rainbow |
 | Precipitation | Rain, precip_11lev (NCL), precip_diff_12lev (NCL) |
 | Temperature | Thermal, Balance, temp_19lev (NCL) |
 | Circulation | Speed, Curl, Phase, wind_17lev (NCL), BlueWhiteOrangeRed (NCL); Balance/Batlow can also be useful |
@@ -89,3 +92,9 @@ and hashes remain in the manifest. Full license texts and attributions are in
 `licenses/colormaps/`, included in both source and binary packages. Local export
 and maintenance scripts are not published.
 Runtime does not require Python, cmap or NCL.
+
+Jet and Rainbow are pinned to Matplotlib 3.10.7. Jet retains every channel
+breakpoint; Rainbow samples its functions at 256 positions. Derived JSON and
+the complete Matplotlib license are shipped; upstream implementation copies
+remain local development inputs. Spectrum palettes do not imply physical
+thresholds or perceptually uniform distances between values.
