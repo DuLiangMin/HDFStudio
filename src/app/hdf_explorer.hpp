@@ -17,28 +17,17 @@
 class MainWindow;
 class ItemData;
 class hdf_dataset_t;
-class TableModel;
 class WorkspaceSyncController;
 class ComparePanel;
 class LayerPlayback;
 
-// Startup waiting box, defined in hdf_explorer.cpp and shared with the regression test.
-QWidget *create_startup_splash();
+// Compatibility includes; concrete grid classes stay private to their module.
+#include "legacy_grid.hpp"
+#include "startup_splash.hpp"
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 //FileTreeWidget
 /////////////////////////////////////////////////////////////////////////////////////////////////////
-
-// How a grid shows the values of a packed variable (scale_factor / add_offset):
-//   GridDecoded - the real values (stored x scale + offset), what the image view and legend show
-//   GridStored  - the numbers exactly as written in the file
-//   GridBoth    - both side by side, decoded column then stored column
-enum GridValueMode
-{
-  GridDecoded = 0,
-  GridStored  = 1,
-  GridBoth    = 2
-};
 
 class FileTreeWidget : public QTreeWidget
 {
@@ -247,42 +236,6 @@ private:
 
   //find object in list 
   H5O_info_added_t* find_object(haddr_t addr);
-};
-
-/////////////////////////////////////////////////////////////////////////////////////////////////////
-//ChildWindow
-/////////////////////////////////////////////////////////////////////////////////////////////////////
-
-class ChildWindow : public QMainWindow, public LayerNavigation
-{
-  Q_OBJECT
-public:
-  ChildWindow(QWidget *parent, ItemData *item_data);
-  std::vector<int> m_layer;  // current selected layer of a dimension > 2 
-
-  // LayerNavigation: the main window's Layer toolbar/menu drive this grid through its own combos
-  int layer_axis_count() const override;
-  QString layer_axis_name(int axis) const override;
-  int layer_count(int axis) const override;
-  int layer_index(int axis) const override;
-  void set_layer_index(int axis, int index) override;
-
-signals:
-  void layer_changed();
-
-  private slots:
-  void previous_layer(int);
-  void next_layer(int);
-  void combo_layer(int);
-
-private:
-  QToolBar *m_tool_bar;
-  std::vector<QComboBox *> m_vec_combo;
-  QStringList m_axis_names;  // names of the leading dimensions, e.g. time, lev
-
-protected:
-  TableModel *m_model;
-  hdf_dataset_t *m_dataset; // HDF variable to display (convenience pointer to data in ItemData)
 };
 
 #endif

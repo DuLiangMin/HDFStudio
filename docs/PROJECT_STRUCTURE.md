@@ -7,13 +7,13 @@ HDFStudio/
 ├── CMakeLists.txt            Application, shared libraries, tests and help deployment
 ├── cmake/Grib.cmake          ecCodes import and native runtime deployment
 ├── src/
-│   ├── app/                 Main window, file tree, navigation, scheduling, controllers
+│   ├── app/                 Product entrypoint, main window, browser payload, controllers
 │   ├── views/               Tables, raster, sections, curves, entropy and comparisons
 │   ├── core/                Format-neutral metadata, readers, decoding and algorithms
 │   │   └── grib/            GRIB catalog, field identity, planes and source adapters
 │   └── cli/                 hdf_cli: metadata, exports and isolated section worker
 ├── doc/help.html            Offline Chinese/English user guide, opened by Help / F1
-├── docs/                    Architecture, GRIB contract, screenshots and demo
+├── docs/                    ADRs, architecture, GRIB contract, screenshots and demo
 ├── resources/               Qt assets and generated offline color-map data
 ├── licenses/                Dependency notices and pinned native-file manifest
 ├── third_party/hdf_filters/ Build recipe, source URLs/hashes and local decoder sources
@@ -47,7 +47,18 @@ graph TD
     style C fill:#f1edff
 ```
 
-Core algorithms do not depend on Qt Widgets. `app` owns selection, cancellation and lifecycle; `views` presents snapshots and retains their memory leases. GRIB work is serialized around ecCodes. NetCDF/HDF5 section reads stay in the matching CLI process. The GUI and CLI use the same scientific decoding rules; the help page has no role in data reading.
+Core algorithms do not depend on Qt Widgets. `app` owns selection, cancellation and lifecycle; snapshot-based views retain their memory leases. The legacy HDF/NetCDF grid still borrows a tree-owned typed buffer, so dependent windows must be destroyed before their `ItemData`. GRIB work is serialized around ecCodes. NetCDF/HDF5 section reads stay in the matching CLI process. The GUI and CLI use the same scientific decoding rules; the help page has no role in data reading.
+
+## 🧩 Application module interfaces
+
+The [application boundaries](architecture/application-boundaries.md) describe the current ownership and dependency contracts. [ADR-0001](adr/0001-document-authority.md) records document authority; [ADR-0002](adr/0002-application-module-boundaries.md) records the incremental source split. New decisions use the [ADR index and template](adr/README.md).
+
+- `app/main.cpp` contains the product entrypoint and preview path; it is excluded from GUI QtTest source lists. `app/startup_splash.*` supplies the shared startup widget.
+- `views/legacy_grid.*` exposes `GridValueMode` and `create_legacy_grid`; `TableModel` and `ChildWindow` remain private implementation classes. Existing `LayerNavigation` connects the returned widget to main-window controls.
+- `app/browser_item.hpp` owns the compatibility payload declarations. `app/legacy_grid_data.*` contains shared classic-NetCDF buffer loading. These are transitional application contracts, not format-neutral core APIs.
+- `app/hdf_explorer.*` retains workspace composition, file-tree actions and format traversal. File-tree/private-main-window coupling is a future boundary to define separately.
+
+Current tasks and private data locations live outside the public product repository, under the workspace's `docs/internal/`. Architecture documents do not embed business paths or duplicate mutable task status.
 
 ## 🔗 Build targets and the help dependency fix
 

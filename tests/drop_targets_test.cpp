@@ -171,7 +171,7 @@ void DropTargetsTest::localHelpOpensBesideExecutableRegardlessOfWorkingDirectory
   QFile help(expected);
   QVERIFY(help.open(QIODevice::ReadOnly));
   const auto content = help.readAll();
-  QVERIFY(content.contains("0.14.04"));
+  QVERIFY(content.contains("0.14.06"));
   QVERIFY(content.contains("id=\"zh-ai\""));
   QVERIFY(content.contains("id=\"en-ai\""));
 }

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(HDFStudio VERSION 0.14.04 LANGUAGES C CXX)
+project(HDFStudio VERSION 0.14.06 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -20,7 +20,7 @@ include_directories(${CMAKE_SOURCE_DIR}/build/hdf5-1.8.20)
 include_directories(${CMAKE_SOURCE_DIR}/ext/hdf5-1.8.20/test)
 
 # Source tree layout (flat includes "nc_reader.hpp" keep working through these directories):
-#   src/app     the main window, tree, grid, layer navigation (Qt Widgets)
+#   src/app     main window, browser payload, layer navigation and controllers
 #   src/core    reading, Properties and text export shared by the GUI, the tests and hdf_cli
 #   src/views   image, vector and mesh windows
 #   src/cli     hdf_cli
@@ -47,6 +47,13 @@ endif()
 set(src 
     src/app/hdf_explorer.hpp
     src/app/hdf_explorer.cpp
+    src/app/browser_item.hpp
+    src/app/legacy_grid_data.hpp
+    src/app/legacy_grid_data.cpp
+    src/app/startup_splash.hpp
+    src/app/startup_splash.cpp
+    src/views/legacy_grid.hpp
+    src/views/legacy_grid.cpp
     src/app/layer_navigation.hpp
     src/app/layer_playback.hpp
     src/app/layer_playback.cpp
@@ -133,7 +140,7 @@ if (WIN32)
 endif()
 set(lib_dep ${lib_dep} ${hdf5_dep})
 
-add_executable(hdf_explorer ${src} ${qrc_sources} ${windows_resources} ${app_icon_macos})
+add_executable(hdf_explorer src/app/main.cpp ${src} ${qrc_sources} ${windows_resources} ${app_icon_macos})
 set_target_properties(hdf_explorer PROPERTIES
     OUTPUT_NAME HDFStudio
     RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_SOURCE_DIR}/build/output/Debug"

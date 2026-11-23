@@ -2,17 +2,17 @@
 
 **Unleash the Power of Your NetCDF and GRIB Data**
 
-[English](README.md) | **简体中文** · **版本 0.14.04**
+[English](README.md) | **简体中文** · **版本 0.14.06**
 
-## ⬇️ Download
+## ⬇️ 下载
 
 [![Release](https://img.shields.io/github/v/release/DuLiangMin/HDFStudio?label=release&color=3d99a4)](https://github.com/DuLiangMin/HDFStudio/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/DuLiangMin/HDFStudio/total?color=3d99a4)](https://github.com/DuLiangMin/HDFStudio/releases)
 [![License: GPL v3](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-lightgrey)](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.04/HDFStudio-0.14.04-win64.zip)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-lightgrey)](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.06/HDFStudio-0.14.06-win64.zip)
 [![Qt](https://img.shields.io/badge/Qt-6.8-41cd52)](https://www.qt.io/)
 
-**[Download](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.04/HDFStudio-0.14.04-win64.zip)** — **0.14.04 Windows x64 绿色二进制 ZIP** · [全部版本](https://github.com/DuLiangMin/HDFStudio/releases)
+**[下载 Windows 程序](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.06/HDFStudio-0.14.06-win64.zip)** — **0.14.06 Windows x64 绿色二进制 ZIP** · [下载源码 ZIP](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.06/HDFStudio-0.14.06-src.zip) · [版本说明](https://github.com/DuLiangMin/HDFStudio/releases/tag/v0.14.06) · [全部版本](https://github.com/DuLiangMin/HDFStudio/releases)
 
 包含程序、CLI、GRIB 解码器与定义资源、运行库和离线帮助。解压即可运行，基本浏览无需另行下载依赖。
 
@@ -26,7 +26,7 @@ HDFStudio 是面向气象、气候与科研数据的免费开源 Windows 工具�
 
 ## 🚀 快速开始
 
-1. 点击上方 **Download**，解压后运行 `HDFStudio.exe`，无需安装或管理员权限。
+1. 点击上方 **下载 Windows 程序**，解压后运行 `HDFStudio.exe`，无需安装或管理员权限。
 2. 使用 **File → Open** 或拖入文件，展开左侧树，右键变量打开 **Properties**、**Data Grid** 或 **Image View**。
 3. 点击[在线中英文帮助](https://duliangmin.github.io/HDFStudio/doc/help.html#zh)阅读网页。下载程序后，也可通过 **Help → Help**（位于 About 前）、**F1**，或双击本地 `doc/help.html` 离线阅读。
 
@@ -73,7 +73,7 @@ hdf_cli props data.nc /temperature
 
 Windows 开发使用 Visual Studio 2022 x64、CMake、Qt 6.8、HDF5、netCDF-C 和 ecCodes。依赖位置与目标见 `CMakeLists.txt`、`cmake/Grib.cmake`；ecCodes 默认位于 `ext/eccodes`，可用 `HDFSTUDIO_ECCODES_ROOT` 配置。源码位于 `src/app`、`src/core`、`src/views`、`src/cli`，测试位于 `tests/`。构建会把帮助页复制到 `build/output/<配置>/doc/help.html`。
 
-公开源码不附 `tools/` 和第三方代码副本。请使用[源码 ZIP](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.04/HDFStudio-0.14.04-src.zip)，构建依赖见[依赖说明](docs/DEPENDENCIES.md)和[项目结构树](docs/PROJECT_STRUCTURE.md)；清单保留精确下载来源与哈希。二进制 ZIP 保留完整运行库与许可证。
+公开源码不附 `tools/` 和第三方代码副本。请使用[源码 ZIP](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.06/HDFStudio-0.14.06-src.zip)，构建依赖见[依赖说明](docs/DEPENDENCIES.md)和[项目结构树](docs/PROJECT_STRUCTURE.md)；清单保留精确下载来源与哈希。二进制 ZIP 保留完整运行库与许可证。
 
 问题请提交至 [Issues](https://github.com/DuLiangMin/HDFStudio/issues)，附格式、对象 ID、shape 和相关 `probe`/`info`/`props` 输出。历史更新见 [Changelog.md](Changelog.md)。
 
@@ -86,4 +86,4 @@ Windows 开发使用 Visual Studio 2022 x64、CMake、Qt 6.8、HDF5、netCDF-C �
 NetCDF 查看器, NetCDF 浏览器, NetCDF4 viewer Windows, nc 文件查看, 打开 nc 文件, HDF5 查看器, HDF5 浏览器, HDF 查看器, 科学数据查看, 气象数据, 气候数据, 大气科学, 海洋学, 地球科学, 模式输出, CMIP, 再分析, GRIB2 转 NetCDF, CF 规范, CF-1.8 检查, netCDF4-python, num2date, 时间解码, noleap 日历, 经纬度网格, Qt6 桌面程序, 免费开源, Panoply 替代, ncview 替代, HDFView 替代。
 
 GRIB 查看器, GRIB1 查看器, GRIB2 viewer Windows, 天气预报数据, LLM 数据检查, AI Agent 数据工具,
-灰度熵, gray-level entropy, Space-Time Section (Hovmöller)。
+gray-level entropy, Space-Time Section (Hovmöller)。

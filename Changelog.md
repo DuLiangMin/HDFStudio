@@ -1,5 +1,12 @@
 # Changelog
 
+## 🧩 0.14.06 Application module boundaries - 2026-11-23
+
+- Separate the product entrypoint, startup widget, legacy grid, browser payload and classic-NetCDF buffer helpers; preserve existing numerical behavior and ownership.
+- Add architecture decision records and application boundary documentation for future extensions.
+- Update the application, About dialog, help and bilingual READMEs to 0.14.06; explicitly list GRIB1/GRIB2 in About.
+- Keep English and Chinese download instructions separate; remove the Chinese entropy term from the keyword lists while retaining gray-level entropy.
+
 ## 📈 0.14.04 GRIB sections and full-width display - 2026-11-23
 
 - Add GRIB variable/field **Space-Time Section (Hovmöller)** entries to View and the context menu, using the shared isolated CLI worker, schema 2 / GribDecodedV1, source working-set reservation and cancellation.
