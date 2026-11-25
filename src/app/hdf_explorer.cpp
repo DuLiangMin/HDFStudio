@@ -19,6 +19,8 @@
 #include <vector>
 #include <algorithm>
 #include "hdf_explorer.hpp"
+#include "geo_grid_controller.hpp"
+#include "map_display.hpp"
 #include "raster_view.hpp"
 #include "browser_item.hpp"
 #include "legacy_grid_data.hpp"
@@ -39,6 +41,8 @@
 #include "data_read_controller.hpp"
 #include "grib_table_view.hpp"
 #include "slice_io.hpp"
+#include "search_panel.hpp"
+#include "browser_search.hpp"
 #ifdef _WIN32
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -274,6 +278,7 @@ MainWindow::MainWindow()
   m_tree->setDropIndicatorShown(true);
   m_tree->setHeaderHidden(1);
   m_tree->set_main_window(this);
+  connect(m_tree,&QTreeWidget::currentItemChanged,this,[this]{update_search_context();});
   QStringList str_style = QStyleFactory::keys();
   qDebug() << str_style;
   for(int i = 0; i < str_style.size(); ++i)
@@ -466,6 +471,10 @@ MainWindow::MainWindow()
 
   m_menu_file = menuBar()->addMenu(tr("&File"));
   m_menu_file->addAction(m_action_open);
+  auto *find_files=m_menu_file->addAction(tr("Find files..."),this,[this]{ensure_search_panel();m_search_panel->show_files();});
+  find_files->setObjectName("actionFindFiles");
+  auto *find_variables=m_menu_file->addAction(tr("Find variables..."),this,[this]{ensure_search_panel();update_search_context();m_search_panel->show_variables();});
+  find_variables->setObjectName("actionFindVariables");
   m_menu_file->addAction(m_action_close_file);
   m_menu_file->addAction(m_action_close_all_files);
   connect(m_menu_file, &QMenu::aboutToShow, this, &MainWindow::update_close_actions);
@@ -725,7 +734,7 @@ void MainWindow::about()
 {
   QMessageBox::about(this,
     tr("About HDFStudio"),
-    tr("HDFStudio 0.14.06\nAuthor: DuLiangMin\n\n"
+    tr("HDFStudio 0.14.08\nAuthor: DuLiangMin\n\n"
        "Free NetCDF, HDF5 & GRIB1/GRIB2 viewer for Windows\n"
        "Metadata convention target: CF-1.8\n"
        "Product libraries: netCDF-C 4.9.3, HDF5 1.8.20\n\n"
@@ -740,12 +749,12 @@ void MainWindow::about()
 void MainWindow::closeEvent(QCloseEvent *eve)
 {
   m_layer_playback->stop();
-  if(SliceJobController::any_busy()||SectionDates::any_busy()||DataReadController::any_busy()) {
-    eve->ignore();SliceJobController::cancel_all();SectionDates::cancel_all();DataReadController::cancel_all();
+  if(SliceJobController::any_busy()||SectionDates::any_busy()||DataReadController::any_busy()||GeoGridController::any_busy()||MapDisplay::any_busy()) {
+    eve->ignore();SliceJobController::cancel_all();SectionDates::cancel_all();DataReadController::cancel_all();GeoGridController::cancel_all();MapDisplay::cancel_all();
     if(!property("sectionShutdownPending").toBool()) {
       setProperty("sectionShutdownPending",true);setEnabled(false);
       auto *timer=new QTimer(this);timer->setInterval(20);
-      connect(timer,&QTimer::timeout,this,[this,timer]{if(!SliceJobController::any_busy()&&!SectionDates::any_busy()&&!DataReadController::any_busy()){timer->stop();timer->deleteLater();close();}});timer->start();
+      connect(timer,&QTimer::timeout,this,[this,timer]{if(!SliceJobController::any_busy()&&!SectionDates::any_busy()&&!DataReadController::any_busy()&&!GeoGridController::any_busy()&&!MapDisplay::any_busy()){timer->stop();timer->deleteLater();close();}});timer->start();
     }
     return;
   }
@@ -895,6 +904,10 @@ void MainWindow::close_file_of(QTreeWidgetItem *item)
   QTreeWidgetItem *root = item;
   while(root->parent()) root = root->parent();
 
+  if(m_search_panel && m_search_root==m_tree->indexFromItem(root)) {
+    m_search_root={};m_search_panel->set_context({},{});
+  }
+
   std::vector<ItemData*> owned;
   collect_item_data(root, owned);
   const QString closed_name = root->text(0);
@@ -911,7 +924,11 @@ void MainWindow::close_file_of(QTreeWidgetItem *item)
     }
   }
 
-  delete m_tree->takeTopLevelItem(m_tree->indexOfTopLevelItem(root));
+  {
+    // 移除当前节点时currentItemChanged可能仍看见旧根；等整个源移除后再同步。
+    const QSignalBlocker tree_changes(m_tree);
+    delete m_tree->takeTopLevelItem(m_tree->indexOfTopLevelItem(root));
+  }
   for(ItemData *item_data : owned) delete item_data;
   QStringList open_files;
   for(int i=0;i<m_tree->topLevelItemCount();++i)if(auto *data=get_item_data(m_tree->topLevelItem(i)))open_files.append(item_file(data));
@@ -936,6 +953,7 @@ void MainWindow::close_file_of(QTreeWidgetItem *item)
     }
     statusBar()->showMessage(tr("Closed %1").arg(closed_name));
   }
+  update_search_context();
   update_close_actions();
 }
 
@@ -1079,6 +1097,40 @@ static void add_classic_attributes(QTreeWidgetItem *parent, const std::string &f
   }
 }
 
+void MainWindow::ensure_search_panel() {
+  if(m_search_panel)return;
+  m_search_panel=new SearchPanel(this);addDockWidget(Qt::BottomDockWidgetArea,m_search_panel);
+  connect(m_search_panel,&SearchPanel::open_file_requested,this,[this](const QString &file){
+    if(read_file(file)==0){update_search_context();m_search_panel->show_variables();}
+  });
+  connect(m_search_panel,&SearchPanel::variable_requested,this,&MainWindow::activate_search_variable);
+  update_search_context();
+}
+
+void MainWindow::update_search_context() {
+  if(!m_search_panel)return;
+  auto *root=m_tree->currentItem();
+  while(root && root->parent())root=root->parent();
+  if(!root && m_tree->topLevelItemCount())root=m_tree->topLevelItem(m_tree->topLevelItemCount()-1);
+  const QPersistentModelIndex index=root?QPersistentModelIndex(m_tree->indexFromItem(root)):QPersistentModelIndex();
+  if(index==m_search_root)return;
+  m_search_root=index;
+  const auto *data=root?get_item_data(root):nullptr;
+  m_search_panel->set_context(data?item_file(data):QString(),BrowserSearch::entries(m_tree,root));
+}
+
+void MainWindow::activate_search_variable(const QPersistentModelIndex &index,int action) {
+  if(!index.isValid() || index.model()!=m_tree->model())return;
+  auto *node=m_tree->itemFromIndex(index);if(!node)return;
+  auto *root=node;while(root->parent())root=root->parent();
+  if(QPersistentModelIndex(m_tree->indexFromItem(root))!=m_search_root)return;
+  for(auto *parent=node->parent();parent;parent=parent->parent())parent->setExpanded(true);
+  m_tree->setCurrentItem(node);m_tree->scrollToItem(node);
+  if(action==1)add_image(get_item_data(node));
+  else if(action==2)QMetaObject::invokeMethod(m_tree,"add_grid",Qt::DirectConnection);
+  else if(action==3)QMetaObject::invokeMethod(m_tree,"show_item_properties",Qt::DirectConnection);
+}
+
 QTreeWidgetItem *MainWindow::add_classic_tree(const QString &file_name, const std::string &stored_name,
                                               const QString &display_name)
 {
@@ -1115,6 +1167,14 @@ QTreeWidgetItem *MainWindow::add_classic_tree(const QString &file_name, const st
     QVariant variable_data;
     variable_data.setValue(item_data);
     item_var->setData(0, Qt::UserRole, variable_data);
+    QVariantMap search_metadata;
+    for(const char *key:{"long_name","standard_name","description","units"}) {
+      for(const auto &attribute:variable.attributes)if(attribute.name==key && attribute.type==NC_CHAR) {
+        if(attribute.length<=4096)search_metadata[QString::fromLatin1(key)]=nc_classic_text_attribute(file_name,variable.name,key);
+        else search_metadata["notes"]=tr("Text attribute exceeds 4096-byte search limit");
+      }
+    }
+    item_var->setData(0,BrowserSearch::MetadataRole,search_metadata);
     add_classic_attributes(item_var, stored_name, path, variable.attributes, m_icon_attribute);
   }
   add_classic_attributes(root_item, stored_name, "/", info.global_attributes, m_icon_attribute);
@@ -1173,6 +1233,10 @@ QTreeWidgetItem *MainWindow::add_grib_tree(const QString &file_name)
     get_item_data(variables)->m_grib_details=tr("Virtual arrays group compatible source fields; these are not HDF groups.\n%1 arrays. Missing slots and duplicate fields remain explicit.").arg(catalog->cubes.size());
     for(const auto &cube:catalog->cubes) {
       auto *node=make_item(variables,cube.title,cube.id,DataSource::NodeKind::Array);
+      const auto &field=catalog->fields.at(size_t(cube.representative));
+      qint64 field_count=0;for(int field_index:cube.lookup)if(field_index>=0)++field_count;
+      node->setData(0,BrowserSearch::MetadataRole,QVariantMap{{"name",field.short_name},{"long_name",field.name},
+        {"units",field.units},{"shape",field.keys.value("typeOfLevel")},{"fields",field_count},{"paramId",field.keys.value("paramId")}});
       const auto &info=get_item_data(node)->m_array;QStringList shape;
       for(const auto &axis:info.axes)shape<<QString("%1=%2").arg(axis.name).arg(axis.length);
       node->setToolTip(0,cube.id+"\n("+shape.join(", ")+")\n"+info.disabled_reasons.value("image"));
@@ -1249,7 +1313,7 @@ int MainWindow::read_file(QString file_name)
     }
     auto *root=add_grib_tree(file_name);if(!root)return -1;
     auto files=property("openSourceFiles").toStringList();if(!files.contains(file_name))files.append(file_name);setProperty("openSourceFiles",files);
-    m_tree->setCurrentItem(root);set_current_file(file_name);update_file_info(file_name);update_close_actions();statusBar()->showMessage(file_name);return 0;
+    m_search_root={};m_tree->setCurrentItem(root);update_search_context();set_current_file(file_name);update_file_info(file_name);update_close_actions();statusBar()->showMessage(file_name);return 0;
   }
   ba = file_name.toLocal8Bit();
   if(QString::fromLocal8Bit(ba) != file_name) {
@@ -1320,6 +1384,9 @@ int MainWindow::read_file(QString file_name)
 
   }
   root_item->setExpanded(true);
+  m_search_root={};
+  m_tree->setCurrentItem(root_item);
+  update_search_context();
   {auto files=property("openSourceFiles").toStringList();if(!files.contains(file_name))files.append(file_name);setProperty("openSourceFiles",files);}
   set_current_file(file_name);
   update_file_info(file_name);
@@ -1595,6 +1662,7 @@ int MainWindow::iterate(const std::string& file_name, const std::string& grp_pat
       item_data = new ItemData(ItemData::Variable, file_name, info.name, dataset);
       data.setValue(item_data);
       item_var->setData(0, Qt::UserRole, data);
+      BrowserSearch::set_hdf_metadata(item_var,qint64(did));
 
       if(get_attributes(file_name, path, did, item_var) < 0)
       {
@@ -2591,6 +2659,8 @@ void MainWindow::update_window_menu()
 
 MainWindow::~MainWindow()
 {
+  disconnect(m_tree,nullptr,this,nullptr);
+  delete m_search_panel;m_search_panel=nullptr;
   m_layer_playback->stop();
   qApp->removeEventFilter(this);
   disconnect(m_mdi_area, nullptr, this, nullptr);

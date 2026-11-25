@@ -20,6 +20,7 @@ class hdf_dataset_t;
 class WorkspaceSyncController;
 class ComparePanel;
 class LayerPlayback;
+class SearchPanel;
 
 // Compatibility includes; concrete grid classes stay private to their module.
 #include "legacy_grid.hpp"
@@ -218,6 +219,11 @@ private:
                                     const QString &display_name);
   QTreeWidgetItem *add_grib_tree(const QString &file_name);
   void update_close_actions();
+  void ensure_search_panel();
+  void update_search_context();
+  void activate_search_variable(const QPersistentModelIndex &index, int action);
+  SearchPanel *m_search_panel=nullptr;
+  QPersistentModelIndex m_search_root;
   // A view remembers which tree item produced it, so closing a file can find exactly its views.
   void tag_view(QMdiSubWindow *sub, const ItemData *source);
   void set_current_file(const QString &file_name);

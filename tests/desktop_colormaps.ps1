@@ -58,7 +58,7 @@ try {
  Click (FindName $uia::RootElement 'Image View')[0];Start-Sleep -Seconds 2
  $combo=@((FindName $window 'CMaps') | Where-Object {$_.Current.ControlType -eq [System.Windows.Automation.ControlType]::ComboBox})[0]
  Check 'CMaps selector visible' ($null -ne $combo -and -not $combo.Current.IsOffscreen)
- Check 'Projs action retained' ((FindName $window 'Projs').Count -gt 0)
+ Check 'Projection action available' ((FindName $window ('Projection'+[char]0x2026)).Count -gt 0)
  Click $combo;[Windows.Forms.SendKeys]::SendWait('{HOME}{DOWN 5}{ENTER}');Start-Sleep -Seconds 2
  Shot 'viridis'
  $value=$combo.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value

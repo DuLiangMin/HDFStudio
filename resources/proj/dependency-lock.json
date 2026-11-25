@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "proj_version": "9.9.0",
+  "sqlite_version": "3.54.1",
+  "vcpkg_baseline": "277978ad2eddc3b05ecf288dcd33071968cd2f79",
+  "triplet": "x64-windows",
+  "features": [
+    "core",
+    "tools"
+  ],
+  "network_enabled": false,
+  "tiff_enabled": false,
+  "compiler": "MSVC 14.44.35207 x64",
+  "crt": {
+    "Release": "MD",
+    "Debug": "MDd"
+  },
+  "source_prefix": "ext/vcpkg/installed/x64-windows",
+  "files": [
+    {
+      "path": "bin/proj_9.dll",
+      "size_bytes": 3683840,
+      "sha256": "e696767e4c599ee2b9d1ae6f6084ab454521d6d3198b1f485b9190d3384ca303"
+    },
+    {
+      "path": "debug/bin/proj_9_d.dll",
+      "size_bytes": 10227712,
+      "sha256": "72382829450cab9e96ad5ce954d7ac821d25a50be5e91adf65f456a5647097e6"
+    },
+    {
+      "path": "bin/sqlite3.dll",
+      "size_bytes": 1113088,
+      "sha256": "a5cea7d4132604108638a29f76cac7f59930102a6211371b6e8b6475793dd10e"
+    },
+    {
+      "path": "debug/bin/sqlite3.dll",
+      "size_bytes": 4536320,
+      "sha256": "51682328419da0876fbfea20dc3d7544df1925413ef61f62858481b0ef8271ef"
+    },
+    {
+      "path": "share/proj/proj.db",
+      "size_bytes": 10731520,
+      "sha256": "27ea4d5a088cf226a41ba9e096e41dae21d7455f4eba43f46b03fe6a8015a436"
+    },
+    {
+      "path": "share/proj/copyright",
+      "size_bytes": 1784,
+      "sha256": "6a8f30793e877d32e3f88b972f0970a051a3b5a26cd057d3993cb51e21c43319"
+    },
+    {
+      "path": "share/sqlite3/copyright",
+      "size_bytes": 71,
+      "sha256": "3cafdd9b568b924b234b91f4a24649d509f02643ae727eac6a4e33818288c9c4"
+    }
+  ]
+}

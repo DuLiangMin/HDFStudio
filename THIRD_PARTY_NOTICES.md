@@ -58,3 +58,40 @@ catalog, data-source and view adapters. ecCodes binaries/headers and their hashe
 listed in `licenses/eccodes/native-manifest.json`; source for the pinned version is
 https://github.com/ecmwf/eccodes/tree/2.47.0 . The small `testdata/grib/` files are
 generated test fixtures from GribStudio; no external business data are bundled.
+
+## 🌊 Low-resolution reference coastlines
+
+`resources/coastlines/low/` contains byte-for-byte copies of `gshhs_l.dat` and
+`gshhsmeta_l.dat` from **Basemap v2.0.0**, commit
+`6fed00b9b6146d19ffa98fd00a19cbb0ee448141`. Its upstream README identifies
+**GSHHG 2.3.6** as the source and **LGPL-3.0-or-later** as the data license.
+GSHHG is maintained by Paul Wessel, Walter H. F. Smith and upstream contributors.
+
+Full license texts are in `licenses/coastlines/COPYING` and
+`licenses/coastlines/COPYING.LESSER`. The original upstream README, fixed source
+URLs, file identities and SHA256 hashes are retained alongside the data.
+The upstream `LICENSE.mit` is also retained for its non-GSHHG supporting
+material, including its Jeffrey Whitaker attribution; it does not relicense
+the coastline data.
+No Basemap Python implementation or high-resolution data package is bundled.
+The development build loads normalized display polylines and deploys their
+originals, converter, manifests and notices beside the program. No new release
+archive has been published. Do not treat the data's license as the Basemap
+code's MIT license; derived assets identify their changes and preserve source.
+
+## 🌍 PROJ and its SQLite dependency
+
+The display projection core uses PROJ **9.9.0**, built with vcpkg baseline
+`277978ad2eddc3b05ecf288dcd33071968cd2f79`, `proj[core,tools]:x64-windows`.
+Network and TIFF features are disabled. PROJ's original MIT-style notice is
+preserved in `licenses/proj/COPYING`. Its SQLite **3.54.1** dependency's original
+notice is in `licenses/proj/SQLITE-COPYRIGHT`. Matching Release/Debug DLLs and
+`proj.db` identities are recorded in `resources/proj/dependency-lock.json`.
+The application explicitly uses its bundled resource directory with network
+disabled. No datum grid collection or external GIS/Python runtime is required
+for the supported same-model display projections.
+
+The normalized coastline asset and public converter are also retained in
+`resources/coastlines/`; `low/derived_manifest.json` identifies the modifications
+and output hash. Normalization removes only identified polygon closure edges;
+the data retains the upstream LGPL-3.0-or-later designation.

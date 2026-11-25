@@ -252,7 +252,7 @@ private slots:
     QTRY_VERIFY(canvas->viewport()->toolTip().contains("85000"));QVERIFY(canvas->viewport()->toolTip().contains("[0, 0]"));
     auto *start=view.findChild<QLineEdit*>("maskStart"),*end=view.findChild<QLineEdit*>("maskEnd");start->setText("85000");end->setText("85000");QVERIFY(QMetaObject::invokeMethod(end,"editingFinished"));
     image=view.image_for_export();QCOMPARE(image.pixelColor(0,0),QColor(Qt::white));QVERIFY(std::isnan(view.plane_snapshot().values->at(0)));QCOMPARE(plane.values->at(0),85000.);
-    QCOMPARE(view.property("planeReadCount").toULongLong(),count);QVERIFY(!view.findChild<QAction*>("projsAction")->isEnabled());
+    QCOMPARE(view.property("planeReadCount").toULongLong(),count);QVERIFY(view.findChild<QAction*>("projsAction")->isEnabled());
     auto *palette=view.findChild<QComboBox*>("colorMapSelector");palette->setCurrentIndex((palette->currentIndex()+1)%palette->count());view.findChild<QCheckBox*>("reverseColorMap")->setChecked(true);QCOMPARE(view.property("planeReadCount").toULongLong(),count);
     const auto original=view.image_for_export();view.findChild<QAction*>("flipHorizontalAction")->trigger();view.findChild<QAction*>("flipVerticalAction")->trigger();QCOMPARE(view.image_for_export(),original.mirrored(true,true));
     const auto evidence=qEnvironmentVariable("HDFSTUDIO_GRIB_EVIDENCE");if(!evidence.isEmpty()){QVERIFY(view.image_for_export().save(evidence+"/image-simple.png"));QVERIFY(view.grab().save(evidence+"/image-simple-ui.png"));}

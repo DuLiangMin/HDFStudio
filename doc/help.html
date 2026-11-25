@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="HDFStudio 中英文使用帮助：Windows NetCDF、HDF5、GRIB1/GRIB2 数据浏览、分析、导出与 LLM / AI Agent 工作流程。Bilingual user guide for scientific data inspection.">
   <link rel="canonical" href="https://duliangmin.github.io/HDFStudio/doc/help.html">
-  <title>HDFStudio Help / 使用帮助 — 0.14.06</title>
+  <title>HDFStudio Help / 使用帮助 — 0.14.08</title>
   <style>
     :root { color-scheme: light; --ink: #203440; --accent: #126c79; --line: #d8e4e8; }
     * { box-sizing: border-box; }
@@ -39,7 +39,7 @@
 <body>
 <header id="top">
   <h1>HDFStudio Help / 使用帮助</h1>
-  <p class="version">0.14.06 · NetCDF / HDF5 / GRIB1 / GRIB2 · Windows</p>
+  <p class="version">0.14.08 · NetCDF / HDF5 / GRIB1 / GRIB2 · Windows</p>
   <p>Unleash the Power of Your NetCDF and GRIB Data</p>
   <nav aria-label="Language / 语言"><a href="#zh">简体中文</a><a href="#en" lang="en">English</a></nav>
 </header>
@@ -52,12 +52,15 @@
       <h3>1. 打开文件与查看属性</h3>
       <p>选择 <strong>File → Open</strong>，或把文件拖到窗口中。可同时打开 NetCDF-3、NetCDF-4、HDF5、GRIB1 和 GRIB2；程序按文件内容识别格式。展开左侧树，右键文件或变量选择 <strong>Properties...</strong> 查看属性，可用 <strong>Copy All</strong> 复制报告。</p>
       <p>用 <strong>File → Close File</strong> 关闭当前文件及关联视图；<strong>Close All Files</strong> 关闭所有文件。<strong>Window → Tile</strong> 可平铺视图，<strong>Hide Infobar</strong> 勾选时隐藏底部信息栏，再点一次恢复。</p>
+      <p><strong>0.14.08 文件查找：</strong><strong>File → Find files...</strong> 在指定目录按文件名查找；<code>C7F</code> 按包含匹配，<code>*C7F*</code>、<code>*.grib2</code> 使用通配符，不区分大小写，包含无扩展名文件，默认包含子目录。结果可打开、复制路径或定位目录。扫描不读取科学内容；停止、访问错误及10000条匹配/1000000条目录项限制会明确提示结果不完整。</p>
+      <p><strong>Find variables...</strong> 在当前已打开文件按变量名、路径、long_name/standard_name/描述或GRIB参数ID查找；可见顶部当前文件。勾选 <strong>Exact name / path / ID</strong> 后，<code>t</code> 不会混入 <code>ta</code>。选结果定位原树节点，<strong>Image / Table / Properties</strong> 沿用原功能限制。变量目录包含折叠组，GRIB显示各变量真实场数量；层次和成员继续由原控件选择。</p>
+      <p><strong>🌍 0.14.08 Map projection：</strong> Image顶部浅蓝投影栏只占一行，可选经纬度、北/南极极射赤面、东亚Lambert和Mercator，选择即重绘并保存，无需点击OK；状态长文可悬停查看。Options…详细设置立即更新图像，OK只确认详细选项并关闭，Cancel/Esc/右上角关闭撤销本次预览。已确认偏好保存到HDFStudio.exe同目录HDFStudio.ini，下次自动恢复。接收已验证的一维NC经纬轴、可分离GRIB regular_ll和完整矩形高斯网格regular_gg，保留实际非等距高斯纬度和经验证的全球周期。已有有效球体/椭球时使用当前源模型，未声明时明确标记单位球面显示，不提供物理距离/面积，非法或冲突模型仍拒绝。默认叠加可开关的Basemap低精度参考岸线。地图文字采用按背景明暗选色的实心字，无底框、无描边并避让相邻标签。Fit、缩放和平移作用于独立地图视口；探针报告同一像素的源行列和值、Mask或缺测。Play等待新投影完成后切帧，期间保留上一完整地图及色标并禁用旧探针。地图期间Flip/Profile禁用，Source grid恢复源图。原统计、CSV和PNG继续使用原格点；岸线仅作角度对齐参考，不进行datum转换或海陆Mask。运行离线，不依赖Python/Basemap。</p>
     </section>
     <section id="zh-grib">
       <h3>2. 浏览 GRIB1 / GRIB2</h3>
       <p>打开后等待索引完成。<strong>Variables</strong> 将兼容场组织为可逐层浏览的虚拟变量；<strong>Messages</strong> 分页保留原始消息与子场。双击支持矩形图像的变量或场，优先打开 <strong>Image View</strong>；结构节点或不支持图像的项目仍显示 Properties。右键变量或场，可打开表格、图像、直方图或纹理熵图；Properties 保留参数、层次、时间相关原始键与来源信息。</p>
       <p>矩形网格支持图像及相关分析。GRIB 表格提供解码值、<strong>Quantized X</strong> 及并排模式；Quantized X 是支持的打包方式下重建的量化整数，并非原始字节，不可用时明确显示。缺场会清空旧结果，未知名称/单位保留 <code>unknown</code>。</p>
-      <p class="note">当前 GRIB 图像按源网格索引显示。比较与播放按整数索引推进，不自动匹配物理时间、转换单位或重采样。GRIB 任意两轴剖面已接入 GUI 和 CLI/worker；可靠地理坐标及 U/V 矢量入口尚未接通。CF 检查不适用于 GRIB。</p>
+      <p class="note">GRIB 保留源格点数值，符合条件的 regular_ll/regular_gg 可切换地图显示。比较与播放按整数索引推进，不自动匹配物理时间、转换单位或科学重采样。GRIB 任意两轴剖面已接入 GUI 和 CLI/worker；剖面地理坐标及 U/V 矢量入口尚未接通。CF 检查不适用于 GRIB。</p>
     </section>
     <section id="zh-grid">
       <h3>3. 数值表格</h3>
@@ -140,12 +143,15 @@ hdf_cli props "data.nc" /temperature</code></pre>
       <h3>1. Open files and inspect metadata</h3>
       <p>Choose <strong>File → Open</strong> or drop files onto the window. Open NetCDF-3, NetCDF-4, HDF5, GRIB1 and GRIB2 together; format detection uses file content. Expand the tree and right-click a file or variable for <strong>Properties...</strong>. <strong>Copy All</strong> copies the report.</p>
       <p><strong>File → Close File</strong> closes a source and its views; <strong>Close All Files</strong> closes all sources. Use <strong>Window → Tile</strong> for side-by-side views. <strong>Hide Infobar</strong> hides the bottom information panel when checked; click again to restore it.</p>
+      <p><strong>File search in 0.14.08:</strong> <strong>File → Find files...</strong> searches names in a directory. <code>C7F</code> uses substring matching; <code>*C7F*</code> and <code>*.grib2</code> use wildcards. Matching ignores case, includes extensionless files and searches subdirectories by default. Open a result, copy its path or show it in the file manager. Search does not read scientific contents; cancellation, access errors and limits of 10,000 matches / 1,000,000 directory entries are reported as incomplete.</p>
+      <p><strong>Find variables...</strong> searches names, paths, long_name/standard_name/descriptions and GRIB parameter IDs in the current open file shown above the results. With <strong>Exact name / path / ID</strong>, <code>t</code> excludes <code>ta</code>. Select a row to locate the existing tree node; <strong>Image / Table / Properties</strong> retain their original restrictions. Collapsed groups are included and GRIB results show actual source-field counts. Layers and members use existing controls.</p>
+      <p><strong>🌍 Map projection in 0.14.08:</strong> The single-row blue bar above Image redraws and saves longitude/latitude, North/South Polar Stereographic, East Asia Lambert or Mercator as soon as it is selected; no OK click is needed. Hover over shortened status text for details. Options… updates the image live; OK only confirms detailed options and closes, while Cancel/Esc/window close undoes that preview. Confirmed preferences are stored beside HDFStudio.exe in HDFStudio.ini and restored next time. Verified one-dimensional NetCDF axes, separable GRIB regular_ll and rectangular Gaussian regular_gg grids are supported, preserving actual nonuniform Gaussian latitudes and verified global wrapping. Declared valid Earth models are retained; missing models use explicitly labelled unit-sphere display without physical distances or areas. Invalid or conflicting models still reject. Optional offline Basemap low-resolution reference coastlines are enabled by default. Solid map labels adapt to background brightness, without boxes or outlines; neighbouring labels avoid overlap. Fit, zoom and pan control a separate map viewport; probes report the same pixel's source row/column and value, Mask or missing state. Play waits for each projected frame, retaining the previous complete map and colour scale with old probes disabled until replacement. Flip/Profile are disabled in map mode; Source grid restores the source view. Statistics, CSV and PNG retain the original grid. Coastlines are an angular reference without datum transformation or land/sea masking. Runtime needs no Python/Basemap.</p>
     </section>
     <section id="en-grib">
       <h3>2. Browse GRIB1 / GRIB2</h3>
       <p>Wait for indexing to finish. <strong>Variables</strong> groups compatible fields into virtual arrays with layer navigation. <strong>Messages</strong> preserves paged physical messages and sub-fields. Double-click a variable or field supporting rectangular images to open <strong>Image View</strong> first; structural or unsupported entries still show Properties. Right-click a variable or field for tables, images, histograms or texture entropy. Properties retains parameter, level, raw time-related keys and provenance.</p>
       <p>Rectangular grids support images and related analyses. GRIB tables offer decoded values, <strong>Quantized X</strong> and paired modes. Quantized X is a reconstructed integer for supported packing, not a raw-byte dump; unsupported reconstruction is marked unavailable. Missing fields clear old results; unknown names/units stay <code>unknown</code>.</p>
-      <p class="note">GRIB images currently use source-grid indices. Comparison and playback use integer indices without automatic physical-time matching, unit conversion or resampling. Arbitrary-axis GRIB sections are available through the GUI and CLI/worker; verified geographic coordinates and U/V vector integration remain pending. CF checks do not apply to GRIB.</p>
+      <p class="note">GRIB retains source-grid values; eligible regular_ll/regular_gg grids can use map display. Comparison and playback use integer indices without automatic physical-time matching, unit conversion or scientific resampling. Arbitrary-axis GRIB sections are available through the GUI and CLI/worker; section geographic coordinates and U/V vector integration remain pending. CF checks do not apply to GRIB.</p>
     </section>
     <section id="en-grid">
       <h3>3. Read and copy table values</h3>
@@ -220,6 +226,6 @@ Use the reported dimension and missing-value semantics in code, with checks for 
     <p><a href="#top">Back to top</a> · <a href="#zh">简体中文</a></p>
   </section>
 </main>
-<footer>HDFStudio 0.14.06 · Offline user guide / 离线使用帮助</footer>
+<footer>HDFStudio 0.14.08 · Offline user guide / 离线使用帮助</footer>
 </body>
 </html>

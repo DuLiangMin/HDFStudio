@@ -184,6 +184,7 @@ QStringList identity_keys() {
             "scaleFactorOfSecondFixedSurface",
             "scaledValueOfSecondFixedSurface",
             "gridType",
+            "global",
             "Ni",
             "Nj",
             "Nx",
@@ -209,7 +210,12 @@ QStringList identity_keys() {
             "numberOfMissing",
             "missingValueManagementUsed",
             "md5GridSection",
-            "uvRelativeToGrid"};
+             "uvRelativeToGrid",
+             "shapeOfTheEarth",
+             "earthIsOblate",
+             "radius",
+             "earthMajorAxis",
+             "earthMinorAxis"};
 }
 Field inspect(codes_handle* h, int index, int sub, qint64 offset, qint64 length) {
     Field f;
@@ -221,6 +227,13 @@ Field inspect(codes_handle* h, int index, int sub, qint64 offset, qint64 length)
         const QByteArray name = key.toLatin1();
         if (codes_is_defined(h, name.constData()))
             f.keys[key] = text(h, name.constData());
+    }
+    // The ecCodes string accessor rounds model lengths to six significant digits.
+    // These keys feed numeric projection parameters, so preserve the decoded doubles.
+    for (const char* key : {"radius", "earthMajorAxis", "earthMinorAxis"}) {
+        const double value = real(h, key);
+        if (std::isfinite(value))
+            f.keys[QString::fromLatin1(key)] = QString::number(value, 'g', 17);
     }
     f.edition = int(integer(h, "edition"));
     f.short_name = text(h, "shortName");
@@ -632,16 +645,22 @@ Plane read_plane(const Catalog& cat, int index, bool coordinates, bool quantized
         }
         if (coordinates && field.grid_type != "sh") {
             std::vector<double> latitude(count), longitude(count);
-            length = count;
-            int lat_error = codes_get_double_array(h, "latitudes", latitude.data(), &length);
-            length = count;
-            int lon_error = codes_get_double_array(h, "longitudes", longitude.data(), &length);
-            if (!lat_error && !lon_error) {
+            size_t latitude_length=count,longitude_length=count;
+            int lat_error = codes_get_double_array(h, "latitudes", latitude.data(), &latitude_length);
+            int lon_error = codes_get_double_array(h, "longitudes", longitude.data(), &longitude_length);
+            if (!lat_error && !lon_error && latitude_length==count && longitude_length==count) {
                 plane.latitudes.resize(count);
                 plane.longitudes.resize(count);
                 for (size_t i = 0; i < count; ++i) {
-                    plane.latitudes[i] = latitude[plane.source_indices[i]];
-                    plane.longitudes[i] = longitude[plane.source_indices[i]];
+                    // ecCodes 2.47 Latlon::next handles j-consecutive but not
+                    // alternating rows. Gaussian inherits Regular::next, which
+                    // emits row-major coordinates for both scan layouts.
+                    // Values always follow source_indices independently.
+                    const size_t coordinate = field.grid_type == "regular_ll" && plane.rectangular
+                        ? (consecutive ? (i % size_t(plane.cols)) * size_t(plane.rows) + i / size_t(plane.cols) : i)
+                        : field.grid_type == "regular_gg" && plane.rectangular ? i : plane.source_indices[i];
+                    plane.latitudes[i] = latitude[coordinate];
+                    plane.longitudes[i] = longitude[coordinate];
                 }
             }
         }

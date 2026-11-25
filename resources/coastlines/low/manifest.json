@@ -1,0 +1,118 @@
+{
+  "schema_version": 1,
+  "asset_stage": "upstream-originals-only",
+  "dataset": "Basemap GSHHG coastline",
+  "basemap_tag": "v2.0.0",
+  "upstream_commit": "6fed00b9b6146d19ffa98fd00a19cbb0ee448141",
+  "gshhg_version_per_upstream_readme": "2.3.6",
+  "resolution": "l",
+  "license": "LGPL-3.0-or-later",
+  "format": "Basemap little-endian float32 lon/lat pairs with ASCII metadata",
+  "files": [
+    {
+      "path": "resources/coastlines/low/gshhs_l.dat",
+      "url": "https://raw.githubusercontent.com/matplotlib/basemap/6fed00b9b6146d19ffa98fd00a19cbb0ee448141/data/basemap_data/src/mpl_toolkits/basemap_data/gshhs_l.dat",
+      "size_bytes": 719016,
+      "git_blob_sha1": "2cd67265e08c94ee9e3f3374dfbec13fd4c4e3ba",
+      "sha256": "2d27087de6a6c27b07063983fdf23b3cc2f374165c5da204d1d413991f9f4f2c",
+      "modified": false
+    },
+    {
+      "path": "resources/coastlines/low/gshhsmeta_l.dat",
+      "url": "https://raw.githubusercontent.com/matplotlib/basemap/6fed00b9b6146d19ffa98fd00a19cbb0ee448141/data/basemap_data/src/mpl_toolkits/basemap_data/gshhsmeta_l.dat",
+      "size_bytes": 562915,
+      "git_blob_sha1": "1d90db457cec05e3d1730eac77a08efd4febaad5",
+      "sha256": "6e87f1a397cbb5b3edda1baaaf4dfbeef43b1d210fc2a384433cb336bcb863b0",
+      "modified": false
+    },
+    {
+      "path": "resources/coastlines/low/UPSTREAM_README.md",
+      "url": "https://raw.githubusercontent.com/matplotlib/basemap/6fed00b9b6146d19ffa98fd00a19cbb0ee448141/data/basemap_data/README.md",
+      "size_bytes": 1508,
+      "git_blob_sha1": "5f67c2b43d05fbce170d0a07cc6337291b309440",
+      "sha256": "99e5d477c80da554d408c264626b8a463de5c3164f3d35065655d5cefc4027da",
+      "modified": false
+    },
+    {
+      "path": "licenses/coastlines/COPYING",
+      "url": "https://raw.githubusercontent.com/matplotlib/basemap/6fed00b9b6146d19ffa98fd00a19cbb0ee448141/data/basemap_data/COPYING",
+      "size_bytes": 35150,
+      "git_blob_sha1": "228f9b3eb236ff1912cf3943dd7b407688d63310",
+      "sha256": "fce02ebb691c768cde194afbe91b8025fd7b1f49031f33996deb246a5926f0e2",
+      "modified": false
+    },
+    {
+      "path": "licenses/coastlines/COPYING.LESSER",
+      "url": "https://raw.githubusercontent.com/matplotlib/basemap/6fed00b9b6146d19ffa98fd00a19cbb0ee448141/data/basemap_data/COPYING.LESSER",
+      "size_bytes": 7651,
+      "git_blob_sha1": "33bb36808dc118661fb0999f79f1c9ce5f5aa566",
+      "sha256": "473c6d57b306d336c5e9d0ef42c699d4e2ac1d9ec24727882de9e3508a25e6bb",
+      "modified": false
+    },
+    {
+      "path": "licenses/coastlines/LICENSE.mit",
+      "url": "https://raw.githubusercontent.com/matplotlib/basemap/6fed00b9b6146d19ffa98fd00a19cbb0ee448141/data/basemap_data/LICENSE.mit",
+      "size_bytes": 1060,
+      "git_blob_sha1": "b74d728bb2e035ce99d62f4ac89c194889beee78",
+      "sha256": "c2b3d5f8d1a092d1a288186741251b066f9148e68bbf8c01680a84f487cb30b1",
+      "modified": false
+    }
+  ],
+  "structure": {
+    "records": 10621,
+    "vertices": 89877,
+    "records_by_level": {
+      "1": 5707,
+      "2": 4367,
+      "3": 506,
+      "5": 41
+    },
+    "vertices_by_level": {
+      "1": 56358,
+      "2": 29794,
+      "3": 2285,
+      "5": 1440
+    },
+    "candidate_level_1_or_5_area_over_1000_records": 302,
+    "candidate_level_1_or_5_area_over_1000_vertices": 31559,
+    "negative_area_records": 56,
+    "antarctic_polar_records": [
+      {
+        "source_id": "4-E",
+        "level": 5,
+        "points": 588,
+        "area_km2": 13919140.5654,
+        "south": -90.0,
+        "north": -64.9744
+      },
+      {
+        "source_id": "4-W",
+        "level": 5,
+        "points": 566,
+        "area_km2": 13919140.5654,
+        "south": -90.0,
+        "north": -63.2129
+      }
+    ],
+    "east_west_split_ids": [
+      "0-E",
+      "0-W",
+      "97-E",
+      "97-W",
+      "112-E",
+      "112-W",
+      "525-E",
+      "525-W",
+      "1716-E",
+      "1716-W",
+      "7373-E",
+      "7373-W",
+      "4-E",
+      "4-W"
+    ],
+    "all_offsets_and_vertices_checked": true,
+    "normalized_polylines_generated": false,
+    "projection_display_tested": false
+  },
+  "application_integration": "not implemented; original polygons are not ready-to-draw shoreline segments"
+}

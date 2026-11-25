@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "file": "coastlines_l.json",
+  "sha256": "7cc253122fe36ccc810ffef894af1d53b558e2a384c404d77f565b8550c89efd",
+  "size_bytes": 1256277,
+  "features": 302,
+  "vertices": 31547,
+  "parts": 302,
+  "removed_artificial_edges": 12,
+  "converter": "../26NOV24_v01_prepare_coastline.py",
+  "source_manifest_sha256": "140fa023babcdd728bffed8a29532caf551151ea4e97bceceeaf74c7a9a68658",
+  "modified": true,
+  "changes": "Level 1/5 area >1000; remove paired dateline and pinned Antarctic polygon closure edges; no coordinate simplification"
+}

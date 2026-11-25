@@ -8,6 +8,8 @@
 #include "image_metrics.hpp"
 #include "raster_budget.hpp"
 #include "data_read_controller.hpp"
+#include "map_display.hpp"
+#include "geo_grid_controller.hpp"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -88,6 +90,18 @@ QColor RasterColorMap::discreteValueColor(Palette palette, double value,
 }
 
 namespace {
+// A status message may shrink horizontally, but must never add another toolbar row.
+class ProjectionStatusLabel final : public QLabel {
+public:
+  explicit ProjectionStatusLabel(const QString &text,QWidget *parent):QLabel(text,parent){
+    setWordWrap(false);setSizePolicy(QSizePolicy::Ignored,QSizePolicy::Preferred);setMinimumWidth(0);
+  }
+protected:
+  void paintEvent(QPaintEvent*)override{
+    QPainter painter(this);painter.setPen(palette().color(foregroundRole()));
+    painter.drawText(contentsRect(),Qt::AlignLeft|Qt::AlignVCenter,fontMetrics().elidedText(text(),Qt::ElideRight,contentsRect().width()));
+  }
+};
 struct Handle {
   hid_t id;
   herr_t (*close)(hid_t);
@@ -210,22 +224,22 @@ RasterView::RasterView(std::string filename,std::string varpath,std::vector<hsiz
   auto layout = new QVBoxLayout(this);
   auto tools = new QToolBar(this);
   layout->addWidget(tools);
-  auto geo_action=tools->addAction(tr("Projs"));
+  // Keep projection selection outside overflowing palette/mask toolbars.
+  auto *projection_bar=new QFrame(this);projection_bar->setObjectName("projectionBar");
+  projection_bar->setStyleSheet("QFrame#projectionBar { background: #edf5fc; border: 1px solid #8baecb; border-radius: 4px; } QComboBox#mapProjectionSelector { background: white; padding: 4px 8px; border: 1px solid #557f9f; border-radius: 3px; }");
+  auto *projection_row=new QHBoxLayout(projection_bar);projection_row->setContentsMargins(8,3,8,3);projection_row->setSpacing(6);
+  auto *projection_label=new QLabel(tr("Map projection"),projection_bar);auto projection_font=projection_label->font();projection_font.setBold(true);projection_label->setFont(projection_font);projection_row->addWidget(projection_label);
+  projection_selector=new QComboBox(projection_bar);projection_selector->setObjectName("mapProjectionSelector");projection_selector->setAccessibleName(tr("Map projection — select to redraw"));projection_selector->setMinimumContentsLength(22);projection_selector->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);projection_selector->setMinimumWidth(190);projection_selector->setMinimumHeight(30);
+  for(auto mode:{MapProjection::Mode::Source,MapProjection::Mode::LonLat,MapProjection::Mode::NorthPolar,MapProjection::Mode::SouthPolar,MapProjection::Mode::Lambert,MapProjection::Mode::Mercator})projection_selector->addItem(MapProjection::name(mode),int(mode));
+  projection_label->setBuddy(projection_selector);projection_selector->setToolTip(tr("Select a projection to redraw immediately; no Apply click is needed."));projection_row->addWidget(projection_selector);
+  auto geo_action=new QAction(tr("Options…"),this);
+  projection_action=geo_action;
   geo_action->setObjectName("projsAction");
-  geo_action->setCheckable(true);
-  if(!grib_info) {
-    classic=is_classic_netcdf_file(QString::fromLocal8Bit(file.c_str()));
-    NcReader coordinate_reader(QString::fromLocal8Bit(file.c_str()));
-    std::vector<size_t> coordinate_shape;
-    coordinate_shape.reserve(dims.size());
-    for(hsize_t dim:dims) coordinate_shape.push_back(static_cast<size_t>(dim));
-    geo_grid=coordinate_reader.geographic_grid(path,coordinate_shape);
-  }else geo_grid.error=tr("GRIB source-grid index image; geographic coordinate lookup awaits a separate verified adapter.");
-  geo_action->setEnabled(geo_grid.valid);
-  geo_action->setToolTip(geo_grid.valid
-      ? tr("Use verified one-dimensional CF latitude/longitude coordinates")
-      : geo_grid.error);
-  connect(geo_action,&QAction::toggled,this,[this](bool enabled){geographic=enabled;refresh();});
+  if(!grib_info)classic=is_classic_netcdf_file(QString::fromLocal8Bit(file.c_str()));
+  geo_action->setToolTip(tr("Edit projection parameters, extent and reference coastlines"));
+  auto *projection_settings=new QToolButton(projection_bar);projection_settings->setObjectName("projectionSettings");projection_settings->setDefaultAction(geo_action);projection_row->addWidget(projection_settings);
+  projection_status=new ProjectionStatusLabel(tr("Select to redraw automatically"),projection_bar);projection_status->setObjectName("projectionStatus");projection_row->addWidget(projection_status,1);layout->insertWidget(0,projection_bar);
+  connect(geo_action,&QAction::triggered,this,[this]{projection_dialog_pending=true;prepare_map_coordinates();});
   palette_selector = new QComboBox(tools);
   palette_selector->setObjectName("colorMapSelector");
   palette_selector->setAccessibleName(tr("CMaps"));
@@ -420,7 +434,21 @@ RasterView::RasterView(std::string filename,std::string varpath,std::vector<hsiz
   for(auto *action:actions) if(auto *widget_action=qobject_cast<QWidgetAction*>(action))
     if(widget_action->defaultWidget()==reverse_palette) reverse_action=action;
   tools->insertWidget(reverse_action,options);
-  layout->addWidget(canvas, 1);
+  canvas_stack=new QStackedWidget(this);canvas_stack->addWidget(canvas);
+  map_display=new MapDisplay(this);map_display->setProperty("externalStatus",true);canvas_stack->addWidget(map_display);layout->addWidget(canvas_stack,1);
+  connect(map_display,&MapDisplay::mode_changed,this,[this](bool active){canvas_stack->setCurrentWidget(active?static_cast<QWidget*>(map_display):static_cast<QWidget*>(canvas));flip_h_action->setEnabled(!active);flip_v_action->setEnabled(!active);profile_mode_action->setEnabled(!active);show_profile_action->setEnabled(!active&&profile_points.size()>=2);clear_profile_action->setEnabled(!active&&!profile_points.empty());});
+  connect(map_display,&MapDisplay::mode_changed,this,[this]{QSignalBlocker block(projection_selector);projection_selector->setCurrentIndex(int(map_display->mode()));});
+  connect(map_display,&MapDisplay::status_changed,projection_status,&QLabel::setText);
+  connect(map_display,&MapDisplay::status_changed,projection_status,&QWidget::setToolTip);
+  auto *preference_error=new ProjectionStatusLabel(map_display->property("settingsError").toString(),projection_bar);preference_error->setObjectName("projectionPreferenceError");preference_error->setToolTip(preference_error->text());preference_error->setVisible(!preference_error->text().isEmpty());projection_row->addWidget(preference_error,1);projection_status->setVisible(preference_error->text().isEmpty());
+  projection_bar->setToolTip(tr("Preferences: %1").arg(map_display->property("settingsFile").toString()));
+  connect(map_display,&MapDisplay::preferences_error,this,[this,preference_error](const QString &message){preference_error->setText(message);preference_error->setToolTip(message);preference_error->setVisible(!message.isEmpty());projection_status->setVisible(message.isEmpty());});
+  connect(projection_selector,&QComboBox::currentIndexChanged,this,[this]{
+    restore_projection_pending=false;
+    const auto mode=MapProjection::Mode(projection_selector->currentData().toInt());
+    if(mode==MapProjection::Mode::Source){pending_projection.reset();projection_dialog_pending=false;map_display->select_projection(mode);return;}
+    pending_projection=mode;prepare_map_coordinates();
+  });
   auto apply_flip = [this] {
     QTransform matrix = canvas->transform();
     const double sx = std::abs(matrix.m11()) * (flip_h_action->isChecked() ? -1.0 : 1.0);
@@ -434,6 +462,7 @@ RasterView::RasterView(std::string filename,std::string varpath,std::vector<hsiz
   connect(flip_v_action, &QAction::toggled, this, [apply_flip](bool) { apply_flip(); });
   connect(flip_h_action, &QAction::toggled, this, [apply_flip](bool) { apply_flip(); });
   connect(reset_action, &QAction::triggered, this, [this] {
+    if(map_display->active()){map_display->fit_view();return;}
     QSignalBlocker block_v(flip_v_action), block_h(flip_h_action);
     flip_v_action->setChecked(false);
     flip_h_action->setChecked(false);
@@ -457,12 +486,13 @@ RasterView::RasterView(std::string filename,std::string varpath,std::vector<hsiz
       view->update_data(last_values, last_rows, last_cols, {}, CurvePathMode::SmoothSpline, raster_reservation);
   });
   connect(fit_action,&QAction::triggered,this,[this,apply_flip] {
+    if(map_display->active()){map_display->fit_view();return;}
     canvas->fitInView(scene->sceneRect(), Qt::KeepAspectRatio);
     notify_viewport_changed();
     apply_flip();
   });
-  connect(zoom_in_action,&QAction::triggered,this,[view]{view->zoom(1.25);});
-  connect(zoom_out_action,&QAction::triggered,this,[view]{view->zoom(0.8);});
+  connect(zoom_in_action,&QAction::triggered,this,[this,view]{if(map_display->active())map_display->zoom(1.25);else view->zoom(1.25);});
+  connect(zoom_out_action,&QAction::triggered,this,[this,view]{if(map_display->active())map_display->zoom(.8);else view->zoom(.8);});
   legend = new QLabel(this);
   legend->setObjectName("rasterLegend");
   legend->setWordWrap(true);
@@ -474,6 +504,8 @@ RasterView::RasterView(std::string filename,std::string varpath,std::vector<hsiz
   entropy_summary->setObjectName("rasterEntropySummary");
   entropy_summary->setTextInteractionFlags(Qt::TextSelectableByMouse);
   layout->addWidget(entropy_summary);
+  connect(map_display,&MapDisplay::frame_ready,this,[this]{if(pending_map_legend){auto publish=std::move(pending_map_legend);pending_map_legend={};publish();}});
+  connect(map_display,&MapDisplay::mode_changed,this,[this](bool active){if(!active&&pending_map_legend){auto publish=std::move(pending_map_legend);pending_map_legend={};publish();}});
   if(grib_info) {
     grib_reader=new DataReadController;
     connect(grib_reader,&DataReadController::completed,this,[this](auto data,auto lease){
@@ -485,6 +517,7 @@ RasterView::RasterView(std::string filename,std::string varpath,std::vector<hsiz
       if(data->rows!=rows||data->cols!=cols||data->values.size()!=size_t(rows*cols)){clear_plane(tr("Incomplete GRIB plane."));return;}
       grib_plane=data;raster_reservation=lease;
       decoded_values=std::shared_ptr<const std::vector<double>>(data,&data->values);
+      if(coordinates_requested){auto grid=std::make_shared<GeoGrid::Grid>(GeoGrid::from_grib(*data,data->geographic_keys,grib_info->grid_kind));map_display->set_grid(grid,lease);coordinates_ready=true;apply_pending_projection();}
       cached_indices=grib_requested_indices;last_rows=data->rows;last_cols=data->cols;
       cached_units=data->units;declared_categories.clear();cached_meanings.clear();reading_valid=true;mask_valid=false;
       setProperty("reader",data->reader);setProperty("decodeProfile",data->decode_profile);
@@ -493,7 +526,13 @@ RasterView::RasterView(std::string filename,std::string varpath,std::vector<hsiz
     });
     connect(grib_reader,&DataReadController::failed,this,[this](const QString &error){grib_read_pending=false;clear_plane(error);});
   }
-  QTimer::singleShot(0, this, [this]{ refresh(); });
+  QTimer::singleShot(0, this, [this]{
+    refresh();
+    if(map_display->has_saved_preferences()&&map_display->saved_mode()!=MapProjection::Mode::Source){
+      restore_projection_pending=true;{QSignalBlocker block(projection_selector);projection_selector->setCurrentIndex(int(map_display->saved_mode()));}
+      prepare_map_coordinates();
+    }
+  });
 }
 
 bool RasterView::eventFilter(QObject *watched,QEvent *event) {
@@ -590,6 +629,7 @@ bool RasterView::eventFilter(QObject *watched,QEvent *event) {
 }
 
 void RasterView::refresh() {
+  if(!map_source_stamp.isEmpty()&&map_source_stamp!=GeoGrid::stamp(QString::fromLocal8Bit(file.c_str()))){if(map_display)map_display->invalidate("SourceChanged: reopen source");clear_plane("SourceChanged: close and reopen source");return;}
   if(sync_out_of_range) { clear_plane(sync_range_message);return; }
   canvas->viewport()->setToolTip({});legend->setToolTip({});
   const quint64 request=++render_revision;
@@ -604,12 +644,12 @@ void RasterView::refresh() {
   const QString filename=QString::fromLocal8Bit(file.c_str());
   std::vector<size_t> indices;for(auto *spin:layers) indices.push_back(size_t(spin->value()));
   if(grib_info&&(!reading_valid||indices!=cached_indices)) {
-    if(grib_read_pending&&indices==grib_requested_indices)return;
+    if(grib_read_pending&&indices==grib_requested_indices&&grib_requested_coordinates==coordinates_requested)return;
     hold_presented_frame(tr("Reading GRIB plane... (previous image; values unavailable)"));reading_valid=false;mask_valid=false;
     decoded_values.reset();last_values.reset();grib_plane.reset();raster_reservation.reset();
-    grib_requested_indices=indices;grib_read_pending=true;
+    grib_requested_indices=indices;grib_requested_coordinates=coordinates_requested;grib_read_pending=true;
     if(!grib_info->can_image){grib_read_pending=false;clear_plane(grib_info->disabled_reasons.value("image",tr("Unsupported GRIB image grid")));return;}
-    grib_reader->read(grib_file,QString::fromUtf8(path.c_str()),indices,false,false);return;
+    grib_reader->read(grib_file,QString::fromUtf8(path.c_str()),indices,coordinates_requested,false);return;
   }
   if(!grib_info&&!raster_reservation) {
     raster_reservation=reserve_raster(quint64(rows)*cols);
@@ -756,12 +796,15 @@ void RasterView::refresh() {
     if(request!=render_revision) return;
     if(image.isNull()){clear_plane(tr("Cannot allocate image."));return;}
     image_item->setPixmap(QPixmap::fromImage(image));setProperty("renderedRevision",request);
+    map_display->set_source(image,last_values,decoded_values,reservation);
     presented_reservation=reservation;
-    color_bar->set_mapping(selected,settings,unit_text,bar_labels,!no_auto_range);
-    legend->setText(frame_legend);
+    // The colour scale belongs to the visible bitmap, not the next source frame still projecting.
+    auto publish_legend=[this,selected,settings,unit_text,bar_labels,no_auto_range,frame_legend]{color_bar->set_mapping(selected,settings,unit_text,bar_labels,!no_auto_range);legend->setText(frame_legend);};
+    if(map_display->active()&&!map_display->result())pending_map_legend=std::move(publish_legend);
+    else {pending_map_legend={};publish_legend();}
     entropy_summary->setText(entropy_text);setProperty("entropyBits",entropy_bits);
     display_valid=true;
-    show_profile_action->setEnabled(profile_points.size()>=2);
+    show_profile_action->setEnabled(!map_display->active()&&profile_points.size()>=2);
     setProperty("minimum",no_auto_range?QVariant():QVariant(low));
     setProperty("maximum",no_auto_range?QVariant():QVariant(high));
     scene->setSceneRect(0,0,double(cols),double(rows));
@@ -791,6 +834,8 @@ void RasterView::refresh() {
 }
 
 void RasterView::hold_presented_frame(const QString &message) {
+  pending_map_legend={};
+  if(map_display&&map_display->active())map_display->hold_frame(message);
   // 请求与呈现分离：仅保留上一张位图/色条；旧数值不参与新层分析或探针。
   display_valid=false;show_profile_action->setEnabled(false);
   canvas->viewport()->setToolTip({});legend->setToolTip({});color_bar->setToolTip({});
@@ -806,6 +851,8 @@ void RasterView::hold_presented_frame(const QString &message) {
 }
 
 void RasterView::clear_plane(const QString &error) {
+  pending_map_legend={};
+  if(map_display)map_display->invalidate(error);
   ++render_revision;render_generation->store(render_revision);pending_render={};pending_apply={};
   display_valid=false;mask_valid=false;show_profile_action->setEnabled(false);
   image_item->setPixmap(QPixmap());color_bar->clear();legend->setText(error);
@@ -824,9 +871,11 @@ RasterView::~RasterView() {
   canvas->horizontalScrollBar()->disconnect(this);canvas->verticalScrollBar()->disconnect(this);
   color_bar=nullptr;
   if(grib_reader){grib_reader->disconnect(this);grib_reader->dispose();}
+  if(geo_reader){geo_reader->disconnect(this);geo_reader->dispose();}
+  if(map_display){map_display->disconnect(this);delete map_display;map_display=nullptr;}
   render_generation->fetch_add(1);pending_render={};
 }
-bool RasterView::render_pending() const {return grib_read_pending||render_running || bool(pending_render);}
+bool RasterView::render_pending() const {return grib_read_pending||render_running || bool(pending_render)||(map_display&&map_display->active()&&map_display->busy());}
 PlaneSnapshot RasterView::plane_snapshot() const {
   PlaneSnapshot snapshot;
   snapshot.file_path=grib_info?grib_file:QString::fromLocal8Bit(file.c_str());
@@ -853,7 +902,7 @@ void RasterView::notify_viewport_changed() {
     const int target=std::min(available,std::clamp(qRound(.75*image_width),240,640));
     if(color_bar->width()!=target)color_bar->setFixedWidth(target);
   }
-  if(!applying_viewport) emit viewport_changed();
+  if(!applying_viewport&&(!map_display||!map_display->active())) emit viewport_changed();
 }
 
 ViewportState RasterView::viewport_state() const {
@@ -868,6 +917,7 @@ ViewportState RasterView::viewport_state() const {
 }
 
 void RasterView::apply_viewport_state(const ViewportState &state) {
+  if(map_display&&map_display->active())return;
   if(!state.transform.isInvertible() || !std::isfinite(state.h_ratio) || !std::isfinite(state.v_ratio)) return;
   const auto previous=viewport_state();
   if(previous.transform==state.transform && previous.flip_h==state.flip_h && previous.flip_v==state.flip_v &&
@@ -967,6 +1017,24 @@ void RasterView::start_pending_render() {
       guard->start_pending_render();
     },Qt::QueuedConnection);
   });
+}
+void RasterView::prepare_map_coordinates(){
+  if(coordinates_ready){apply_pending_projection();return;}
+  projection_status->setText(tr("Checking coordinates… projection will redraw automatically"));projection_status->setToolTip(projection_status->text());
+  if(coordinates_requested)return;
+  coordinates_requested=true;
+  map_source_stamp=GeoGrid::stamp(QString::fromLocal8Bit(file.c_str()));
+  if(grib_info){if(grib_plane&&grib_plane->coordinates.latitudes.size()==grib_plane->values.size()){auto grid=std::make_shared<GeoGrid::Grid>(GeoGrid::from_grib(*grib_plane,grib_plane->geographic_keys,grib_info->grid_kind));map_display->set_grid(grid,raster_reservation);coordinates_ready=true;apply_pending_projection();}
+    else {reading_valid=false;refresh();}return;}
+  if(!geo_reader){geo_reader=new GeoGridController;connect(geo_reader,&GeoGridController::completed,this,[this](auto grid,auto lease){map_display->set_grid(grid,lease);coordinates_ready=true;apply_pending_projection();});connect(geo_reader,&GeoGridController::failed,this,[this](const QString &error){auto grid=std::make_shared<GeoGrid::Grid>();grid->error=error;map_display->set_grid(grid,{});coordinates_ready=true;apply_pending_projection();});}
+  if(dims.size()<2)return;geo_reader->read(QString::fromLocal8Bit(file.c_str()),QString::fromUtf8(path.c_str()),int(dims[dims.size()-2]),int(dims.back()));
+}
+void RasterView::apply_pending_projection(){
+  if(restore_projection_pending){restore_projection_pending=false;const auto error=map_display->restore_preferences();
+    if(!error.isEmpty()){QSignalBlocker block(projection_selector);projection_selector->setCurrentIndex(int(map_display->mode()));projection_status->setText(tr("Saved projection is unavailable for this source: %1").arg(error));projection_status->setToolTip(projection_status->text());}}
+  if(pending_projection){const auto selected=*pending_projection;pending_projection.reset();const auto error=map_display->select_projection(selected);
+    if(!error.isEmpty()){QSignalBlocker block(projection_selector);projection_selector->setCurrentIndex(int(map_display->mode()));projection_status->setText(tr("Cannot display %1: %2").arg(MapProjection::name(selected),error));projection_status->setToolTip(projection_status->text());}}
+  if(projection_dialog_pending){projection_dialog_pending=false;map_display->show_settings();}
 }
 void RasterView::fill_palette_selector() {
   QSignalBlocker blocker(palette_selector);palette_selector->clear();

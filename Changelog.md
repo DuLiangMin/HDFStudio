@@ -1,5 +1,26 @@
 # Changelog
 
+## 🌍 0.14.08 — Geographic map display and search — 2026-11-24
+
+- Synchronize application, About, Windows file/product properties, bilingual READMEs and offline help at 0.14.08. The source and local build include the map and search changes below; the download section keeps the previous published archives explicitly labelled until new assets are uploaded.
+- Include pinned PROJ/SQLite, the offline projection database, coastline resources and their notices in the portable-package recipe; reject a source snapshot with a different version before staging.
+
+- Support verified rectangular Gaussian GRIB grids (`regular_gg`) using their actual nonuniform latitude centres and scanning layout. Retain ecCodes-verified global longitude wrapping and full numeric Earth-model precision. Remove rectangular backplates from map labels/notes and avoid colliding labels; keep projection rejection messages visible during source-image recolouring.
+- Add a prominent single-row **Map projection** bar for longitude/latitude, North/South Polar Stereographic, East Asia Lambert and Mercator; selecting a mode redraws and saves immediately without OK. **Options…** opens live extents and coastline styling, with Fit/zoom/pan and pixel-aligned source probes.
+- Simplify detailed settings to live preview with **OK / Cancel**. OK saves and closes; Cancel, Esc and window close restore the opening projection, viewport and coastline styling. Remember confirmed preferences in **HDFStudio.ini beside the executable** and restore them after validating each new source's coordinates/model; show invalid-file and write errors.
+- Keep progress and preference errors in the same projection row, with full hover text; avoid repeating status on the map. Improve annotation contrast on dark data and clarify that detailed options redraw before OK. Verify real mouse selection and screenshots on a regional NetCDF without a declared Earth model as well as a declared-model global source.
+- Fix flashing during projected playback: retain the last complete map and its colour scale until the next projection is ready, and make Play wait for map rendering. Invalidate old map probes during handover; errors still clear the map and late results cannot replace newer requests.
+- Validate decoded one-dimensional NetCDF latitude/longitude axes through an isolated CLI worker and separable GRIB regular_ll coordinates through the existing reader. Use declared source models when available; missing models allow explicitly labelled unit-sphere display only, with no physical distances or areas. Invalid/conflicting models still reject.
+- Add immutable map snapshots, shared memory/scheduler admission, latest-request cancellation and window/application close cleanup. Preserve source-grid values, Mask, statistics and source-resolution PNG; restore source Flip/Profile controls on return.
+- Bundle pinned Basemap low-resolution reference coastlines, original inputs, deterministic public converter and licenses. Remove documented date-line/Antarctic polygon closure edges and draw offline angular-reference overlays with recoverable resource errors.
+- Pin isolated PROJ/SQLite binaries and database while retaining the product toolchain. Correct alternating-scan GRIB coordinate alignment and extend ADR-0003 search-boundary tests.
+
+### 🔎 File and variable search (implemented 2026-11-23)
+
+- Add **File → Find files...** with case-insensitive name/wildcard matching, recursive directory traversal, extensionless files, cancellation and explicit result limits. Open results, copy their paths or reveal them in the file manager.
+- Add **Find variables...** for names, paths, descriptions and GRIB parameter IDs in the current open file. Preserve separate variable identities and source-field counts, locate original tree nodes, and reuse Image/Table/Properties actions.
+- Invalidate search results on file close; keep filesystem work outside scientific readers and preserve existing layer/member selection. Add targeted search tests and ADR-0003 with an ADR usage guide.
+
 ## 🧩 0.14.06 Application module boundaries - 2026-11-23
 
 - Separate the product entrypoint, startup widget, legacy grid, browser payload and classic-NetCDF buffer helpers; preserve existing numerical behavior and ownership.

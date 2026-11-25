@@ -82,7 +82,7 @@ try {
  $flipped=Bounds $canvas;Check 'Flip and 5 zoom cycles preserve bounds' ([Math]::Abs($flipped.Width-$base.Width)-le 2 -and [Math]::Abs($flipped.Height-$base.Height)-le 2)
  Shot 'flipped';Click (FindName $window 'Reset')[0]
  $combo=@((FindName $window 'CMaps')|Where-Object {$_.Current.ControlType-eq [System.Windows.Automation.ControlType]::ComboBox})[0]
- Check 'Projs action retained' ((FindName $window 'Projs').Count-gt 0)
+ Check 'Projection action available' ((FindName $window ('Projection'+[char]0x2026)).Count-gt 0)
  Click $combo;[Windows.Forms.SendKeys]::SendWait('{HOME}{DOWN 5}{ENTER}');Start-Sleep -Milliseconds 400
  Check 'Viridis standard selected' ($combo.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value-eq 'Viridis')
  $original=CaptureElement $canvas;Shot 'viridis'

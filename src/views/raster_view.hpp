@@ -10,6 +10,7 @@
 #include "plane_snapshot.hpp"
 #include "viewport_state.hpp"
 #include "data_types.hpp"
+#include "map_projection.hpp"
 #include <QPointer>
 #include <memory>
 #include <atomic>
@@ -87,12 +88,14 @@ private:
   void hold_presented_frame(const QString &message);
   void start_pending_render();
   void notify_viewport_changed();
+  void prepare_map_coordinates();
+  void apply_pending_projection();
   std::string file, path;
   std::optional<DataSource::ArrayInfo> grib_info;
   QString grib_file;
   class DataReadController *grib_reader=nullptr;
   std::shared_ptr<const DataSource::PlaneData> grib_plane;
-  bool grib_read_pending=false,first_frame_fit=true;
+  bool grib_read_pending=false,grib_requested_coordinates=false,first_frame_fit=true;
   std::vector<size_t> grib_requested_indices;
   std::vector<hsize_t> dims;
   std::vector<QSpinBox*> layers;
@@ -115,6 +118,7 @@ private:
   std::shared_ptr<std::atomic<quint64>> render_generation = std::make_shared<std::atomic<quint64>>(0);
   std::function<QImage()> pending_render;
   std::function<void(const QImage &)> pending_apply;
+  std::function<void()> pending_map_legend;
   quint64 pending_revision = 0;
   bool render_running = false;
   bool display_valid = false;
@@ -155,4 +159,15 @@ private:
   bool geographic = false;
   bool classic = false;   // NetCDF-3 file: every read goes through netCDF-C, HDF5 is never opened
   NcGeographicGrid geo_grid;
+  class MapDisplay *map_display=nullptr;
+  class GeoGridController *geo_reader=nullptr;
+  QStackedWidget *canvas_stack=nullptr;
+  QAction *projection_action=nullptr;
+  QComboBox *projection_selector=nullptr;
+  QLabel *projection_status=nullptr;
+  bool coordinates_ready=false;
+  bool restore_projection_pending=false;
+  std::optional<MapProjection::Mode> pending_projection;
+  bool coordinates_requested=false,projection_dialog_pending=false;
+  QString map_source_stamp;
 };

@@ -2,9 +2,11 @@
 
 **Unleash the Power of Your NetCDF and GRIB Data**
 
-[English](README.md) | **简体中文** · **版本 0.14.06**
+[English](README.md) | **简体中文** · **版本 0.14.08**
 
 ## ⬇️ 下载
+
+当前源码与本地程序为 **0.14.08**。下方 **0.14.06** 下载链接仍对应此前已发布的压缩包，0.14.08 附件尚未上传。
 
 [![Release](https://img.shields.io/github/v/release/DuLiangMin/HDFStudio?label=release&color=3d99a4)](https://github.com/DuLiangMin/HDFStudio/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/DuLiangMin/HDFStudio/total?color=3d99a4)](https://github.com/DuLiangMin/HDFStudio/releases)
@@ -32,6 +34,10 @@ HDFStudio 是面向气象、气候与科研数据的免费开源 Windows 工具�
 
 请保留程序、配套 `hdf_cli.exe`、依赖目录与 `doc`。基本浏览及原生分析无需 Python；可选 NetCDF 报告、CF 检查和日期标签需相应的 `netCDF4`、`numpy`、`compliance-checker` 模块，可通过 `HDFSTUDIO_PYTHON` 指定解释器。
 
+**🔎 0.14.08 新功能：** **File → Find files...** 按名称查找指定目录中的文件，包含无扩展名文件；**Find variables...** 按名称、路径和描述查当前已打开文件的变量。见[操作与限制](docs/SEARCH.md)。
+
+**🌍 0.14.08 地图显示：** Image 顶部 **Map projection** 只占一行，提供经纬度平面、北/南极极射赤面、东亚Lambert和Mercator，选中即重绘并记住，无需点击OK；**Options…** 打开实时预览的详细参数及离线参考岸线设置。接收验证通过的可分离NC经纬轴、GRIB `regular_ll` 和完整矩形高斯网格 `regular_gg`，保留真实非等距高斯纬度。地图文字无底框、无描边；播放期间保留上一完整地图直到新帧就绪。未声明地球模型时明确标记为单位球面显示，不提供物理距离/面积，已有有效模型仍沿用。原值、分析及源分辨率PNG继续使用原格点。见[操作与限制](docs/PROJECTION.md)。
+
 ## 🌦️ 原生 GRIB 功能
 
 - **直接浏览 GRIB1 / GRIB2：** 虚拟 **Variables** 组织兼容场；分页 **Messages** 保留物理消息、子场、元信息与来源。
@@ -39,7 +45,7 @@ HDFStudio 是面向气象、气候与科研数据的免费开源 Windows 工具�
 - **分析与播放：** 直方图、曲线剖面、全平面灰度熵、二维纹理熵、比较指标、残差图、整数索引同步与逐层播放。
 - **Space-Time Section (Hovmöller)：** 矩形 GRIB 数组支持独立 GUI/CLI 剖面、任意有序两轴、原始起报/时效标签、固定维导航、Mask 和 PNG/CSV 导出；缺槽显式记录。可靠地理坐标接入和 U/V 矢量仍待后续完成。
 
-未知名称/单位保持未知；缺场或越界会清空旧结果。当前 GRIB 图像采用源网格索引。比较要求平面形状一致，按整数索引对齐，不自动转换单位、匹配物理时间、投影或重采样。CF 检查不适用于 GRIB。
+未知名称/单位保持未知；缺场或越界会清空旧结果。GRIB图像初始使用源格点，存在已保存的地图偏好时通过源校验后恢复；符合条件的规则经纬网格和完整矩形高斯网格可使用地图显示。比较要求平面形状一致，按整数索引对齐，不自动转换单位、匹配物理时间、投影或重采样。CF 检查不适用于 GRIB。
 
 ## 🧰 常用工具
 
@@ -71,7 +77,7 @@ hdf_cli props data.nc /temperature
 
 ## 🛠️ 构建与反馈
 
-Windows 开发使用 Visual Studio 2022 x64、CMake、Qt 6.8、HDF5、netCDF-C 和 ecCodes。依赖位置与目标见 `CMakeLists.txt`、`cmake/Grib.cmake`；ecCodes 默认位于 `ext/eccodes`，可用 `HDFSTUDIO_ECCODES_ROOT` 配置。源码位于 `src/app`、`src/core`、`src/views`、`src/cli`，测试位于 `tests/`。构建会把帮助页复制到 `build/output/<配置>/doc/help.html`。
+Windows 开发使用 Visual Studio 2022 x64、CMake、Qt 6.8、HDF5、netCDF-C、ecCodes 和 PROJ。依赖位置与目标见 `CMakeLists.txt`、`cmake/Grib.cmake`、`cmake/Projection.cmake`；ecCodes 默认位于 `ext/eccodes`，可用 `HDFSTUDIO_ECCODES_ROOT` 配置；PROJ通过独立`PROJ_DIR`定位，并部署匹配数据库与SQLite DLL。源码位于 `src/app`、`src/core`、`src/views`、`src/cli`，测试位于 `tests/`。构建会把帮助页复制到 `build/output/<配置>/doc/help.html`。
 
 公开源码不附 `tools/` 和第三方代码副本。请使用[源码 ZIP](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.06/HDFStudio-0.14.06-src.zip)，构建依赖见[依赖说明](docs/DEPENDENCIES.md)和[项目结构树](docs/PROJECT_STRUCTURE.md)；清单保留精确下载来源与哈希。二进制 ZIP 保留完整运行库与许可证。
 

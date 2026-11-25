@@ -11,3 +11,10 @@
 # Preserve pinned ecCodes notices verbatim, including upstream whitespace.
 /licenses/eccodes/*.txt -text -whitespace
 /testdata/grib/** -text -whitespace
+# Preserve original coastline data and license bytes for provenance verification.
+/resources/coastlines/low/*.dat -text -whitespace
+/resources/coastlines/low/*.json -text -whitespace
+/resources/coastlines/low/UPSTREAM_README.md -text -whitespace
+/licenses/coastlines/COPYING* -text -whitespace
+/licenses/coastlines/LICENSE.mit -text -whitespace
+/licenses/proj/* -text -whitespace

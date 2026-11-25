@@ -2,9 +2,11 @@
 
 **Unleash the Power of Your NetCDF and GRIB Data**
 
-**English** | [简体中文](README_CN.md) · **Version 0.14.06**
+**English** | [简体中文](README_CN.md) · **Version 0.14.08**
 
 ## ⬇️ Download
+
+The current source and local build are **0.14.08**. The **0.14.06** download links below refer to the previously published archives; 0.14.08 archives have not been uploaded.
 
 [![Release](https://img.shields.io/github/v/release/DuLiangMin/HDFStudio?label=release&color=3d99a4)](https://github.com/DuLiangMin/HDFStudio/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/DuLiangMin/HDFStudio/total?color=3d99a4)](https://github.com/DuLiangMin/HDFStudio/releases)
@@ -32,14 +34,18 @@ HDFStudio is a free, open-source Windows tool for inspecting meteorological, cli
 
 Keep the executable, matching `hdf_cli.exe`, dependency folders and `doc` together. Basic browsing and native analysis need no Python. Optional NetCDF reports, CF checks and calendar labels use Python with the corresponding `netCDF4`, `numpy` and `compliance-checker` modules; `HDFSTUDIO_PYTHON` selects the interpreter.
 
+**🔎 New in 0.14.08:** **File → Find files...** searches a directory by name (including extensionless files); **Find variables...** locates names, paths and descriptions in the current open file. [Usage and limits](docs/SEARCH.md).
+
+**🌍 Map display in 0.14.08:** The single-row **Map projection** bar above Image redraws and remembers longitude/latitude, North/South Polar Stereographic, East Asia Lambert or Mercator as soon as it is selected; no OK click is needed. **Options…** opens live detailed parameters and offline reference-coastline styling. Verified separable NetCDF axes, GRIB `regular_ll` and rectangular Gaussian `regular_gg` grids are supported, preserving actual nonuniform Gaussian latitudes. Map labels use solid text without boxes or outlines; projected playback retains the completed frame until its replacement is ready. Sources without a declared Earth model use explicitly labelled unit-sphere display, with no physical distance or area claim; declared valid models are retained. Source data, analysis and source-resolution PNG remain in the original grid. [Use and limits](docs/PROJECTION.md).
+
 ## 🌦️ Native GRIB support
 
 - **Browse GRIB1 and GRIB2 directly:** virtual **Variables** group compatible fields; paged **Messages** preserve physical messages and sub-fields, metadata and provenance.
 - **Inspect and visualize:** double-click rectangular variables/fields for **Image View**; decoded, reconstructed **Quantized X** and paired grids, scientific palettes, decoded-value Mask and CSV/PNG export. Quantized X is available only for supported packing and is not a raw-byte dump.
 - **Analyze and play:** histograms, curve profiles, whole-plane and 2D texture entropy, comparison metrics, residual maps, integer-index synchronization and layer playback.
-- **Space-Time Section (Hovmöller):** independent GUI and CLI sections for rectangular GRIB arrays, arbitrary ordered axes, original reference/step labels, fixed-axis navigation, Mask and PNG/CSV export. Missing slots remain explicit. Verified geographic-coordinate integration and U/V vectors remain pending.
+- **Space-Time Section (Hovmöller):** independent GUI and CLI sections for rectangular GRIB arrays, arbitrary ordered axes, original reference/step labels, fixed-axis navigation, Mask and PNG/CSV export. Missing slots remain explicit. Geographic-coordinate section axes and U/V vectors remain pending.
 
-Unknown names/units remain unknown; missing or out-of-range fields clear prior results. GRIB images currently use source-grid indices. Comparisons require identical plane shapes and align by integer index, without automatic unit conversion, time matching, reprojection or resampling. CF checks do not apply to GRIB.
+Unknown names/units remain unknown; missing or out-of-range fields clear prior results. GRIB images open in source-grid mode, or restore a saved map preference after source validation; eligible regular latitude–longitude and rectangular Gaussian grids can use map display. Comparisons require identical plane shapes and align by integer index, without automatic unit conversion, time matching, reprojection or resampling. CF checks do not apply to GRIB.
 
 ## 🧰 Everyday tools
 
@@ -71,7 +77,7 @@ Use the variable/object ID reported for your file. `hdf_cli` shares the applicat
 
 ## 🛠️ Build and contribute
 
-Windows development uses Visual Studio 2022 x64, CMake, Qt 6.8, HDF5, netCDF-C and ecCodes. Dependency locations and targets are defined in `CMakeLists.txt` and `cmake/Grib.cmake`; ecCodes defaults to `ext/eccodes` and can be set with `HDFSTUDIO_ECCODES_ROOT`. Code lives in `src/app`, `src/core`, `src/views` and `src/cli`; tests are in `tests/`. Builds copy the offline guide to `build/output/<configuration>/doc/help.html`.
+Windows development uses Visual Studio 2022 x64, CMake, Qt 6.8, HDF5, netCDF-C, ecCodes and PROJ. Dependency locations and targets are defined in `CMakeLists.txt`, `cmake/Grib.cmake` and `cmake/Projection.cmake`; ecCodes defaults to `ext/eccodes` and can be set with `HDFSTUDIO_ECCODES_ROOT`; PROJ uses an isolated `PROJ_DIR` with matching database and SQLite DLL. Code lives in `src/app`, `src/core`, `src/views` and `src/cli`; tests are in `tests/`. Builds copy the offline guide to `build/output/<configuration>/doc/help.html`.
 
 The public source omits `tools/` and third-party code copies. Use the [source ZIP](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.06/HDFStudio-0.14.06-src.zip), [Dependencies](docs/DEPENDENCIES.md) and the [project structure](docs/PROJECT_STRUCTURE.md); exact dependency URLs and hashes remain in the manifests. Runtime libraries and license texts remain in the binary ZIP.
 

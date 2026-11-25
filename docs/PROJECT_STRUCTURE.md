@@ -29,6 +29,8 @@ HDFStudio/
 
 **输出 / Outputs:** development executables and `doc/help.html` go to `build/output/<configuration>/`. Tests write to `logs/<feature>/`; exports go to explicit user-selected paths. Release archives are staged separately by local maintenance scripts, which are not published. Section workers use application-owned temporary directories, never the input directory.
 
+**显示配置 / Display preferences:** `HDFStudio.ini` beside `HDFStudio.exe` stores confirmed projection parameters and coastline styling in `[MapProjection]`, schema version 1. Each new image revalidates its own source coordinates/model before restoring the preference. Tests override only this file through `HDFSTUDIO_SETTINGS_FILE` in temporary directories. See [ADR-0004](adr/0004-map-projection-display.md).
+
 ## 🧱 Responsibilities and data flow
 
 ```mermaid
@@ -57,6 +59,7 @@ The [application boundaries](architecture/application-boundaries.md) describe th
 - `views/legacy_grid.*` exposes `GridValueMode` and `create_legacy_grid`; `TableModel` and `ChildWindow` remain private implementation classes. Existing `LayerNavigation` connects the returned widget to main-window controls.
 - `app/browser_item.hpp` owns the compatibility payload declarations. `app/legacy_grid_data.*` contains shared classic-NetCDF buffer loading. These are transitional application contracts, not format-neutral core APIs.
 - `app/hdf_explorer.*` retains workspace composition, file-tree actions and format traversal. File-tree/private-main-window coupling is a future boundary to define separately.
+- `core/search.*` matches file names and variable descriptors without scientific reads or QtWidgets. `app/browser_search.*` adapts existing tree metadata; `views/search_panel.*` owns the dock, file-search worker and value results. See [search usage](SEARCH.md) and [ADR-0003](adr/0003-search-boundaries.md).
 
 Current tasks and private data locations live outside the public product repository, under the workspace's `docs/internal/`. Architecture documents do not embed business paths or duplicate mutable task status.
 

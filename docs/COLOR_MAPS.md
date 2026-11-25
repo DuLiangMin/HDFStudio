@@ -1,7 +1,8 @@
 # 🎨 Color maps in HDFStudio
 
-The image toolbar reads `Projs   CMaps [palette] … Reverse`. `Projs` still
-controls verified latitude/longitude readout, not projection conversion.
+The image toolbar contains `CMaps [palette] … Reverse`. A separate **Map projection**
+single-row bar above it redraws the image as soon as a projection is selected, without OK; its **Options…**
+button opens the detailed controls described in [Projection display](PROJECTION.md).
 
 ## 🌈 Palettes and mapping
 

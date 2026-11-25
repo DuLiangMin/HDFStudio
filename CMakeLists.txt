@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(HDFStudio VERSION 0.14.06 LANGUAGES C CXX)
+project(HDFStudio VERSION 0.14.08 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -48,6 +48,14 @@ set(src
     src/app/hdf_explorer.hpp
     src/app/hdf_explorer.cpp
     src/app/browser_item.hpp
+    src/app/browser_search.hpp
+    src/app/browser_search.cpp
+    src/views/search_panel.hpp
+    src/views/search_panel.cpp
+    src/app/geo_grid_controller.hpp
+    src/app/geo_grid_controller.cpp
+    src/views/map_display.hpp
+    src/views/map_display.cpp
     src/app/legacy_grid_data.hpp
     src/app/legacy_grid_data.cpp
     src/app/startup_splash.hpp
@@ -167,7 +175,9 @@ target_link_libraries(hdf_core PUBLIC nc_core ${hdf5_dep} hdf_filter_codecs)
 include(cmake/Grib.cmake)
 target_link_libraries(hdf_core PUBLIC grib_backend)
 target_sources(hdf_core PRIVATE src/core/data_source.cpp)
+target_sources(hdf_core PRIVATE src/core/search.hpp src/core/search.cpp)
 target_sources(hdf_core PRIVATE src/core/slice_coordinates.cpp src/core/slice_io.cpp src/core/slice_worker.cpp)
+include(cmake/Projection.cmake)
 add_executable(hdf_cli src/cli/hdf_cli.cpp ${colormap_resources})
 target_link_libraries(hdf_cli PRIVATE hdf_core)
 set_target_properties(hdf_cli PROPERTIES
@@ -217,6 +227,18 @@ if(MSVC)
       "$<TARGET_FILE:Qt6::Test>" "$<TARGET_FILE_DIR:hdf_explorer_drop_tests>")
 endif()
 enable_testing()
+add_executable(search_tests tests/search_test.cpp ${src} ${qrc_sources})
+target_compile_definitions(search_tests PRIVATE HDF_EXPLORER_TEST_BUILD HDFSTUDIO_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+target_link_libraries(search_tests PRIVATE hdf_core ${lib_dep} Qt6::Test)
+set_target_properties(search_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_SOURCE_DIR}/build/output/Debug" RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_SOURCE_DIR}/build/output/Release")
+if(MSVC)
+  add_custom_command(TARGET search_tests POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:search_tests>/platforms"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_PREFIX_PATH}/plugins/platforms/qwindows$<$<CONFIG:Debug>:d>.dll" "$<TARGET_FILE_DIR:search_tests>/platforms/"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:Qt6::Test>" "$<TARGET_FILE_DIR:search_tests>"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_SOURCE_DIR}/build/native-nc/Release/netcdf.dll" "$<TARGET_FILE_DIR:search_tests>")
+endif()
+add_test(NAME search_tests COMMAND search_tests)
 add_executable(hovmoller_tests tests/hovmoller_test.cpp ${src} ${qrc_sources})
 target_compile_definitions(hovmoller_tests PRIVATE HDF_EXPLORER_TEST_BUILD)
 target_link_libraries(hovmoller_tests PRIVATE hdf_core ${lib_dep} Qt6::Test)
@@ -268,6 +290,18 @@ add_dependencies(grib_slice_tests hdf_cli)
 add_test(NAME grib_slice_tests COMMAND grib_slice_tests)
 
 set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT hdf_explorer)
-foreach(target hdf_explorer hdf_cli hdf_explorer_drop_tests hovmoller_tests hdf_filters_tests grib_integration_tests grib_gui_tests grib_browser_tests grib_analysis_tests grib_playback_tests grib_slice_tests)
+foreach(target hdf_explorer hdf_cli hdf_explorer_drop_tests hovmoller_tests hdf_filters_tests grib_integration_tests grib_gui_tests grib_browser_tests grib_analysis_tests grib_playback_tests grib_slice_tests search_tests)
   hdf_deploy_grib(${target})
+  hdf_deploy_projection(${target})
 endforeach()
+
+add_executable(projection_tests tests/projection_test.cpp ${src} ${qrc_sources})
+target_compile_definitions(projection_tests PRIVATE HDF_EXPLORER_TEST_BUILD HDFSTUDIO_TEST_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+target_link_libraries(projection_tests PRIVATE map_core ${lib_dep} Qt6::Test)
+set_target_properties(projection_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_SOURCE_DIR}/build/output/Debug" RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_SOURCE_DIR}/build/output/Release")
+add_dependencies(projection_tests hdf_cli)
+hdf_deploy_grib(projection_tests)
+hdf_deploy_projection(projection_tests)
+hdf_projection_test_platform(projection_tests)
+hdf_projection_test_platform(search_tests)
+add_test(NAME projection_tests COMMAND projection_tests)

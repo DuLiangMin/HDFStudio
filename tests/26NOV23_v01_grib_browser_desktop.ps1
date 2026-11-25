@@ -250,7 +250,7 @@ try {
     do{$bounds=$canvas.Current.BoundingRectangle;$painted=[GribBrowserMouse]::ColoredPixels([int]$bounds.X,[int]$bounds.Y,[int]$bounds.Width,[int]$bounds.Height);if($painted-gt 50){break};Start-Sleep -Milliseconds 100}while($clock.ElapsedMilliseconds-lt 5000)
     Check 'GRIB canvas actually painted' ($painted-gt 50)
     Shot 'image-painted'
-    $projs=Named $window 'Projs';Check 'Unverified geographic lookup disabled' ($projs-and -not $projs.Current.IsEnabled)
+    $projs=Named $window ('Projection'+[char]0x2026);Check 'Projection coordinate validation available' ($projs-and $projs.Current.IsEnabled)
     $reverse=Named $window 'Reverse';$toggle=$reverse.GetCurrentPattern([Windows.Automation.TogglePattern]::Pattern);$old=$toggle.Current.ToggleState;$toggle.Toggle()
     Check 'Reverse colors toggles' ($toggle.Current.ToggleState-ne $old);$toggle.Toggle()
     InvokeNamed 'Flip H';InvokeNamed 'Flip V';InvokeNamed 'Reset'

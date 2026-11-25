@@ -100,6 +100,7 @@ DataSource::PlaneData read(const grib::Catalog& catalog,const QString& target,co
     result.stored_description=plane.raw_description;
     result.stored_semantics=plane.exact_stored?DataSource::StoredSemantics::ReconstructedQuantized:DataSource::StoredSemantics::Unavailable;
     if(coordinates) {
+      result.geographic_keys=field.keys;
       result.coordinates.latitudes=std::move(plane.latitudes);result.coordinates.longitudes=std::move(plane.longitudes);
       result.coordinates.kind=result.coordinates.latitudes.empty()?DataSource::CoordinateKind::None:plane.rectangular?DataSource::CoordinateKind::PerPoint:DataSource::CoordinateKind::PointList;
       result.coordinates.status=result.coordinates.kind==DataSource::CoordinateKind::None?"unavailable":"verified-ecCodes";

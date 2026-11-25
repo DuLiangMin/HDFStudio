@@ -115,8 +115,11 @@ included. Other test data is described in `testdata/grib/manifest.json`.
 Rectangular GRIB fields and virtual arrays use the existing `RasterView` render path.
 Asynchronous reads retain the decoded plane and shared budget; layer changes immediately
 invalidate the previous snapshot. Palette and Mask changes reuse the decoded plane.
-Images show source-grid indices; the CF geographic adapter remains disabled pending a
-separate verified coordinate integration. PNG export waits for the completed selection
+Images use source-grid indices unless a saved projection is restored. The visible **Map projection**
+selector redraws immediately after separable regular_ll coordinates and the current source's earth model
+are validated. The single-row selector redraws without OK; **Options…** opens live detailed settings with OK/Cancel. See [map display](PROJECTION.md).
+For ecCodes 2.47 alternating scans, coordinate arrays only need j-consecutive transposition,
+while decoded values retain the original source-index mapping. PNG export waits for the completed selection
 and honors the existing horizontal/vertical flip contract. Batch preview accepts GRIB
 object IDs, for example `--preview /field/0 --png <new-output.png> <source>`.
 `tests/26NOV23_v01_grib_image_verify.py` compares sample raster doubles with the independent

@@ -50,6 +50,7 @@ struct PlaneData {
   size_t rows = 0, cols = 0;
   std::vector<double> values, stored_x;
   CoordinateData coordinates;
+  QMap<QString,QString> geographic_keys; // Edition-aware computed model keys from this resolved field.
   StoredSemantics stored_semantics = StoredSemantics::Unavailable;
   QString units, reader, decode_profile, error, error_code, stored_description;
   QStringList diagnostics;

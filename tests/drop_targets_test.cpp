@@ -171,7 +171,7 @@ void DropTargetsTest::localHelpOpensBesideExecutableRegardlessOfWorkingDirectory
   QFile help(expected);
   QVERIFY(help.open(QIODevice::ReadOnly));
   const auto content = help.readAll();
-  QVERIFY(content.contains("0.14.06"));
+  QVERIFY(content.contains("0.14.08"));
   QVERIFY(content.contains("id=\"zh-ai\""));
   QVERIFY(content.contains("id=\"en-ai\""));
 }
@@ -591,7 +591,7 @@ void DropTargetsTest::colorMapUiUsesCachedDecodedPlane() {
   RasterView view(filename.toLocal8Bit().toStdString(),"/field",{2,3,4});view.resize(1100,750);view.show();QVERIFY(QTest::qWaitForWindowExposed(&view));
   QTRY_COMPARE(view.property("planeReadCount").toULongLong(),qulonglong(1));
   auto *selector=view.findChild<QComboBox*>("colorMapSelector");QVERIFY(selector);QVERIFY(selector->count()>=18);
-  QCOMPARE(view.findChild<QAction*>("projsAction")->text(),QString("Projs"));
+  QCOMPARE(view.findChild<QAction*>("projsAction")->text(),QString("Projection…"));
   QCOMPARE(view.findChild<QLabel*>("colorMapsLabel")->text(),QString("CMaps"));
   auto *canvas=view.findChild<QGraphicsView*>();QVERIFY(canvas);
   QGraphicsPixmapItem *image=nullptr;for(auto *item:canvas->scene()->items()) if(item->type()==QGraphicsPixmapItem::Type) image=static_cast<QGraphicsPixmapItem*>(item);

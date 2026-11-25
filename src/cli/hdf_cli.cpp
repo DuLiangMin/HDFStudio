@@ -37,6 +37,7 @@
 #include <QCoreApplication>
 #include "slice_io.hpp"
 #include "slice_worker.hpp"
+#include "geo_grid.hpp"
 #include <QFile>
 #include <QFileInfo>
 #include <QSaveFile>
@@ -363,6 +364,7 @@ int main(int argc, char **argv) {
   if((command=="ls"||command=="cubes")&&args.size()>=3)return command_info(args[2]);
   if(command=="slice")return slice_command(args);
   if(command=="slice-worker"&&args.size()==3)return slice_worker(args[2]);
+  if(command=="geo-grid-worker"&&args.size()==3)return GeoGrid::worker(args[2]);
   if(command=="cmap" && args.size()<=4) {
     QString error;const auto palettes=HdfColorMap::load_registry(error);
     if(!error.isEmpty()){QTextStream(stderr)<<error;return 3;}
