@@ -6,15 +6,15 @@
 
 ## ⬇️ 下载
 
-当前源码与本地程序为 **0.14.08**。下方 **0.14.06** 下载链接仍对应此前已发布的压缩包，0.14.08 附件尚未上传。
+下方提供 **0.14.08** 下载。历史二进制包已清理以节约存储空间；历史版本说明、标签及源码包继续保留。
 
 [![Release](https://img.shields.io/github/v/release/DuLiangMin/HDFStudio?label=release&color=3d99a4)](https://github.com/DuLiangMin/HDFStudio/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/DuLiangMin/HDFStudio/total?color=3d99a4)](https://github.com/DuLiangMin/HDFStudio/releases)
 [![License: GPL v3](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-lightgrey)](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.06/HDFStudio-0.14.06-win64.zip)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-lightgrey)](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.08/HDFStudio-0.14.08-win64.zip)
 [![Qt](https://img.shields.io/badge/Qt-6.8-41cd52)](https://www.qt.io/)
 
-**[下载 Windows 程序](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.06/HDFStudio-0.14.06-win64.zip)** — **0.14.06 Windows x64 绿色二进制 ZIP** · [下载源码 ZIP](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.06/HDFStudio-0.14.06-src.zip) · [版本说明](https://github.com/DuLiangMin/HDFStudio/releases/tag/v0.14.06) · [全部版本](https://github.com/DuLiangMin/HDFStudio/releases)
+**[下载 Windows 程序](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.08/HDFStudio-0.14.08-win64.zip)** — **0.14.08 Windows x64 绿色二进制 ZIP** · [下载源码 ZIP](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.08/HDFStudio-0.14.08-src.zip) · [版本说明](https://github.com/DuLiangMin/HDFStudio/releases/tag/v0.14.08) · [全部版本](https://github.com/DuLiangMin/HDFStudio/releases)
 
 包含程序、CLI、GRIB 解码器与定义资源、运行库和离线帮助。解压即可运行，基本浏览无需另行下载依赖。
 
@@ -79,7 +79,7 @@ hdf_cli props data.nc /temperature
 
 Windows 开发使用 Visual Studio 2022 x64、CMake、Qt 6.8、HDF5、netCDF-C、ecCodes 和 PROJ。依赖位置与目标见 `CMakeLists.txt`、`cmake/Grib.cmake`、`cmake/Projection.cmake`；ecCodes 默认位于 `ext/eccodes`，可用 `HDFSTUDIO_ECCODES_ROOT` 配置；PROJ通过独立`PROJ_DIR`定位，并部署匹配数据库与SQLite DLL。源码位于 `src/app`、`src/core`、`src/views`、`src/cli`，测试位于 `tests/`。构建会把帮助页复制到 `build/output/<配置>/doc/help.html`。
 
-公开源码不附 `tools/` 和第三方代码副本。请使用[源码 ZIP](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.06/HDFStudio-0.14.06-src.zip)，构建依赖见[依赖说明](docs/DEPENDENCIES.md)和[项目结构树](docs/PROJECT_STRUCTURE.md)；清单保留精确下载来源与哈希。二进制 ZIP 保留完整运行库与许可证。
+公开源码不附 `tools/` 和第三方代码副本。请使用[源码 ZIP](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.08/HDFStudio-0.14.08-src.zip)，构建依赖见[依赖说明](docs/DEPENDENCIES.md)和[项目结构树](docs/PROJECT_STRUCTURE.md)；清单保留精确下载来源与哈希。二进制 ZIP 保留完整运行库与许可证。
 
 问题请提交至 [Issues](https://github.com/DuLiangMin/HDFStudio/issues)，附格式、对象 ID、shape 和相关 `probe`/`info`/`props` 输出。历史更新见 [Changelog.md](Changelog.md)。
 

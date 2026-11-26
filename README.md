@@ -6,15 +6,15 @@
 
 ## ⬇️ Download
 
-The current source and local build are **0.14.08**. The **0.14.06** download links below refer to the previously published archives; 0.14.08 archives have not been uploaded.
+Download **0.14.08** below. Older binary archives have been removed to reduce storage; their release notes, tags and source archives remain available.
 
 [![Release](https://img.shields.io/github/v/release/DuLiangMin/HDFStudio?label=release&color=3d99a4)](https://github.com/DuLiangMin/HDFStudio/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/DuLiangMin/HDFStudio/total?color=3d99a4)](https://github.com/DuLiangMin/HDFStudio/releases)
 [![License: GPL v3](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-lightgrey)](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.06/HDFStudio-0.14.06-win64.zip)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-lightgrey)](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.08/HDFStudio-0.14.08-win64.zip)
 [![Qt](https://img.shields.io/badge/Qt-6.8-41cd52)](https://www.qt.io/)
 
-**[Download for Windows](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.06/HDFStudio-0.14.06-win64.zip)** — **0.14.06 Windows x64 portable binary ZIP** · [Source code ZIP](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.06/HDFStudio-0.14.06-src.zip) · [Release notes](https://github.com/DuLiangMin/HDFStudio/releases/tag/v0.14.06) · [All releases](https://github.com/DuLiangMin/HDFStudio/releases)
+**[Download for Windows](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.08/HDFStudio-0.14.08-win64.zip)** — **0.14.08 Windows x64 portable binary ZIP** · [Source code ZIP](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.08/HDFStudio-0.14.08-src.zip) · [Release notes](https://github.com/DuLiangMin/HDFStudio/releases/tag/v0.14.08) · [All releases](https://github.com/DuLiangMin/HDFStudio/releases)
 
 Includes the application, CLI, GRIB decoder and definitions, runtime libraries and offline help. Unzip and run; no separate dependency download is needed for native browsing.
 
@@ -79,7 +79,7 @@ Use the variable/object ID reported for your file. `hdf_cli` shares the applicat
 
 Windows development uses Visual Studio 2022 x64, CMake, Qt 6.8, HDF5, netCDF-C, ecCodes and PROJ. Dependency locations and targets are defined in `CMakeLists.txt`, `cmake/Grib.cmake` and `cmake/Projection.cmake`; ecCodes defaults to `ext/eccodes` and can be set with `HDFSTUDIO_ECCODES_ROOT`; PROJ uses an isolated `PROJ_DIR` with matching database and SQLite DLL. Code lives in `src/app`, `src/core`, `src/views` and `src/cli`; tests are in `tests/`. Builds copy the offline guide to `build/output/<configuration>/doc/help.html`.
 
-The public source omits `tools/` and third-party code copies. Use the [source ZIP](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.06/HDFStudio-0.14.06-src.zip), [Dependencies](docs/DEPENDENCIES.md) and the [project structure](docs/PROJECT_STRUCTURE.md); exact dependency URLs and hashes remain in the manifests. Runtime libraries and license texts remain in the binary ZIP.
+The public source omits `tools/` and third-party code copies. Use the [source ZIP](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.14.08/HDFStudio-0.14.08-src.zip), [Dependencies](docs/DEPENDENCIES.md) and the [project structure](docs/PROJECT_STRUCTURE.md); exact dependency URLs and hashes remain in the manifests. Runtime libraries and license texts remain in the binary ZIP.
 
 Report reproducible problems in [Issues](https://github.com/DuLiangMin/HDFStudio/issues), with the format, object ID, shape and relevant `probe`/`info`/`props` output. Release history is in [Changelog.md](Changelog.md).
 

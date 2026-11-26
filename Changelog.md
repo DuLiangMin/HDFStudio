@@ -1,5 +1,10 @@
 # Changelog
 
+## 📦 0.14.08 — Portable release — 2026-11-26
+
+- Publish the Windows x64 portable ZIP with pinned projection/GRIB runtimes, offline data and licence notices, alongside the matching source ZIP.
+- Update both download pages to 0.14.08. Remove older binary release attachments to reduce storage while retaining historical source archives, tags and release notes.
+
 ## 🌍 0.14.08 — Geographic map display and search — 2026-11-24
 
 - Synchronize application, About, Windows file/product properties, bilingual READMEs and offline help at 0.14.08. The source and local build include the map and search changes below; the download section keeps the previous published archives explicitly labelled until new assets are uploaded.
