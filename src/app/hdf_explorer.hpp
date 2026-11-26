@@ -115,6 +115,7 @@ protected:
   void show_cf_diagnostics();
   void show_compare_panel();
   void show_texture_entropy();
+  void add_icosahedral_analysis(ItemData *item_data);
   void update_compare_views();
   void update_file_info(const QString &file_name);
   void show_time_values();

@@ -1,0 +1,77 @@
+{
+  "id": "hdfstudio:s2s-ocean",
+  "name": "S2S Ocean",
+  "group": "Global / S2S",
+  "kind": "sequential",
+  "stepped": false,
+  "colors": [
+    [
+      0.03137254901960784,
+      0.10980392156862745,
+      0.21568627450980393,
+      1.0
+    ],
+    [
+      0.058823529411764705,
+      0.2549019607843137,
+      0.3764705882352941,
+      1.0
+    ],
+    [
+      0.054901960784313725,
+      0.4117647058823529,
+      0.49019607843137253,
+      1.0
+    ],
+    [
+      0.12549019607843137,
+      0.5686274509803921,
+      0.5686274509803921,
+      1.0
+    ],
+    [
+      0.34901960784313724,
+      0.7215686274509804,
+      0.5882352941176471,
+      1.0
+    ],
+    [
+      0.615686274509804,
+      0.8470588235294118,
+      0.6549019607843137,
+      1.0
+    ],
+    [
+      0.8549019607843137,
+      0.9333333333333333,
+      0.7568627450980392,
+      1.0
+    ],
+    [
+      1.0,
+      0.9764705882352941,
+      0.8705882352941177,
+      1.0
+    ]
+  ],
+  "positions": [
+    0.0,
+    0.14285714285714285,
+    0.2857142857142857,
+    0.42857142857142855,
+    0.5714285714285714,
+    0.7142857142857143,
+    0.8571428571428571,
+    1.0
+  ],
+  "source": "HDFStudio original palette specification, resources/colormaps/source/hdfstudio/s2s_ocean.rgb",
+  "authors": [
+    "HDFStudio contributors"
+  ],
+  "license": "GPL-3.0-or-later",
+  "revision": "0.16.02",
+  "source_file": "source/hdfstudio/s2s_ocean.rgb",
+  "source_sha256": "8f44b3f743c2c2a65f0b900a7d57dba33f2c909a9df3bcab5b6f438565e392b0",
+  "modification": "Original sRGB control points; no physical thresholds or perceptual-uniformity claim",
+  "schema_version": 1
+}

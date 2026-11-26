@@ -517,7 +517,7 @@ RasterView::RasterView(std::string filename,std::string varpath,std::vector<hsiz
       if(data->rows!=rows||data->cols!=cols||data->values.size()!=size_t(rows*cols)){clear_plane(tr("Incomplete GRIB plane."));return;}
       grib_plane=data;raster_reservation=lease;
       decoded_values=std::shared_ptr<const std::vector<double>>(data,&data->values);
-      if(coordinates_requested){auto grid=std::make_shared<GeoGrid::Grid>(GeoGrid::from_grib(*data,data->geographic_keys,grib_info->grid_kind));map_display->set_grid(grid,lease);coordinates_ready=true;apply_pending_projection();}
+      if(coordinates_requested){auto grid=std::make_shared<GeoGrid::Grid>(GeoGrid::from_grib(*data,data->geographic_keys,grib_info->grid_kind));accept_geographic_grid(grid,lease);}
       cached_indices=grib_requested_indices;last_rows=data->rows;last_cols=data->cols;
       cached_units=data->units;declared_categories.clear();cached_meanings.clear();reading_valid=true;mask_valid=false;
       setProperty("reader",data->reader);setProperty("decodeProfile",data->decode_profile);
@@ -526,6 +526,7 @@ RasterView::RasterView(std::string filename,std::string varpath,std::vector<hsiz
     });
     connect(grib_reader,&DataReadController::failed,this,[this](const QString &error){grib_read_pending=false;clear_plane(error);});
   }
+  original_source_stamp=GeoGrid::stamp(grib_info?grib_file:QString::fromLocal8Bit(file.c_str()));
   QTimer::singleShot(0, this, [this]{
     refresh();
     if(map_display->has_saved_preferences()&&map_display->saved_mode()!=MapProjection::Mode::Source){
@@ -1024,10 +1025,20 @@ void RasterView::prepare_map_coordinates(){
   if(coordinates_requested)return;
   coordinates_requested=true;
   map_source_stamp=GeoGrid::stamp(QString::fromLocal8Bit(file.c_str()));
-  if(grib_info){if(grib_plane&&grib_plane->coordinates.latitudes.size()==grib_plane->values.size()){auto grid=std::make_shared<GeoGrid::Grid>(GeoGrid::from_grib(*grib_plane,grib_plane->geographic_keys,grib_info->grid_kind));map_display->set_grid(grid,raster_reservation);coordinates_ready=true;apply_pending_projection();}
+  if(grib_info){if(grib_plane&&grib_plane->coordinates.latitudes.size()==grib_plane->values.size()){auto grid=std::make_shared<GeoGrid::Grid>(GeoGrid::from_grib(*grib_plane,grib_plane->geographic_keys,grib_info->grid_kind));accept_geographic_grid(grid,raster_reservation);}
     else {reading_valid=false;refresh();}return;}
-  if(!geo_reader){geo_reader=new GeoGridController;connect(geo_reader,&GeoGridController::completed,this,[this](auto grid,auto lease){map_display->set_grid(grid,lease);coordinates_ready=true;apply_pending_projection();});connect(geo_reader,&GeoGridController::failed,this,[this](const QString &error){auto grid=std::make_shared<GeoGrid::Grid>();grid->error=error;map_display->set_grid(grid,{});coordinates_ready=true;apply_pending_projection();});}
+  if(!geo_reader){geo_reader=new GeoGridController;connect(geo_reader,&GeoGridController::completed,this,[this](auto grid,auto lease){accept_geographic_grid(grid,lease);});connect(geo_reader,&GeoGridController::failed,this,[this](const QString &error){auto grid=std::make_shared<GeoGrid::Grid>();grid->error=error;accept_geographic_grid(grid,{});});}
   if(dims.size()<2)return;geo_reader->read(QString::fromLocal8Bit(file.c_str()),QString::fromUtf8(path.c_str()),int(dims[dims.size()-2]),int(dims.back()));
+}
+void RasterView::request_geographic_grid(){
+  if(GeoGrid::stamp(grib_info?grib_file:QString::fromLocal8Bit(file.c_str()))!=original_source_stamp){auto error=std::make_shared<GeoGrid::Grid>();error->error="SourceChanged: close and reopen the source image";emit geographic_grid_ready(error,{});return;}
+  if(coordinates_ready&&verified_geo_grid){emit geographic_grid_ready(verified_geo_grid,verified_geo_lease);return;}
+  prepare_map_coordinates();
+}
+void RasterView::accept_geographic_grid(std::shared_ptr<const GeoGrid::Grid> grid,std::shared_ptr<void> lease){
+  verified_geo_grid=std::move(grid);verified_geo_lease=std::move(lease);
+  map_display->set_grid(verified_geo_grid,verified_geo_lease);coordinates_ready=true;apply_pending_projection();
+  emit geographic_grid_ready(verified_geo_grid,verified_geo_lease);
 }
 void RasterView::apply_pending_projection(){
   if(restore_projection_pending){restore_projection_pending=false;const auto error=map_display->restore_preferences();

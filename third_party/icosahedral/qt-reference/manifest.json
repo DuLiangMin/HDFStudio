@@ -1,0 +1,58 @@
+{
+  "schema": 1,
+  "source_project": "HDFStudio_to_Isosahedral",
+  "license": "GPL-3.0",
+  "files": [
+    {
+      "source": "src/core/ico_3d_mesh.hpp",
+      "file": "ico_3d_mesh.hpp",
+      "sha256": "f715ca4ca2288bbfce92a8754eb25ec7cbb6c590c72a99f0c49f5bb311d8bb01"
+    },
+    {
+      "source": "src/core/ico_3d_mesh.cpp",
+      "file": "ico_3d_mesh.cpp",
+      "sha256": "897e64a2607ac508e036e602968c3bfac103419a0fe9c10feb20c12c63de747e"
+    },
+    {
+      "source": "src/core/ico_atlas.cpp",
+      "file": "ico_atlas.cpp",
+      "sha256": "80e5d16ff08cc616ad351afaffb9e7c04bfe744cd8fa43a913649de14648b683"
+    },
+    {
+      "source": "src/views/ico_3d_view.hpp",
+      "file": "ico_3d_view.hpp",
+      "sha256": "6474644b246eac8ef85cb64f52c43270223b013b05773e00c8e3fcdae51ece38"
+    },
+    {
+      "source": "src/views/ico_3d_view.cpp",
+      "file": "ico_3d_view.cpp",
+      "sha256": "2f220faec54abb4bea0c1d3ab757b516c29345d584cc31257dbff4858989df87"
+    },
+    {
+      "source": "src/core/ico_atlas.hpp",
+      "file": "ico_atlas.hpp",
+      "sha256": "5dd304276dbd7e7a33c1f25c0fa811dec6cf64753dab568f3f8d93678705c057"
+    },
+    {
+      "source": "src/core/ico_render.hpp",
+      "file": "ico_render.hpp",
+      "sha256": "cee14d8f3aa9bd6e9e9b08837cd9335039991ca96a2340e1806bce1e25edd0de"
+    },
+    {
+      "source": "src/core/ico_render.cpp",
+      "file": "ico_render.cpp",
+      "sha256": "e1e5a030d94d0fe9d54a3bdf942c0456eb6e282ff4f1679d2efa90209981d009"
+    },
+    {
+      "source": "src/views/ico_2d_view.hpp",
+      "file": "ico_2d_view.hpp",
+      "sha256": "79beac00a4f33fa6b0c954912fcbc7709570dc7941cac08864e7aeb437d0bad3"
+    },
+    {
+      "source": "src/views/ico_2d_view.cpp",
+      "file": "ico_2d_view.cpp",
+      "sha256": "64edd27bede4fa0a66fe1abfc48a338e08d492fe984ed9589a2536efa14d1889"
+    }
+  ],
+  "adaptation": "3D canvas/mesh and five-chart atlas/renderer adapted to immutable Icosahedral::Result; unchanged mesh coordinates, atlas endpoints labelled apex, no source reader or second remapper"
+}

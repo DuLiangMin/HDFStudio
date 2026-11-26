@@ -333,9 +333,9 @@ private slots:
   void textureTreeAndFollowingSnapshot(){
     auto *window=new MainWindow;window->resize(1200,800);window->show();QVERIFY(QTest::qWaitForWindowExposed(window));QCOMPARE(window->read_file(fixture("mini_cube.grb2")),0);
     auto *tree=window->findChild<FileTreeWidget*>();auto *root=tree->topLevelItem(0);root->setExpanded(true);auto *variables=root->child(0);variables->setExpanded(true);auto *item=variables->child(0);tree->setCurrentItem(item);
-    bool enabled=false;QTimer timer;timer.setInterval(20);connect(&timer,&QTimer::timeout,window,[&]{for(auto *menu:window->findChildren<QMenu*>())if(auto *action=menu->findChild<QAction*>("actionGribTextureEntropy")){enabled=action->isEnabled();action->trigger();menu->close();}});timer.start();
+    bool enabled=false;QTimer timer;timer.setInterval(20);connect(&timer,&QTimer::timeout,window,[&]{for(auto *menu:window->findChildren<QMenu*>())if(menu->objectName()=="visualAnalysisMenu")if(auto *action=menu->findChild<QAction*>("actionGribTextureEntropy")){timer.stop();enabled=action->isEnabled();action->trigger();menu->close();if(auto *parent=qobject_cast<QMenu*>(menu->parentWidget()))parent->close();break;}});timer.start();
     QVERIFY(QMetaObject::invokeMethod(tree,"show_context_menu",Qt::DirectConnection,Q_ARG(QPoint,tree->visualItemRect(item).center())));timer.stop();QVERIFY(enabled);
-    auto *independent=window->findChild<TextureEntropyView*>();QVERIFY(independent);QTRY_VERIFY(independent->entropy_plane().valid);QVERIFY(!independent->source_view());window->close_file_of(root);QVERIFY(!window->findChild<TextureEntropyView*>());delete window;QTRY_VERIFY(!DataReadController::any_busy());
+    QCOMPARE(window->findChildren<TextureEntropyView*>().size(),1);auto *independent=window->findChild<TextureEntropyView*>();QVERIFY(independent);QTRY_VERIFY(independent->entropy_plane().valid);QVERIFY(!independent->source_view());window->close_file_of(root);QVERIFY(!window->findChild<TextureEntropyView*>());delete window;QTRY_VERIFY(!DataReadController::any_busy());
     const auto file=fixture("mini_cube.grb2"),target=GribData::open(file)->cubes.front().id;auto *source=new RasterView(file,target,GribData::describe(file,target));
     QTRY_VERIFY(source->plane_snapshot().values);auto *following=new TextureEntropyView(source);QVERIFY(following->entropy_plane().valid);QCOMPARE(following->source_view(),source);
     source->set_layer_index(0,1);QVERIFY(!following->entropy_plane().valid);QTRY_VERIFY(following->entropy_plane().valid);QCOMPARE(following->entropy_plane().source_minimum,50600.);
@@ -403,9 +403,9 @@ private slots:
   void histogramTreeMenuAndMainWindowLifetime(){
     auto *window=new MainWindow;window->resize(1200,800);window->show();QVERIFY(QTest::qWaitForWindowExposed(window));QCOMPARE(window->read_file(fixture("mini_cube.grb2")),0);
     auto *tree=window->findChild<FileTreeWidget*>();auto *root=tree->topLevelItem(0);root->setExpanded(true);auto *variables=root->child(0);variables->setExpanded(true);auto *item=variables->child(0);tree->setCurrentItem(item);
-    bool enabled=false;QTimer timer;timer.setInterval(20);connect(&timer,&QTimer::timeout,window,[&]{for(auto *menu:window->findChildren<QMenu*>())if(auto *action=menu->findChild<QAction*>("actionGribHistogram")){enabled=action->isEnabled();action->trigger();menu->close();}});timer.start();
+    bool enabled=false;QTimer timer;timer.setInterval(20);connect(&timer,&QTimer::timeout,window,[&]{for(auto *menu:window->findChildren<QMenu*>())if(menu->objectName()=="visualAnalysisMenu")if(auto *action=menu->findChild<QAction*>("actionGribHistogram")){timer.stop();enabled=action->isEnabled();action->trigger();menu->close();if(auto *parent=qobject_cast<QMenu*>(menu->parentWidget()))parent->close();break;}});timer.start();
     QVERIFY(QMetaObject::invokeMethod(tree,"show_context_menu",Qt::DirectConnection,Q_ARG(QPoint,tree->visualItemRect(item).center())));timer.stop();QVERIFY(enabled);
-    auto *view=window->findChild<HistogramView*>();QVERIFY(view);QTRY_VERIFY(view->property("planeValues").toULongLong()>0);QCOMPARE(window->current_layer_view(),static_cast<LayerNavigation*>(view));
+    QCOMPARE(window->findChildren<HistogramView*>().size(),1);auto *view=window->findChild<HistogramView*>();QVERIFY(view);QTRY_VERIFY(view->property("planeValues").toULongLong()>0);QCOMPARE(window->current_layer_view(),static_cast<LayerNavigation*>(view));
     window->close_file_of(root);QVERIFY(!window->findChild<HistogramView*>());delete window;QTRY_VERIFY(!DataReadController::any_busy());
   }
   void histogramExternalCorpus_data(){QTest::addColumn<int>("edition");QTest::newRow("grib1")<<1;QTest::newRow("grib2")<<2;}

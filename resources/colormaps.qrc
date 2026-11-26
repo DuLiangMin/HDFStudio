@@ -24,4 +24,7 @@
 <file alias="licenses/NCL-COPYRIGHT.txt">../licenses/colormaps/NCL-COPYRIGHT.txt</file>
 <file alias="manifest.json">colormaps/manifest.json</file>
 <file alias="golden.json">colormaps/golden.json</file>
+<file alias="palettes/hdfstudio_s2s_ocean.json">colormaps/palettes/hdfstudio_s2s_ocean.json</file>
+<file alias="palettes/hdfstudio_s2s_anomaly.json">colormaps/palettes/hdfstudio_s2s_anomaly.json</file>
+<file alias="palettes/hdfstudio_s2s_rain.json">colormaps/palettes/hdfstudio_s2s_rain.json</file>
 </qresource></RCC>

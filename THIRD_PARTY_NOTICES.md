@@ -95,3 +95,14 @@ The normalized coastline asset and public converter are also retained in
 `resources/coastlines/`; `low/derived_manifest.json` identifies the modifications
 and output hash. Normalization removes only identified polygon closure edges;
 the data retains the upstream LGPL-3.0-or-later designation.
+
+## 🌐 Icosahedral native integration (0.16.02)
+
+`third_party/icosahedral/26NOV21_*` reuses the existing local C17 derived/new
+implementation from `P20261120_icosahedral_mesh/06_SCRIP_C_Version`, unchanged
+with per-file SHA256. Compatibility formulas retain the University of California
+SCRIP Notice in `licenses/icosahedral/LICENSE_SCRIP`. This is not a complete
+upstream SCRIP port; see `third_party/icosahedral/README.md` for boundaries.
+The same user's existing GPL-3.0 Qt project's GL canvas/mesh and five-chart atlas/renderer sources are preserved
+with byte hashes in `third_party/icosahedral/qt-reference/`; adapted active copies
+retain the provenance in their file headers and the project GPL licence applies.

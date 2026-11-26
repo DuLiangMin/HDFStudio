@@ -171,7 +171,7 @@ void DropTargetsTest::localHelpOpensBesideExecutableRegardlessOfWorkingDirectory
   QFile help(expected);
   QVERIFY(help.open(QIODevice::ReadOnly));
   const auto content = help.readAll();
-  QVERIFY(content.contains("0.14.08"));
+  QVERIFY(content.contains("0.16.02"));
   QVERIFY(content.contains("id=\"zh-ai\""));
   QVERIFY(content.contains("id=\"en-ai\""));
 }
@@ -3235,7 +3235,8 @@ void DropTargetsTest::textureEntropyViewIsIndependent2DImage() {
   bool context_found = false;
   QTimer::singleShot(20, &window, [&] {
     for(auto *widget : QApplication::topLevelWidgets()) if(auto *menu = qobject_cast<QMenu*>(widget)) {
-      for(auto *entry : menu->actions()) if(entry->text() == "Texture Entropy Image") context_found = true;
+      if(menu->objectName()=="visualAnalysisMenu")
+        for(auto *entry : menu->actions()) if(entry->text() == "Texture Entropy Image") context_found = true;
       if(menu->isVisible()) menu->close();
     }
   });

@@ -17,6 +17,7 @@ HDFStudio/
 ├── resources/               Qt assets and generated offline color-map data
 ├── licenses/                Dependency notices and pinned native-file manifest
 ├── third_party/hdf_filters/ Build recipe, source URLs/hashes and local decoder sources
+├── third_party/icosahedral/ Existing local 06 C17 kernels, provenance/hash manifest and build recipe
 ├── tests/                   QtTest, independent numeric and desktop verification
 ├── testdata/                Small generated fixtures; no business data
 ├── tools/                   Local maintenance scripts; excluded from publication
@@ -52,6 +53,16 @@ graph TD
 Core algorithms do not depend on Qt Widgets. `app` owns selection, cancellation and lifecycle; snapshot-based views retain their memory leases. The legacy HDF/NetCDF grid still borrows a tree-owned typed buffer, so dependent windows must be destroyed before their `ItemData`. GRIB work is serialized around ecCodes. NetCDF/HDF5 section reads stay in the matching CLI process. The GUI and CLI use the same scientific decoding rules; the help page has no role in data reading.
 
 ## 🧩 Application module interfaces
+
+🌐 `core/icosahedral.*` adapts the existing native `ico_native` C17 kernels in
+`map_core`; numerical workers consume immutable source snapshots and verified
+axes. `icosahedral_io.cpp` keeps NetCDF exports on the GUI/CLI thread.
+`views/icosahedral_view.*` owns explicit Run/cancel and graph exports.
+`core/ico_3d_mesh.*` packs existing result topology/colors and ray picking without
+Qt Widgets; `views/ico_3d_canvas.*` reuses the compiled source project's GL 3.3
+canvas, camera and framebuffer export, with original files/hashes in
+`third_party/icosahedral/qt-reference/`. Full input/output shapes and scientific limits are in
+[ICOSAHEDRAL](ICOSAHEDRAL.md). No Python runtime is added.
 
 The [application boundaries](architecture/application-boundaries.md) describe the current ownership and dependency contracts. [ADR-0001](adr/0001-document-authority.md) records document authority; [ADR-0002](adr/0002-application-module-boundaries.md) records the incremental source split. New decisions use the [ADR index and template](adr/README.md).
 

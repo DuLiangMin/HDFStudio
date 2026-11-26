@@ -1,10 +1,10 @@
 cmake_minimum_required(VERSION 3.16)
-project(HDFStudio VERSION 0.14.08 LANGUAGES C CXX)
+project(HDFStudio VERSION 0.16.02 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Widgets Network Multimedia MultimediaWidgets Test)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Network Multimedia MultimediaWidgets OpenGL OpenGLWidgets Test)
 qt_standard_project_setup()
 
 if(UNIX AND NOT APPLE)
@@ -87,6 +87,10 @@ set(src
     src/views/vector_view.cpp
     src/views/mesh_view.hpp
     src/views/mesh_view.cpp
+    src/views/icosahedral_view.hpp
+    src/views/icosahedral_view.cpp
+    src/views/ico_3d_canvas.hpp
+    src/views/ico_3d_canvas.cpp
     src/views/raster_view.hpp
     src/views/raster_view.cpp
     src/views/raster_budget.hpp
@@ -121,6 +125,8 @@ set(lib_dep
     Qt6::Network
     Qt6::Multimedia
     Qt6::MultimediaWidgets
+    Qt6::OpenGL
+    Qt6::OpenGLWidgets
 )
 
 #//////////////////////////
@@ -178,6 +184,10 @@ target_sources(hdf_core PRIVATE src/core/data_source.cpp)
 target_sources(hdf_core PRIVATE src/core/search.hpp src/core/search.cpp)
 target_sources(hdf_core PRIVATE src/core/slice_coordinates.cpp src/core/slice_io.cpp src/core/slice_worker.cpp)
 include(cmake/Projection.cmake)
+add_subdirectory(third_party/icosahedral)
+target_sources(map_core PRIVATE src/core/ico_atlas.hpp src/core/ico_atlas.cpp src/core/ico_atlas_render.hpp src/core/ico_atlas_render.cpp)
+target_sources(map_core PRIVATE src/core/icosahedral.hpp src/core/icosahedral.cpp src/core/icosahedral_io.cpp src/core/ico_3d_mesh.hpp src/core/ico_3d_mesh.cpp)
+target_link_libraries(map_core PUBLIC ico_native)
 add_executable(hdf_cli src/cli/hdf_cli.cpp ${colormap_resources})
 target_link_libraries(hdf_cli PRIVATE hdf_core)
 set_target_properties(hdf_cli PROPERTIES
@@ -305,3 +315,23 @@ hdf_deploy_projection(projection_tests)
 hdf_projection_test_platform(projection_tests)
 hdf_projection_test_platform(search_tests)
 add_test(NAME projection_tests COMMAND projection_tests)
+
+add_executable(icosahedral_tests tests/icosahedral_test.cpp ${src} ${qrc_sources})
+target_compile_definitions(icosahedral_tests PRIVATE HDF_EXPLORER_TEST_BUILD)
+target_link_libraries(icosahedral_tests PRIVATE map_core ${lib_dep} Qt6::Test)
+set_target_properties(icosahedral_tests PROPERTIES RUNTIME_OUTPUT_DIRECTORY_DEBUG "${CMAKE_SOURCE_DIR}/build/output/Debug" RUNTIME_OUTPUT_DIRECTORY_RELEASE "${CMAKE_SOURCE_DIR}/build/output/Release")
+add_dependencies(icosahedral_tests hdf_cli)
+hdf_deploy_grib(icosahedral_tests)
+hdf_deploy_projection(icosahedral_tests)
+hdf_projection_test_platform(icosahedral_tests)
+add_test(NAME icosahedral_tests COMMAND icosahedral_tests)
+
+# Match the already compiled source project's OpenGL runtime deployment.
+if(WIN32)
+  foreach(target hdf_explorer hdf_explorer_drop_tests search_tests projection_tests icosahedral_tests)
+    add_custom_command(TARGET ${target} POST_BUILD
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:Qt6::OpenGL>" "$<TARGET_FILE_DIR:${target}>"
+      COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:Qt6::OpenGLWidgets>" "$<TARGET_FILE_DIR:${target}>"
+      VERBATIM)
+  endforeach()
+endif()

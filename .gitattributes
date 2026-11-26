@@ -18,3 +18,9 @@
 /licenses/coastlines/COPYING* -text -whitespace
 /licenses/coastlines/LICENSE.mit -text -whitespace
 /licenses/proj/* -text -whitespace
+# The vendored 06 kernels and SCRIP notice have byte-level provenance hashes.
+/third_party/icosahedral/*.c -text -whitespace
+/third_party/icosahedral/*.h -text -whitespace
+/licenses/icosahedral/LICENSE_SCRIP -text -whitespace
+/third_party/icosahedral/qt-reference/*.cpp -text -whitespace
+/third_party/icosahedral/qt-reference/*.hpp -text -whitespace

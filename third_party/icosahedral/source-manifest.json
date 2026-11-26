@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "source_project": "P20261120_icosahedral_mesh/06_SCRIP_C_Version",
+  "source_revision": "2026-11-21 local C17 implementation",
+  "modified": false,
+  "notice": "Local derived/new implementation; not upstream SCRIP verbatim",
+  "license": "../../licenses/icosahedral/LICENSE_SCRIP",
+  "files": [
+    {
+      "file": "26NOV21_scrip.h",
+      "sha256": "03153f063b9e9da186db9588bae0543007549aad729d348d65efe4e13019729e"
+    },
+    {
+      "file": "26NOV21_geometry.c",
+      "sha256": "5c1b014111525cd249a53c270b7902f8f8e5d7fed12fe69d465645376f87156b"
+    },
+    {
+      "file": "26NOV21_grid.c",
+      "sha256": "54b93e71dbbf415f245a4b37238261139dfe894ab97d92ea3e7458da58cc9993"
+    },
+    {
+      "file": "26NOV21_mesh.c",
+      "sha256": "c28b606aca52f737c48a4d16b475c3596017aef790799b03fb297fdd6364bfd0"
+    },
+    {
+      "file": "26NOV21_legacy.c",
+      "sha256": "a0d2b69827049d15c727c693fcb1678f715e54b5d929c927ac8375909b0d7649"
+    },
+    {
+      "file": "26NOV21_sparse.c",
+      "sha256": "ff9425a975ed4657537220cfea33fab6cc381744f74da36a4853e09a90059aaf"
+    },
+    {
+      "file": "26NOV21_conservative.c",
+      "sha256": "da6b23cc7a93ae969cab47fd153395c794a747207a21160312bbee47b8550d64"
+    },
+    {
+      "file": "26NOV21_resolution.c",
+      "sha256": "d7c79b1844f48f0bc4d937f5ae202fb8e53b5a2fa722997477d0feb78660350c"
+    },
+    {
+      "file": "26NOV21_netcdf.c",
+      "sha256": "c4577f259c33fca8b28708dd1e6d12ad0ec28d27983220fc011844e9d0cae538"
+    }
+  ]
+}

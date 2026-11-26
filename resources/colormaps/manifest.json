@@ -93,6 +93,24 @@
       "file": "palettes/matplotlib_rainbow.json",
       "sha256": "1de7af98f887f0487432661a1c361e11d63fe8f1f4e9256857a2e29a4337accc",
       "count": 256
+    },
+    {
+      "id": "hdfstudio:s2s-ocean",
+      "file": "palettes/hdfstudio_s2s_ocean.json",
+      "sha256": "aa79b738e57c087cb36e0c0015842e5d0140d866adcb64a18fb71458849dc50c",
+      "count": 8
+    },
+    {
+      "id": "hdfstudio:s2s-anomaly",
+      "file": "palettes/hdfstudio_s2s_anomaly.json",
+      "sha256": "2ce16330ea03a682cb5d4e935d2bf0e9eec2fce43f43084e078a452dbffc9f09",
+      "count": 9
+    },
+    {
+      "id": "hdfstudio:s2s-rain",
+      "file": "palettes/hdfstudio_s2s_rain.json",
+      "sha256": "19a027b3ef7044ea5bb93d496fce6845743d39e9b9bc3714981a763b44f7153f",
+      "count": 8
     }
   ],
   "licenses": [

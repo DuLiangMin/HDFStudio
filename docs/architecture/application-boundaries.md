@@ -24,6 +24,17 @@
 
 ## 🔌 表格公共接口
 
+🌐 二十面体分析：`core/icosahedral.*`输入不可变`PlaneSnapshot[rows,cols]`与可信
+`GeoGrid`，输出`Mesh(V,3/F,3/E,2)`、点值/CSR/还原/残差；纯数值worker不访问
+QObject或netCDF/HDF5。`RasterView::request_geographic_grid()`复用已有隔离坐标
+控制器，不复制读取器；分析按Run捕获源revision/文件stamp与预算lease，源变更立即
+失效。`views/icosahedral_view.*`管理单active＋latest和取消令牌，关闭应用等待包括
+已删除视图的任务收尾。NetCDF导出在GUI/CLI线程，拒绝源覆盖和已有目标。
+`core/ico_3d_mesh.*`复用原项目CPU顶点缓冲/拾取，`views/ico_3d_canvas.*`
+在GUI线程持有同一不可变Result，管理GL 3.3上下文、VAO/VBO、相机和帧缓冲。
+相机/变形只改uniform，不读文件或重建采样权重；源失效同时清空GL数据。
+完整语义/shape见[ICOSAHEDRAL](../ICOSAHEDRAL.md)。
+
 `QWidget *create_legacy_grid(QWidget *parent, ItemData *item_data, GridValueMode mode)`。
 
 前提：item_data非空、dataset及相应buffer已装载，kind为变量或数值属性。输出有原`gridTable`和`gridAnalysisToolbar`，模式为Decoded/Stored/Both；数值布局遵循源shape与前导索引。窗口经现有`LayerNavigation`接受层控制；主窗口不依赖TableModel/ChildWindow实现。

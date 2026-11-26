@@ -99,3 +99,10 @@ breakpoint; Rainbow samples its functions at 256 positions. Derived JSON and
 the complete Matplotlib license are shipped; upstream implementation copies
 remain local development inputs. Spectrum palettes do not imply physical
 thresholds or perceptually uniform distances between values.
+# 🎨 0.16.02 Global/S2S additions
+
+S2S Ocean, S2S Anomaly and S2S Rain are original HDFStudio sRGB control-point
+palettes, GPL-3.0-or-later (root LICENSE), revision 0.16.02. Raw RGB inputs live
+in `resources/colormaps/source/hdfstudio/`; palette JSON and source hashes are
+recorded in the existing manifest. They carry no fixed physical thresholds or
+perceptual-uniformity claim. Existing palettes and default Jet remain unchanged.

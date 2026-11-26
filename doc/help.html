@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="HDFStudio 中英文使用帮助：Windows NetCDF、HDF5、GRIB1/GRIB2 数据浏览、分析、导出与 LLM / AI Agent 工作流程。Bilingual user guide for scientific data inspection.">
   <link rel="canonical" href="https://duliangmin.github.io/HDFStudio/doc/help.html">
-  <title>HDFStudio Help / 使用帮助 — 0.14.08</title>
+  <title>HDFStudio Help / 使用帮助 — 0.16.02</title>
   <style>
     :root { color-scheme: light; --ink: #203440; --accent: #126c79; --line: #d8e4e8; }
     * { box-sizing: border-box; }
@@ -39,11 +39,21 @@
 <body>
 <header id="top">
   <h1>HDFStudio Help / 使用帮助</h1>
-  <p class="version">0.14.08 · NetCDF / HDF5 / GRIB1 / GRIB2 · Windows</p>
+  <p class="version">0.16.02 · NetCDF / HDF5 / GRIB1 / GRIB2 · Windows</p>
   <p>Unleash the Power of Your NetCDF and GRIB Data</p>
   <nav aria-label="Language / 语言"><a href="#zh">简体中文</a><a href="#en" lang="en">English</a></nav>
 </header>
 <main>
+  <section id="icosahedral">
+    <h2>🌐 0.16.02 Icosahedral Analysis / 二十面体分析</h2>
+    <p>变量右键选择 <strong>Visual Analysis / 可视分析 → Icosahedral 5 slices</strong>，默认显示五条展开带，可切换五张矩形卡和 <strong>OpenGL 3D</strong>。支持全球或局地真实经纬轴，局地范围外为NaN；复用同变量Image的当前层/Mask，未打开Image时直接读取。L0–L6生成单位球节点、面、边与面积；Run应用Mask或源修改。层工具栏支持切层、Play/Pause和间隔，等待源、分析和显示帧完成，换帧保留上一图但禁用旧值导出/拾取，末帧停止；单时次禁用Play。五卡张量为[5,n,2n]，两个Apex顶点另存，当前方向下不是地理南北极；滚轮缩放、拖动平移、双击/Fit复位，PNG输出完整五卡及色标。3D复用原工程GL 3.3 Core画布，支持球面/多面体连续变形、旋转、平移缩放、主棱/细网格/五卡接缝/参考线、转台和地理预设，PNG导出实际帧缓冲。面积、还原、误差和S2S色标共用同一结果；默认Unlit保留亮度。点插值不声称守恒，GL不可用时仍可运行2D/数值分析。</p>
+    <p>要求已验证的纬度/全球周期经度轴，纬度可非等距/降序；不推断未知坐标。精确等距经度使用现成C核双线性点采样，可信周期的编码舍入或非等距经度使用保留实际中心的适配；再作重心还原。纬度范围外、缺测与Mask传播为NaN。面值为顶点均值，不声明单元平均或质量守恒。面积为steradian，不是平方米。改变源层、Mask或级别后须重新Run。</p>
+    <p><strong>Export mesh + fields NetCDF</strong>导出0基节点/面/边拓扑、邻接、单位球xyz、原单位点值、正向CSR权重、源坐标、还原及残差，供全球图模型数据试验；PNG导出当前图和色标。仅创建新文件并保护源数据。</p>
+    <p><strong>Level / 精度：</strong> 调整L0–L6即自动重算，连续调整采用最后精度，无需再点Run。计算期间保留上一图，可切换2D/3D；旧值探针与导出暂时禁用。Level changes automatically recompute the last selected resolution while keeping the previous frame visible; stale probes and exports remain disabled until the new result is current.</p>
+    <p><strong>English:</strong> Right-click a variable → <strong>Visual Analysis → Icosahedral 5 slices</strong>. Start with five unfolded strips or switch to five rectangular node cards and the OpenGL 3D sphere/polyhedron. Reuse the same variable's open Image layer/Mask or read it directly; regional exterior stays NaN. Layer playback waits for source, analysis and rendering, and stops at the last layer. Run applies source/Mask changes. Inspect unit-sphere areas, reconstructed source grids and errors; export full-layout/framebuffer PNG or graph topology, chart tensors, node/edge/face point fields, CSR weights and diagnostics in NetCDF. Five slices are a layout of one layer, not five vertical levels. Point interpolation is not conservative cell averaging. New palettes are original sRGB controls without physical thresholds or a perceptual-uniformity claim.</p>
+    <pre><code>hdf_cli ico-demo new_mesh.nc 3
+hdf_cli ico input.nc /temperature new_analysis.nc 3 0</code></pre>
+  </section>
   <section id="zh" lang="zh-CN" aria-labelledby="zh-title">
     <h2 id="zh-title">常用功能</h2>
     <p>从程序的 <strong>Help → Help</strong>（About 前）或 <kbd>F1</kbd> 打开本页。也可以直接双击 <code>doc/help.html</code>；全部内容可离线阅读。</p>
@@ -226,6 +236,6 @@ Use the reported dimension and missing-value semantics in code, with checks for 
     <p><a href="#top">Back to top</a> · <a href="#zh">简体中文</a></p>
   </section>
 </main>
-<footer>HDFStudio 0.14.08 · Offline user guide / 离线使用帮助</footer>
+<footer>HDFStudio 0.16.02 · Offline user guide / 离线使用帮助</footer>
 </body>
 </html>

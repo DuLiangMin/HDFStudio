@@ -27,6 +27,7 @@
 #include "legacy_grid.hpp"
 #include "hdf_filters.hpp"
 #include "texture_entropy_view.hpp"
+#include "icosahedral_view.hpp"
 #include "hovmoller_view.hpp"
 #include "compare_panel.hpp"
 #include "layer_playback.hpp"
@@ -443,6 +444,7 @@ MainWindow::MainWindow()
   m_layer_playback->set_ready_check([this]{
     if(auto *grid=qobject_cast<GribTableView*>(m_layer_playback->target()))return !grid->read_pending();
     if(auto *section=qobject_cast<HovmollerView*>(m_layer_playback->target()))return section->ready();
+    if(auto *ico=qobject_cast<IcosahedralView*>(m_layer_playback->target()))return ico->ready();
     auto *raster=qobject_cast<RasterView*>(m_layer_playback->target());
     if(!raster)return true;
     if(raster->render_pending())return false;
@@ -734,7 +736,7 @@ void MainWindow::about()
 {
   QMessageBox::about(this,
     tr("About HDFStudio"),
-    tr("HDFStudio 0.14.08\nAuthor: DuLiangMin\n\n"
+    tr("HDFStudio 0.16.02\nAuthor: DuLiangMin\n\n"
        "Free NetCDF, HDF5 & GRIB1/GRIB2 viewer for Windows\n"
        "Metadata convention target: CF-1.8\n"
        "Product libraries: netCDF-C 4.9.3, HDF5 1.8.20\n\n"
@@ -749,12 +751,12 @@ void MainWindow::about()
 void MainWindow::closeEvent(QCloseEvent *eve)
 {
   m_layer_playback->stop();
-  if(SliceJobController::any_busy()||SectionDates::any_busy()||DataReadController::any_busy()||GeoGridController::any_busy()||MapDisplay::any_busy()) {
-    eve->ignore();SliceJobController::cancel_all();SectionDates::cancel_all();DataReadController::cancel_all();GeoGridController::cancel_all();MapDisplay::cancel_all();
+  if(SliceJobController::any_busy()||SectionDates::any_busy()||DataReadController::any_busy()||GeoGridController::any_busy()||MapDisplay::any_busy()||IcosahedralView::any_busy()) {
+    eve->ignore();SliceJobController::cancel_all();SectionDates::cancel_all();DataReadController::cancel_all();GeoGridController::cancel_all();MapDisplay::cancel_all();IcosahedralView::cancel_all();
     if(!property("sectionShutdownPending").toBool()) {
       setProperty("sectionShutdownPending",true);setEnabled(false);
       auto *timer=new QTimer(this);timer->setInterval(20);
-      connect(timer,&QTimer::timeout,this,[this,timer]{if(!SliceJobController::any_busy()&&!SectionDates::any_busy()&&!DataReadController::any_busy()&&!GeoGridController::any_busy()&&!MapDisplay::any_busy()){timer->stop();timer->deleteLater();close();}});timer->start();
+      connect(timer,&QTimer::timeout,this,[this,timer]{if(!SliceJobController::any_busy()&&!SectionDates::any_busy()&&!DataReadController::any_busy()&&!GeoGridController::any_busy()&&!MapDisplay::any_busy()&&!IcosahedralView::any_busy()){timer->stop();timer->deleteLater();close();}});timer->start();
     }
     return;
   }
@@ -2191,10 +2193,12 @@ void FileTreeWidget::show_context_menu(const QPoint &p)
     if(item_data->m_kind==ItemData::Variable) {
       const auto info=GribData::describe(item_data->m_source_path,item_data->m_object.object_id);
       auto *image=menu.addAction(tr("Image View"));image->setEnabled(info.error.isEmpty()&&info.can_image);image->setToolTip(info.disabled_reasons.value("image",info.error));connect(image,&QAction::triggered,this,[this,item_data]{m_main_window->add_image(item_data);});
+      auto *visual=menu.addMenu(tr("Visual Analysis / 可视分析"));visual->setObjectName("visualAnalysisMenu");
+      auto *ico=visual->addAction(tr("Icosahedral 5 slices"));ico->setObjectName("actionIcosahedralAnalysis");ico->setEnabled(image->isEnabled());connect(ico,&QAction::triggered,this,[this,item_data]{m_main_window->add_icosahedral_analysis(item_data);});
       auto *export_png=menu.addAction(tr("Export As Image..."));export_png->setEnabled(image->isEnabled());connect(export_png,&QAction::triggered,this,&FileTreeWidget::export_item_as_image);
-      auto *histogram=menu.addAction(tr("Histogram..."));histogram->setObjectName("actionGribHistogram");histogram->setEnabled(image->isEnabled());histogram->setToolTip(image->toolTip());connect(histogram,&QAction::triggered,this,[this,item_data]{m_main_window->add_histogram(item_data);});
-      auto *texture=menu.addAction(tr("Texture Entropy Image"));texture->setObjectName("actionGribTextureEntropy");texture->setEnabled(image->isEnabled());texture->setToolTip(image->toolTip());connect(texture,&QAction::triggered,this,[this,item_data]{m_main_window->add_texture_image(item_data);});
-      auto *section=menu.addAction(tr("Space-Time Section (Hovmöller)..."));section->setObjectName("actionSpaceTimeSectionContext");section->setEnabled(info.error.isEmpty()&&info.can_section);section->setToolTip(tr("Any two source axes; time labels retain reference cycle and step; no coordinate resampling"));connect(section,&QAction::triggered,this,[this,item_data]{m_main_window->add_space_time_section(item_data);});
+      auto *histogram=visual->addAction(tr("Histogram..."));histogram->setObjectName("actionGribHistogram");histogram->setEnabled(image->isEnabled());histogram->setToolTip(image->toolTip());connect(histogram,&QAction::triggered,this,[this,item_data]{m_main_window->add_histogram(item_data);});
+      auto *texture=visual->addAction(tr("Texture Entropy Image"));texture->setObjectName("actionGribTextureEntropy");texture->setEnabled(image->isEnabled());texture->setToolTip(image->toolTip());connect(texture,&QAction::triggered,this,[this,item_data]{m_main_window->add_texture_image(item_data);});
+      auto *section=visual->addAction(tr("Space-Time Section (Hovmöller)..."));section->setObjectName("actionSpaceTimeSectionContext");section->setEnabled(info.error.isEmpty()&&info.can_section);section->setToolTip(tr("Any two source axes; time labels retain reference cycle and step; no coordinate resampling"));connect(section,&QAction::triggered,this,[this,item_data]{m_main_window->add_space_time_section(item_data);});
       auto *decoded=menu.addAction(tr("Data Grid (decoded)..."));decoded->setToolTip(tr("ecCodes decoded values; no CF scale/offset applied"));connect(decoded,&QAction::triggered,this,&FileTreeWidget::add_grid);
       auto *stored=menu.addAction(tr("Quantized X Grid (reconstructed)..."));stored->setToolTip(tr("Validated reconstruction of quantized integers; unavailable for unsupported packing"));connect(stored,&QAction::triggered,this,&FileTreeWidget::add_stored_grid);
       auto *both=menu.addAction(tr("Decoded and Quantized X..."));connect(both,&QAction::triggered,this,&FileTreeWidget::add_both_grids);
@@ -2235,15 +2239,19 @@ void FileTreeWidget::show_context_menu(const QPoint &p)
   action_image->setEnabled(numeric && variable && rank >= 2);
   connect(action_image, &QAction::triggered, this, [this, item_data]() { m_main_window->add_image(item_data); });
 
-  auto *action_texture = menu.addAction(tr("Texture Entropy Image"));
+  auto *visual=menu.addMenu(tr("Visual Analysis / 可视分析"));visual->setObjectName("visualAnalysisMenu");
+  auto *ico=visual->addAction(tr("Icosahedral 5 slices"));ico->setObjectName("actionIcosahedralAnalysis");ico->setEnabled(numeric&&variable&&rank>=2);
+  connect(ico,&QAction::triggered,this,[this,item_data]{m_main_window->add_icosahedral_analysis(item_data);});
+
+  auto *action_texture = visual->addAction(tr("Texture Entropy Image"));
   action_texture->setEnabled(numeric && variable && rank >= 2);
   action_texture->setToolTip(tr("2D local 4x4 texture entropy image (bits), interpolated to the source size"));
   connect(action_texture, &QAction::triggered, this, [this, item_data] { m_main_window->add_texture_image(item_data); });
-  auto *action_section=menu.addAction(tr("Space-Time Section (Hovmöller)..."));
+  auto *action_section=visual->addAction(tr("Space-Time Section (Hovmöller)..."));
   action_section->setObjectName("actionSpaceTimeSectionContext");action_section->setEnabled(numeric&&variable&&rank>=2);
   connect(action_section,&QAction::triggered,this,[this,item_data]{m_main_window->add_space_time_section(item_data);});
 
-  QAction *action_histogram = menu.addAction(tr("Histogram..."));
+  QAction *action_histogram = visual->addAction(tr("Histogram..."));
   action_histogram->setToolTip(tr("One layer of this variable as a histogram, sampled at random "
                                   "(1 value in 20 by default)"));
   action_histogram->setEnabled(numeric && variable && rank >= 2);
@@ -2271,9 +2279,9 @@ void FileTreeWidget::show_context_menu(const QPoint &p)
   connect(action_export_image, &QAction::triggered, this, &FileTreeWidget::export_item_as_image);
 
   menu.addSeparator();
-  menu.addAction(tr("Discrete Map View"))->setEnabled(false);
-  menu.addAction(tr("Continuous Map View"))->setEnabled(false);
-  QAction *action_vector=menu.addAction(tr("Vector View..."));
+  visual->addAction(tr("Discrete Map View"))->setEnabled(false);
+  visual->addAction(tr("Continuous Map View"))->setEnabled(false);
+  QAction *action_vector=visual->addAction(tr("Vector View..."));
   action_vector->setEnabled(variable && numeric && rank>=2 &&
       (QString::fromLocal8Bit(item_data->m_file_name.c_str()).endsWith(".nc",Qt::CaseInsensitive) ||
        QString::fromLocal8Bit(item_data->m_file_name.c_str()).endsWith(".nc4",Qt::CaseInsensitive)));
@@ -2298,7 +2306,7 @@ void FileTreeWidget::show_context_menu(const QPoint &p)
     auto *sub=m_main_window->m_mdi_area->addSubWindow(view);
     sub->setAttribute(Qt::WA_DeleteOnClose); m_main_window->tag_view(sub,item_data); sub->resize(720,510); sub->show();
   });
-  QAction *action_mesh=menu.addAction(tr("View mesh..."));
+  QAction *action_mesh=visual->addAction(tr("View mesh..."));
   action_mesh->setEnabled(variable && numeric &&
       (QString::fromLocal8Bit(item_data->m_file_name.c_str()).endsWith(".nc",Qt::CaseInsensitive) ||
        QString::fromLocal8Bit(item_data->m_file_name.c_str()).endsWith(".nc4",Qt::CaseInsensitive)));
@@ -2668,6 +2676,7 @@ MainWindow::~MainWindow()
   // Derived widgets outlive this destructor body; their source may emit while QWidget deletes them.
   for(auto *view : findChildren<TextureEntropyView*>()) disconnect(view, nullptr, this, nullptr);
   for(auto *view : findChildren<HovmollerView*>()) disconnect(view, nullptr, this, nullptr);
+  for(auto *view : findChildren<IcosahedralView*>()) disconnect(view, nullptr, this, nullptr);
   delete m_compare_panel;m_compare_panel=nullptr;
   delete m_workspace_sync;m_workspace_sync=nullptr;
 }
@@ -2833,6 +2842,24 @@ void MainWindow::show_texture_entropy() {
     }
   }
   if(m_tree->currentItem()) add_texture_image(get_item_data(m_tree->currentItem()));
+}
+
+void MainWindow::add_icosahedral_analysis(ItemData *item){
+  if(!item||item->m_kind!=ItemData::Variable||property("sectionShutdownPending").toBool())return;
+  RasterView *source=nullptr;
+  for(auto *sub:m_mdi_area->subWindowList(QMdiArea::ActivationHistoryOrder))
+    if(sub->property("sourceItem").value<quintptr>()==reinterpret_cast<quintptr>(item))
+      if(auto *raster=qobject_cast<RasterView*>(sub->widget()))source=raster;
+  const bool owned=source==nullptr;
+  if(!source){
+    if(item->m_grib){const auto info=GribData::describe(item->m_source_path,item->m_object.object_id);if(!info.error.isEmpty()||!info.can_image)return;source=new RasterView(item->m_source_path,item->m_object.object_id,info);}
+    else {if(!item->m_dataset||item->m_dataset->m_dim.size()<2||(item->m_dataset->m_datatype_class!=H5T_INTEGER&&item->m_dataset->m_datatype_class!=H5T_FLOAT))return;source=new RasterView(item->m_file_name,item->m_dataset->m_path,item->m_dataset->m_dim);}
+  }
+  auto *view=new IcosahedralView(source,owned);auto *sub=m_mdi_area->addSubWindow(view);sub->setAttribute(Qt::WA_DeleteOnClose);tag_view(sub,item);
+  view->findChild<QComboBox*>("icoDisplayMode")->setCurrentIndex(4);
+  connect(view,&IcosahedralView::layer_changed,this,&MainWindow::update_layer_controls);
+  connect(view,&IcosahedralView::stop_playback_requested,this,[this,view]{if(m_layer_playback->target()==view)m_layer_playback->stop();});
+  const auto available=m_mdi_area->viewport()->size();sub->resize(std::min(1100,available.width()),std::min(850,available.height()));sub->showMaximized();
 }
 
 void MainWindow::add_texture_image(ItemData *item) {

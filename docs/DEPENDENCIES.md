@@ -1,6 +1,6 @@
 # 🧩 Development dependencies / 开发依赖
 
-The portable Windows package includes runtime dependencies. Public source snapshots omit `tools/` and third-party code copies to keep the checkout small; downloading dependency source is only needed for development. Versions, source URLs, hashes and license texts remain available.
+The portable Windows package includes runtime dependencies. Public source snapshots omit `tools/`, unused Qt reference copies and the external implementation files listed below. The local C17 icosahedral kernels used by the application are included with their source manifest and SCRIP notice. Downloading external dependency source is only needed for development; versions, source URLs, hashes and license texts remain available.
 
 ## 📥 Pinned inputs and locations
 
@@ -16,6 +16,8 @@ The portable Windows package includes runtime dependencies. Public source snapsh
 | Reference coastlines | Basemap v2.0.0 / upstream GSHHG 2.3.6, low `l` | Original inputs and normalized lines in `resources/coastlines/low/`; public converter and original/derived manifests retained, licenses in `licenses/coastlines/` |
 | PROJ display core | 9.9.0, vcpkg baseline `277978ad2eddc3b05ecf288dcd33071968cd2f79` | Isolated `PROJ_DIR`; x64-windows MD/MDd, core/tools only; matching DLL/database identities in `resources/proj/dependency-lock.json` |
 | SQLite (PROJ dependency) | 3.54.1 | Matching per-configuration DLL, original notice in `licenses/proj/SQLITE-COPYRIGHT` |
+| Icosahedral C17 kernels | Local 2026-11-21 implementation derived/new alongside SCRIP | Included in `third_party/icosahedral/26NOV21_*`; exact identities in `source-manifest.json`, notice in `licenses/icosahedral/` |
+| OpenGL 3D canvas | Qt 6.8.3 OpenGL/OpenGLWidgets, OpenGL 3.3 Core driver | Adapted canvas/mesh/atlas sources in `src/views` and `src/core`; original Qt reference hashes retained, unused reference copies excluded |
 
 For each entry in [sources.json](../third_party/hdf_filters/sources.json), download `url` to `third_party/hdf_filters/<file>` and verify its `sha256` before building. Paths are relative to `third_party/hdf_filters/`; preserve upstream bytes and line endings. Do not overwrite an existing file with different contents. Local maintenance and download scripts are not part of the public source.
 
@@ -44,9 +46,9 @@ remain in the excluded dependency prefix, not in source control.
 
 ## 📤 Publication contract
 
-- The 0.14.08 portable-package recipe checks that the source snapshot, executable product version and CMake version agree. It verifies pinned PROJ/SQLite DLL, database and notice hashes, and includes offline coastlines with their conversion source and licenses. Run the affected build/checks before packaging; output paths use the CMake version and existing archives are retained.
+- The portable-package recipe checks that the source snapshot, executable product version and CMake version agree. It verifies pinned PROJ/SQLite DLL, database and notice hashes, and includes offline coastlines with their conversion source and licenses. Version 0.16.02 also includes Qt OpenGL/OpenGLWidgets and icosahedral notices. Run the affected build/checks before packaging; output paths use the CMake version and existing archives are retained.
 
-- The public Git tree and updated source ZIP exclude the entire `tools/` directory and third-party code copies. License texts, hashes, build adapters and application code remain.
+- The public Git tree and source ZIP exclude `tools/`, external filter/palette implementation copies and unused `third_party/icosahedral/qt-reference/*.cpp` / `*.hpp`. The compiled C17 icosahedral implementation is included; license texts, hashes, build adapters and application code remain.
 - `ext/`, generated `build/`, logs, private design notes and business samples are not published as source.
 - The binary ZIP retains every runtime dependency, the local help page and required license texts. Third-party source exclusion does not remove runtime DLLs or palette data.
 - Existing public history and older releases are retained. This policy makes new source snapshots smaller; it does not rewrite previously published Git history.

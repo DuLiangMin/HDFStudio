@@ -8,6 +8,7 @@
 #include "color_map.hpp"
 #include "color_bar.hpp"
 #include "plane_snapshot.hpp"
+#include "geo_grid.hpp"
 #include "viewport_state.hpp"
 #include "data_types.hpp"
 #include "map_projection.hpp"
@@ -68,11 +69,13 @@ public:
   void apply_color_state(const RasterColorState &state);
   void set_sync_out_of_range(bool out_of_range, const QString &message);
   bool apply_layer_indices(const std::vector<size_t> &indices);
+  void request_geographic_grid();
 signals:
   void layer_changed();
   void plane_snapshot_changed(quint64 revision);
   void viewport_changed();
   void color_mapping_changed();
+  void geographic_grid_ready(std::shared_ptr<const GeoGrid::Grid> grid,std::shared_ptr<void> lease);
 protected:
   bool eventFilter(QObject *watched,QEvent *event) override;
 private:
@@ -90,6 +93,7 @@ private:
   void notify_viewport_changed();
   void prepare_map_coordinates();
   void apply_pending_projection();
+  void accept_geographic_grid(std::shared_ptr<const GeoGrid::Grid> grid,std::shared_ptr<void> lease);
   std::string file, path;
   std::optional<DataSource::ArrayInfo> grib_info;
   QString grib_file;
@@ -161,6 +165,8 @@ private:
   NcGeographicGrid geo_grid;
   class MapDisplay *map_display=nullptr;
   class GeoGridController *geo_reader=nullptr;
+  std::shared_ptr<const GeoGrid::Grid> verified_geo_grid;
+  std::shared_ptr<void> verified_geo_lease;
   QStackedWidget *canvas_stack=nullptr;
   QAction *projection_action=nullptr;
   QComboBox *projection_selector=nullptr;
@@ -170,4 +176,5 @@ private:
   std::optional<MapProjection::Mode> pending_projection;
   bool coordinates_requested=false,projection_dialog_pending=false;
   QString map_source_stamp;
+  QString original_source_stamp;
 };

@@ -38,6 +38,7 @@
 #include "slice_io.hpp"
 #include "slice_worker.hpp"
 #include "geo_grid.hpp"
+#include "icosahedral.hpp"
 #include <QFile>
 #include <QFileInfo>
 #include <QSaveFile>
@@ -361,6 +362,7 @@ int main(int argc, char **argv) {
   QCoreApplication app(argc, argv);
   const QStringList args = app.arguments();
   const QString command = args.value(1);
+  if(command=="ico-demo"||command=="ico")return Icosahedral::command(args);
   if((command=="ls"||command=="cubes")&&args.size()>=3)return command_info(args[2]);
   if(command=="slice")return slice_command(args);
   if(command=="slice-worker"&&args.size()==3)return slice_worker(args[2]);

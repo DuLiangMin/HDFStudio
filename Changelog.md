@@ -1,5 +1,16 @@
 # Changelog
 
+## 🌐 0.16.02 — Icosahedral 2D/3D analysis — 2026-11-27
+
+- Publish matching Windows x64 portable and source ZIPs; update English/Chinese guides with 2D five-strip/card and 3D examples. Retain binary downloads for 0.16.02 and 0.14.08; preserve historical source archives, tags and notes.
+- Reuse the existing 06 C17 geometry, icosphere, grid, sparse, conservative and NetCDF kernels, with original source hashes and notices. Freeze the previous 0.14.08 development commit before integration.
+- Add variable right-click → Visual Analysis → Icosahedral 5 slices: L0–L6 topology, global/regional layer/Mask point sampling (regional exterior NaN), reconstruction/errors, original five-strip/rectangular atlas, GL sphere/polyhedron and graph export. Reuse an existing Image snapshot or own its source reader; layer playback waits for the completed analysis/display frame.
+- Fix disappearing OpenGL/2D plots after Level changes: automatically recompute the last selected level, retain the previous frame while updating, and keep mode/color controls usable with stale probes and exports disabled.
+- Group section, histogram, texture entropy, vector and mesh actions under the same Visual Analysis submenu. Preserve chart owners `(5,n,2n)`, separate apex nodes, paired seams and full-resolution atlas PNG; 2D/3D consume the same immutable result.
+- Copy/adapt the existing compiled project's OpenGL 3.3 Core canvas and mesh buffers: arcball/turntable, pan/zoom, geographic presets, polyhedron/sphere morph, depth-tested edges, nearest-node picking and framebuffer PNG with color bar.
+- Export node/edge/face point fields, zero-based graph topology, steradian areas, forward CSR weights, source axes and reconstruction diagnostics in new NetCDF files; add `hdf_cli ico` and `ico-demo`.
+- Add original S2S Ocean, S2S Anomaly and S2S Rain palettes without changing existing defaults. Point sampling is not conservative cell averaging; unknown physical semantics remain unknown.
+
 ## 📦 0.14.08 — Portable release — 2026-11-26
 
 - Publish the Windows x64 portable ZIP with pinned projection/GRIB runtimes, offline data and licence notices, alongside the matching source ZIP.
@@ -224,7 +235,7 @@
 
 - Grid view of a one-dimensional `UNIT since DATE` variable adds `yyyymmdd` and `yyyymmdd hh:mm:ss` columns decoded by `netCDF4.num2date` with the declared calendar (`netcdf_report.py dates`, asynchronous); other variables keep a single numeric column.
 - Grid doubles use `%.15g`, so epoch seconds such as `915170400` are exact instead of `9.1517e+08`.
-- Regression `timeGridShowsDecodedDatesBesideRawValues` drives the real double-click path on the no_stand_nc tmp2m sample and dumps both tmp2m tables; `tests/reconcile_time_grid.py` matched all 480 + 180 rows against an independent netCDF4 decode.
+- Regression `timeGridShowsDecodedDatesBesideRawValues` drives the real double-click path on a nonstandard tmp2m sample and dumps both tmp2m tables; `tests/reconcile_time_grid.py` matched all 480 + 180 rows against an independent netCDF4 decode.
 - Validation: Debug/Release QtTest 28/28, CTest 1/1. Reports: `logs/S4-UI-TimeGrid/`.
 
 ## 0.10.23 - 2026-11-19

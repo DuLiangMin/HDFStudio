@@ -1,0 +1,84 @@
+{
+  "id": "hdfstudio:s2s-anomaly",
+  "name": "S2S Anomaly",
+  "group": "Global / S2S",
+  "kind": "diverging",
+  "stepped": false,
+  "colors": [
+    [
+      0.15294117647058825,
+      0.17647058823529413,
+      0.4117647058823529,
+      1.0
+    ],
+    [
+      0.2235294117647059,
+      0.3411764705882353,
+      0.6,
+      1.0
+    ],
+    [
+      0.38823529411764707,
+      0.5647058823529412,
+      0.7450980392156863,
+      1.0
+    ],
+    [
+      0.6431372549019608,
+      0.7803921568627451,
+      0.8666666666666667,
+      1.0
+    ],
+    [
+      0.9568627450980393,
+      0.9568627450980393,
+      0.9372549019607843,
+      1.0
+    ],
+    [
+      0.9058823529411765,
+      0.7647058823529411,
+      0.592156862745098,
+      1.0
+    ],
+    [
+      0.8235294117647058,
+      0.5450980392156862,
+      0.3411764705882353,
+      1.0
+    ],
+    [
+      0.6745098039215687,
+      0.3058823529411765,
+      0.2235294117647059,
+      1.0
+    ],
+    [
+      0.4588235294117647,
+      0.12549019607843137,
+      0.18823529411764706,
+      1.0
+    ]
+  ],
+  "positions": [
+    0.0,
+    0.125,
+    0.25,
+    0.375,
+    0.5,
+    0.625,
+    0.75,
+    0.875,
+    1.0
+  ],
+  "source": "HDFStudio original palette specification, resources/colormaps/source/hdfstudio/s2s_anomaly.rgb",
+  "authors": [
+    "HDFStudio contributors"
+  ],
+  "license": "GPL-3.0-or-later",
+  "revision": "0.16.02",
+  "source_file": "source/hdfstudio/s2s_anomaly.rgb",
+  "source_sha256": "30c5f53a147f7cb0d91b739228a85d22e5f665233c717215bba2d987d949ee3c",
+  "modification": "Original sRGB control points; no physical thresholds or perceptual-uniformity claim",
+  "schema_version": 1
+}
