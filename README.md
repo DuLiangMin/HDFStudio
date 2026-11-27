@@ -10,13 +10,15 @@
 
 Binary downloads retain **two versions: 0.16.02 and the previous 0.14.08**. Historical release notes, tags and source archives remain available.
 
+**🔧 Same-version Profile fix (2026-11-27):** the updated portable package restores **Profile** from projected images. Click it to return to **Source grid**, select control points and show the curve. Source-grid sampling and CSV values are unchanged; the application version remains **0.16.02**.
+
 [![Release](https://img.shields.io/github/v/release/DuLiangMin/HDFStudio?label=release&color=3d99a4)](https://github.com/DuLiangMin/HDFStudio/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/DuLiangMin/HDFStudio/total?color=3d99a4)](https://github.com/DuLiangMin/HDFStudio/releases)
 [![License: GPL v3](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-lightgrey)](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.16.02/HDFStudio-0.16.02-win64.zip)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-lightgrey)](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.16.02/HDFStudio-0.16.02-profile-fix-win64.zip)
 [![Qt](https://img.shields.io/badge/Qt-6.8-41cd52)](https://www.qt.io/)
 
-**[Download for Windows](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.16.02/HDFStudio-0.16.02-win64.zip)** — **0.16.02 Windows x64 portable binary ZIP** · [Source code ZIP](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.16.02/HDFStudio-0.16.02-src.zip) · [Release notes](https://github.com/DuLiangMin/HDFStudio/releases/tag/v0.16.02) · [Previous binary: 0.14.08](https://github.com/DuLiangMin/HDFStudio/releases/tag/v0.14.08)
+**[Download for Windows](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.16.02/HDFStudio-0.16.02-profile-fix-win64.zip)** — **0.16.02 Windows x64 portable binary ZIP (Profile fix)** · [Matching source ZIP](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.16.02/HDFStudio-0.16.02-profile-fix-src.zip) · [Release notes](https://github.com/DuLiangMin/HDFStudio/releases/tag/v0.16.02) · [Previous binary: 0.14.08](https://github.com/DuLiangMin/HDFStudio/releases/tag/v0.14.08)
 
 Includes the application, CLI, GRIB decoder and definitions, runtime libraries and offline help. Unzip and run; no separate dependency download is needed for native browsing.
 
@@ -108,7 +110,7 @@ Use the variable/object ID reported for your file. `hdf_cli` shares the applicat
 
 Windows development uses Visual Studio 2022 x64, CMake, Qt 6.8, HDF5, netCDF-C, ecCodes and PROJ. Dependency locations and targets are defined in `CMakeLists.txt`, `cmake/Grib.cmake` and `cmake/Projection.cmake`; ecCodes defaults to `ext/eccodes` and can be set with `HDFSTUDIO_ECCODES_ROOT`; PROJ uses an isolated `PROJ_DIR` with matching database and SQLite DLL. Code lives in `src/app`, `src/core`, `src/views` and `src/cli`; tests are in `tests/`. Builds copy the offline guide to `build/output/<configuration>/doc/help.html`.
 
-The public source includes the C17 icosahedral kernels used by this application, their provenance and notices. It omits `tools/`, unused Qt reference copies and the external dependency implementations listed in the manifests. Use the [source ZIP](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.16.02/HDFStudio-0.16.02-src.zip), [Dependencies](docs/DEPENDENCIES.md) and the [project structure](docs/PROJECT_STRUCTURE.md). Runtime libraries and license texts remain in the binary ZIP.
+The public source includes the C17 icosahedral kernels used by this application, their provenance and notices. It omits `tools/`, unused Qt reference copies and the external dependency implementations listed in the manifests. Use the [matching updated source ZIP](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.16.02/HDFStudio-0.16.02-profile-fix-src.zip), [Dependencies](docs/DEPENDENCIES.md) and the [project structure](docs/PROJECT_STRUCTURE.md). Runtime libraries and license texts remain in the binary ZIP. The original `v0.16.02` tag and original source archive are retained; the updated ZIP includes this Profile fix.
 
 Report reproducible problems in [Issues](https://github.com/DuLiangMin/HDFStudio/issues), with the format, object ID, shape and relevant `probe`/`info`/`props` output. Release history is in [Changelog.md](Changelog.md).
 

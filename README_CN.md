@@ -10,13 +10,15 @@
 
 二进制下载共保留 **两版：当前 0.16.02 与上一版 0.14.08**。历史版本说明、标签及源码包继续保留。
 
+**🔧 同版本 Profile 修复（2026-11-27）：** 更新包恢复投影地图中的 **Profile** 入口，点击后自动返回 **Source grid**，选取控制点并显示曲线。原格点采样与 CSV 数值不变，程序版本仍为 **0.16.02**。
+
 [![Release](https://img.shields.io/github/v/release/DuLiangMin/HDFStudio?label=release&color=3d99a4)](https://github.com/DuLiangMin/HDFStudio/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/DuLiangMin/HDFStudio/total?color=3d99a4)](https://github.com/DuLiangMin/HDFStudio/releases)
 [![License: GPL v3](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-lightgrey)](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.16.02/HDFStudio-0.16.02-win64.zip)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-lightgrey)](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.16.02/HDFStudio-0.16.02-profile-fix-win64.zip)
 [![Qt](https://img.shields.io/badge/Qt-6.8-41cd52)](https://www.qt.io/)
 
-**[下载 Windows 程序](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.16.02/HDFStudio-0.16.02-win64.zip)** — **0.16.02 Windows x64 绿色二进制 ZIP** · [下载源码 ZIP](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.16.02/HDFStudio-0.16.02-src.zip) · [版本说明](https://github.com/DuLiangMin/HDFStudio/releases/tag/v0.16.02) · [上一版二进制：0.14.08](https://github.com/DuLiangMin/HDFStudio/releases/tag/v0.14.08)
+**[下载 Windows 程序](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.16.02/HDFStudio-0.16.02-profile-fix-win64.zip)** — **0.16.02 Windows x64 绿色二进制 ZIP（Profile 修复）** · [匹配更新源码 ZIP](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.16.02/HDFStudio-0.16.02-profile-fix-src.zip) · [版本说明](https://github.com/DuLiangMin/HDFStudio/releases/tag/v0.16.02) · [上一版二进制：0.14.08](https://github.com/DuLiangMin/HDFStudio/releases/tag/v0.14.08)
 
 包含程序、CLI、GRIB 解码器与定义资源、运行库和离线帮助。解压即可运行，基本浏览无需另行下载依赖。
 
@@ -108,7 +110,7 @@ hdf_cli props data.nc /temperature
 
 Windows 开发使用 Visual Studio 2022 x64、CMake、Qt 6.8、HDF5、netCDF-C、ecCodes 和 PROJ。依赖位置与目标见 `CMakeLists.txt`、`cmake/Grib.cmake`、`cmake/Projection.cmake`；ecCodes 默认位于 `ext/eccodes`，可用 `HDFSTUDIO_ECCODES_ROOT` 配置；PROJ通过独立`PROJ_DIR`定位，并部署匹配数据库与SQLite DLL。源码位于 `src/app`、`src/core`、`src/views`、`src/cli`，测试位于 `tests/`。构建会把帮助页复制到 `build/output/<配置>/doc/help.html`。
 
-公开源码包含本程序使用的 C17 二十面体核、来源与许可；不附 `tools/`、未参与编译的 Qt 参考副本及清单中列出的外部依赖实现。请使用[源码 ZIP](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.16.02/HDFStudio-0.16.02-src.zip)，构建依赖见[依赖说明](docs/DEPENDENCIES.md)和[项目结构树](docs/PROJECT_STRUCTURE.md)。二进制 ZIP 保留完整运行库与许可证。
+公开源码包含本程序使用的 C17 二十面体核、来源与许可；不附 `tools/`、未参与编译的 Qt 参考副本及清单中列出的外部依赖实现。请使用[匹配更新源码 ZIP](https://github.com/DuLiangMin/HDFStudio/releases/download/v0.16.02/HDFStudio-0.16.02-profile-fix-src.zip)，构建依赖见[依赖说明](docs/DEPENDENCIES.md)和[项目结构树](docs/PROJECT_STRUCTURE.md)。二进制 ZIP 保留完整运行库与许可证。原 `v0.16.02` 标签和原始源码包继续保留，更新源码 ZIP 包含本次 Profile 修复。
 
 问题请提交至 [Issues](https://github.com/DuLiangMin/HDFStudio/issues)，附格式、对象 ID、shape 和相关 `probe`/`info`/`props` 输出。历史更新见 [Changelog.md](Changelog.md)。
 

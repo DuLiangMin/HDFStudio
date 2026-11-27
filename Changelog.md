@@ -2,6 +2,7 @@
 
 ## 🌐 0.16.02 — Icosahedral 2D/3D analysis — 2026-11-27
 
+- Same-version Profile fix: keep the Profile entry available in projected images; selecting it returns to the source grid, cancels pending projection restoration and preserves source-index control points. Restore editing, dragging, curve display and CSV without changing sampling or Mask semantics. Updated portable/source archives use `profile-fix`; the original tag and source archive remain available.
 - Publish matching Windows x64 portable and source ZIPs; update English/Chinese guides with 2D five-strip/card and 3D examples. Retain binary downloads for 0.16.02 and 0.14.08; preserve historical source archives, tags and notes.
 - Reuse the existing 06 C17 geometry, icosphere, grid, sparse, conservative and NetCDF kernels, with original source hashes and notices. Freeze the previous 0.14.08 development commit before integration.
 - Add variable right-click → Visual Analysis → Icosahedral 5 slices: L0–L6 topology, global/regional layer/Mask point sampling (regional exterior NaN), reconstruction/errors, original five-strip/rectangular atlas, GL sphere/polyhedron and graph export. Reuse an existing Image snapshot or own its source reader; layer playback waits for the completed analysis/display frame.

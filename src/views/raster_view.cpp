@@ -350,7 +350,7 @@ RasterView::RasterView(std::string filename,std::string varpath,std::vector<hsiz
   profile_mode_action = mask_bar->addAction(tr("Profile"));
   profile_mode_action->setObjectName("profileModeAction");
   profile_mode_action->setCheckable(true);
-  profile_mode_action->setToolTip(tr("Pick control points on the image to draw a curve profile"));
+  profile_mode_action->setToolTip(tr("Pick control points on the source grid to draw a curve profile; projected views return to Source grid"));
   show_profile_action = mask_bar->addAction(tr("Show Profile"));
   show_profile_action->setObjectName("showProfileAction");
   show_profile_action->setEnabled(false);
@@ -436,7 +436,14 @@ RasterView::RasterView(std::string filename,std::string varpath,std::vector<hsiz
   tools->insertWidget(reverse_action,options);
   canvas_stack=new QStackedWidget(this);canvas_stack->addWidget(canvas);
   map_display=new MapDisplay(this);map_display->setProperty("externalStatus",true);canvas_stack->addWidget(map_display);layout->addWidget(canvas_stack,1);
-  connect(map_display,&MapDisplay::mode_changed,this,[this](bool active){canvas_stack->setCurrentWidget(active?static_cast<QWidget*>(map_display):static_cast<QWidget*>(canvas));flip_h_action->setEnabled(!active);flip_v_action->setEnabled(!active);profile_mode_action->setEnabled(!active);show_profile_action->setEnabled(!active&&profile_points.size()>=2);clear_profile_action->setEnabled(!active&&!profile_points.empty());});
+  connect(map_display,&MapDisplay::mode_changed,this,[this](bool active){
+    canvas_stack->setCurrentWidget(active?static_cast<QWidget*>(map_display):static_cast<QWidget*>(canvas));
+    flip_h_action->setEnabled(!active);flip_v_action->setEnabled(!active);
+    // Profile owns source-index points; keep its entry available from every projection.
+    if(active)profile_mode_action->setChecked(false);
+    show_profile_action->setEnabled(!active&&display_valid&&profile_points.size()>=2);
+    clear_profile_action->setEnabled(!profile_points.empty());
+  });
   connect(map_display,&MapDisplay::mode_changed,this,[this]{QSignalBlocker block(projection_selector);projection_selector->setCurrentIndex(int(map_display->mode()));});
   connect(map_display,&MapDisplay::status_changed,projection_status,&QLabel::setText);
   connect(map_display,&MapDisplay::status_changed,projection_status,&QWidget::setToolTip);
@@ -470,6 +477,12 @@ RasterView::RasterView(std::string filename,std::string varpath,std::vector<hsiz
     canvas->fitInView(scene->sceneRect(), Qt::KeepAspectRatio);
   });
   connect(profile_mode_action, &QAction::toggled, this, [this](bool enabled) {
+    if(enabled){
+      // A late coordinate result must not restore a projection after selecting Profile.
+      restore_projection_pending=false;pending_projection.reset();projection_dialog_pending=false;
+      if(map_display->active()||projection_selector->currentData().toInt()!=int(MapProjection::Mode::Source))
+        map_display->select_projection(MapProjection::Mode::Source);
+    }
     canvas->setDragMode(enabled ? QGraphicsView::NoDrag : QGraphicsView::ScrollHandDrag);
     canvas->viewport()->setCursor(enabled ? Qt::CrossCursor : Qt::ArrowCursor);
     dragging_point_index = -1;

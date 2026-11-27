@@ -14,6 +14,7 @@
 #include "grib/grib_data.hpp"
 #include "hdf_explorer.hpp"
 #include "layer_playback.hpp"
+#include "profile_view.hpp"
 #include <eccodes.h>
 #include <cmath>
 
@@ -74,6 +75,8 @@ private slots:
   void preferencesPersistConfirmAndRestoreFreshProcess();
   void preferencesInvalidAndUnwritableRemainVisible();
   void preferencesRestoreChildSession();
+  void guiProfileFromProjectedView_data();
+  void guiProfileFromProjectedView();
 };
 void ProjectionTest::init(){
   previous_settings_file=qgetenv("HDFSTUDIO_SETTINGS_FILE");
@@ -479,6 +482,54 @@ void ProjectionTest::guiBudgetCancelAndDirectDestruction(){auto *map=new MapDisp
 }
 void ProjectionTest::gribAlignmentAndRealSample(){const auto fixture_file=QString(HDFSTUDIO_TEST_SOURCE_DIR)+"/testdata/grib/mini_simple.grb2";auto catalog=GribData::open(fixture_file);auto plane=GribData::read(*catalog,"/field/0",{},true,false);QVERIFY2(plane.error.isEmpty(),qPrintable(plane.error));auto grid=GeoGrid::from_grib(plane,plane.geographic_keys,"regular_ll");QVERIFY2(grid.error.isEmpty(),qPrintable(grid.error));QVERIFY(grid.earth.valid());plane.coordinates.latitudes.pop_back();QVERIFY(!GeoGrid::from_grib(plane,plane.geographic_keys,"regular_ll").error.isEmpty());GribData::release(fixture_file);
   const auto real=qEnvironmentVariable("HDFSTUDIO_GRIB1_SAMPLE");if(real.isEmpty())return;catalog=GribData::open(real);const grib::Field *selected=nullptr;for(const auto &field:catalog->fields)if(field.grid_type=="regular_ll"){selected=&field;break;}QVERIFY(selected);const auto target=QString("/field/%1").arg(selected->index);plane=GribData::read(*catalog,target,{},true,false);QVERIFY2(plane.error.isEmpty(),qPrintable(plane.error));grid=GeoGrid::from_grib(plane,plane.geographic_keys,"regular_ll");QVERIFY2(grid.error.isEmpty(),qPrintable(grid.error));QVERIFY2(grid.earth.valid(),qPrintable(QString::fromUtf8(QJsonDocument(GeoGrid::json(grid)).toJson())));qInfo()<<"C7F"<<plane.rows<<plane.cols<<grid.earth.a<<grid.earth.b<<grid.earth.evidence;GribData::release(real);
+}
+void ProjectionTest::guiProfileFromProjectedView_data(){
+  QTest::addColumn<bool>("grib");
+  QTest::newRow("netcdf")<<false;
+  QTest::newRow("grib")<<true;
+}
+void ProjectionTest::guiProfileFromProjectedView(){
+  QFETCH(bool,grib);QTemporaryDir directory;
+  const auto file=grib?QString(HDFSTUDIO_TEST_SOURCE_DIR)+"/testdata/grib/mini_scan_0.grb2":directory.filePath("profile-map.nc");
+  if(!grib)fixture(file);
+  auto raster=grib?std::make_unique<RasterView>(file,"/field/0",GribData::describe(file,"/field/0")):std::make_unique<RasterView>(file.toStdString(),"/t",std::vector<hsize_t>{3,5});
+  raster->resize(1180,760);raster->show();QTRY_VERIFY_WITH_TIMEOUT(!raster->render_pending()&&raster->plane_snapshot().values,15000);
+  auto *map=raster->findChild<MapDisplay*>();auto *selector=raster->findChild<QComboBox*>("mapProjectionSelector");
+  auto *profile=raster->findChild<QAction*>("profileModeAction");auto *show=raster->findChild<QAction*>("showProfileAction");auto *clear=raster->findChild<QAction*>("clearProfileAction");
+  auto *canvas=raster->findChild<QGraphicsView*>("rasterCanvas");QVERIFY(map&&selector&&profile&&show&&clear);
+  if(!canvas)canvas=raster->findChild<QGraphicsView*>();QVERIFY(canvas);
+  auto *tools=qobject_cast<QToolBar*>(profile->parent());QVERIFY(tools);auto *button=qobject_cast<QToolButton*>(tools->widgetForAction(profile));QVERIFY(button);QVERIFY(button->isVisible());
+  QString output=qEnvironmentVariable("HDFSTUDIO_PROFILE_EVIDENCE_DIR");if(!output.isEmpty()){output=QDir(output).filePath(QString::fromLatin1(QTest::currentDataTag()));QVERIFY(QDir().mkpath(output));}
+  auto capture=[&](const QString &name){return output.isEmpty()||raster->grab().save(QDir(output).filePath(name+".png"));};
+  // Profile selected during coordinate discovery must win over the pending map request.
+  selector->setCurrentIndex(int(Mode::LonLat));QTest::mouseClick(button,Qt::LeftButton);
+  QTRY_VERIFY_WITH_TIMEOUT(!GeoGridController::any_busy()&&!raster->render_pending(),15000);
+  QVERIFY(!map->active());QCOMPARE(selector->currentData().toInt(),int(Mode::Source));QVERIFY(profile->isChecked());
+  std::vector<double> initial_values;QVariant initial_mean;
+  for(auto selected:{Mode::LonLat,Mode::NorthPolar,Mode::SouthPolar,Mode::Lambert,Mode::Mercator}){
+    selector->setCurrentIndex(int(selected));QTRY_VERIFY_WITH_TIMEOUT(map->result()&&!map->busy()&&map->isVisible(),20000);
+    QVERIFY(capture("projected-"+QString::number(int(selected))));
+    QVERIFY2(profile->isEnabled(),"Profile must remain available when a projection is displayed");
+    // Operate the actual toolbar button, not the QAction signal or a private slot.
+    QTest::mouseClick(button,Qt::LeftButton);QTRY_VERIFY_WITH_TIMEOUT(!map->active()&&canvas->isVisible()&&!raster->render_pending(),15000);
+    QCOMPARE(selector->currentData().toInt(),int(Mode::Source));QVERIFY(profile->isChecked());
+    if(initial_values.empty()){
+      const QPoint a=canvas->mapFromScene(QPointF(.25,.3)),b=canvas->mapFromScene(QPointF(2.5,1.5));
+      QTest::mouseClick(canvas->viewport(),Qt::LeftButton,Qt::NoModifier,a);QTest::mouseClick(canvas->viewport(),Qt::LeftButton,Qt::NoModifier,b);QVERIFY(show->isEnabled());
+    }else QVERIFY(show->isEnabled());
+    show->trigger();auto *window=raster->findChild<ProfileView*>();QVERIFY(window&&window->isVisible());auto *graph=window->findChild<ProfileCanvas*>();QVERIFY(graph&&graph->profile().valid);
+    std::vector<double> current;for(const auto &point:graph->profile().points)current.push_back(point.value);
+    if(initial_values.empty()){initial_values=current;initial_mean=window->property("mean");}else {QCOMPARE(current,initial_values);QCOMPARE(window->property("mean"),initial_mean);}
+    if(!output.isEmpty())QVERIFY(window->grab().save(QDir(output).filePath("profile-"+QString::number(int(selected))+".png")));
+    window->hide();QVERIFY(capture("source-profile-"+QString::number(int(selected))));
+    // Returning to projected display leaves editing off; next Profile click re-enters once.
+  }
+  const QPoint original=canvas->mapFromScene(QPointF(.25,.3)),moved=canvas->mapFromScene(QPointF(.75,.7));
+  QTest::mousePress(canvas->viewport(),Qt::RightButton,Qt::NoModifier,original);QTest::mouseMove(canvas->viewport(),moved);QTest::mouseRelease(canvas->viewport(),Qt::RightButton,Qt::NoModifier,moved);
+  show->trigger();auto *moved_window=raster->findChild<ProfileView*>();QVERIFY(moved_window);auto *moved_graph=moved_window->findChild<ProfileCanvas*>();QVERIFY(moved_graph&&moved_graph->profile().valid);
+  QVERIFY(std::abs(moved_graph->profile().points.front().value-initial_values.front())>1e-6);
+  clear->trigger();QVERIFY(!show->isEnabled());QVERIFY(!clear->isEnabled());
+  raster.reset();QTRY_VERIFY_WITH_TIMEOUT(!MapDisplay::any_busy()&&!GeoGridController::any_busy(),15000);
 }
 QTEST_MAIN(ProjectionTest)
 #include "projection_test.moc"
